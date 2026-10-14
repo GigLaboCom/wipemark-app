@@ -199,6 +199,10 @@ impl Queue {
             .retain(|row| row.entry.is_none_or(|id| present.contains(&id)));
         let mut added = Vec::new();
         let mut listed: Vec<&'static str> = Vec::new();
+        // The items pushed with a window's consent (D361), read off the
+        // queue's list once a read, and only when a new row names an item:
+        // whether a caller waits for a row read back (D730, D355).
+        let mut consented: Option<HashSet<ItemId>> = None;
         for record in rows {
             let entry = Entry::from_json(&record.entry);
             let phase = Phase::parse(&record.state).unwrap_or(Phase::Done);
@@ -233,21 +237,41 @@ impl Queue {
                 .timestamp_millis_opt(record.arrived)
                 .single()
                 .unwrap_or_else(chrono::Local::now);
-            if entry.path.is_some() {
+            // A file recorded, or one its caller named (D729): either is
+            // looked at, and becomes what the row has behind it.
+            let named = journal::named_file(&entry);
+            if named.is_some() {
                 added.push((id, entry.clone()));
             }
+            let item = record.item.map(ItemId);
+            let pushed_here = item.is_some_and(|item| {
+                consented
+                    .get_or_insert_with(|| {
+                        self.work.as_ref().map_or_else(HashSet::new, |work| {
+                            work.queue
+                                .items()
+                                .iter()
+                                .filter(|view| view.consent.is_some())
+                                .map(|view| view.id)
+                                .collect()
+                        })
+                    })
+                    .contains(&item)
+            });
             self.rows.push(Row {
                 id,
                 entry: Some(record.id),
                 origin,
                 look: Look::of_entry(&entry),
-                item: record.item.map(ItemId),
+                item,
+                consented: pushed_here,
                 price: None,
                 edited: None,
                 edited_at: None,
                 keyword: None,
                 // Filled in by the look below, once the file answers.
                 arrival: None,
+                named,
                 preview: Preview::None,
                 arrived_at,
                 status: status_of(action, phase, &entry),
@@ -276,11 +300,11 @@ impl Queue {
         cx.notify();
     }
 
-    /// Look at the file row `id`'s journal entry names — what it is now and
-    /// its preview — off this thread, as a task of its own (D356). A row
-    /// whose path is gone, or not a regular file, is a row with nothing
-    /// behind it; one whose look never answers stays so, and holds nothing
-    /// else up.
+    /// Look at the file row `id`'s journal entry names — the one recorded,
+    /// or the one its caller named (D729) — what it is now and its preview,
+    /// off this thread, as a task of its own (D356). A row whose path is
+    /// gone, or not a regular file, is a row with nothing behind it; one
+    /// whose look never answers stays so, and holds nothing else up.
     fn look_up(&mut self, id: u64, entry: Entry, cx: &Context<Self>) {
         if let Some(row) = self.rows.iter_mut().find(|row| row.id == id) {
             row.preview = Preview::Pending;
@@ -337,8 +361,17 @@ impl Queue {
             BatchEvent::Ended { item, end } => {
                 self.chunks.remove(&item);
                 self.rewrites_done += 1;
+                // Pushed with a window's consent: the person's action, on
+                // any row, whoever made the row (D730).
+                let consented = self
+                    .work
+                    .as_ref()
+                    .is_some_and(|work| journal::consented(&work.queue, item));
                 if let Some(row) = self.rows.iter_mut().find(|row| row.item == Some(item)) {
-                    let caller = matches!(row.origin, Origin::Agent | Origin::Cli);
+                    // A caller's text went back to whoever asked; the
+                    // person's went where a window's goes — over the row's
+                    // own result, never "to the caller", who is gone.
+                    let caller = journal::callers_call(Some(row.origin), consented);
                     let (outcome, result) = journal::rewrite_end(&end, caller);
                     let phase = match &end {
                         End::Done(_) | End::Delivered { .. } => Phase::Done,
@@ -531,7 +564,7 @@ impl Queue {
     /// Why row `id`'s Rewrite is greyed, or `None`.
     pub(super) fn why_not_rewrite(&self, id: u64, cx: &gpui::App) -> Option<String> {
         let row = self.rows.iter().find(|row| row.id == id)?;
-        super::why_not_rewrite(&row.status, row.cleanable(), self.vacancy(cx))
+        row.rewrite_why(self.vacancy(cx))
     }
 
     /// [`Queue::why_not_rewrite`] with the duty's answer already taken:
@@ -539,7 +572,7 @@ impl Queue {
     /// rather than once a row (D452).
     pub(super) fn why_not_rewrite_given(&self, id: u64, vacant: Option<&str>) -> Option<String> {
         let row = self.rows.iter().find(|row| row.id == id)?;
-        super::why_not_rewrite(&row.status, row.cleanable(), vacant.map(str::to_owned))
+        row.rewrite_why(vacant.map(str::to_owned))
     }
 
     /// The rows Rewrite all would take, in the order they arrived: every
@@ -736,6 +769,9 @@ impl Queue {
                 // A new result: an edit saved over the earlier one is not
                 // this one's (D707).
                 row.status = Status::RewriteQueued;
+                // The person's push, with the consent they gave: nobody
+                // waits for it, whoever made the row (D730).
+                row.consented = true;
                 row.edited = None;
                 row.edited_at = None;
             }
@@ -885,7 +921,7 @@ impl Queue {
             return;
         };
         let row = &self.rows[at];
-        if super::why_not_remove(&row.status, row.origin).is_some() {
+        if super::why_not_remove(&row.status, row.origin, row.consented).is_some() {
             return;
         }
         let row = self.rows.remove(at);

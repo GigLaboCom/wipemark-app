@@ -2419,3 +2419,13 @@ queue-again-edited-body = Its result was edited by hand and saved. { $action ->
        *[clean] Cleaning it again replaces those edits.
     }
 queue-again-edited-go = Redo
+
+## Why an item of a row's Actions menu is greyed, on the line under it
+## (D731). Each names what is missing, never who handed the thing over.
+queue-action-why-not-kept = Nothing of this text was kept: it went back to whoever sent it.
+queue-action-why-gone = The file is no longer where it was.
+queue-action-why-no-result = There is no result yet.
+queue-action-why-to-caller = The result went back to whoever asked; nothing was written here.
+queue-action-why-no-file = It arrived with no file behind it.
+queue-action-why-nothing-written = Nothing was written for it; its status says why.
+queue-action-why-result-file = The result is a file; Open the result opens it.

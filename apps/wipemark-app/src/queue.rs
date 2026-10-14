@@ -613,11 +613,23 @@ fn in_place(status: &Status) -> Option<String> {
     ))
 }
 
+/// What Clean and Rewrite say on a row with nothing behind it (D269),
+/// worded for what is missing (D731): the file the row names went — or is
+/// no regular file any more — or it never named one and its text was not
+/// kept. `named` is whether the row names a file (`Row::named`).
+fn not_behind(named: bool) -> String {
+    t(if named {
+        Message::QueueActionWhyGone
+    } else {
+        Message::QueueActionNotKept
+    })
+}
+
 /// Why a thing cannot be cleaned at all, or `None` when it can: nothing
-/// behind the row, or what intake established it is.
-fn cannot_clean(cleanable: Option<Cleanable>) -> Option<String> {
+/// behind the row ([`not_behind`]), or what intake established it is.
+fn cannot_clean(cleanable: Option<Cleanable>, named: bool) -> Option<String> {
     match cleanable {
-        None => Some(t(Message::QueueActionNotKept)),
+        None => Some(not_behind(named)),
         Some(Cleanable::No(unable)) => Some(wording::unable(unable)),
         Some(Cleanable::Text(_) | Cleanable::Picture(_)) => None,
     }
@@ -643,22 +655,29 @@ fn holds_a_rewrite(said: &Said) -> bool {
 /// cancelled or rewrote nothing is cleaned as a first clean would be (D720);
 /// and an inspected row keeps it greyed as it was. Pure, so the menu's rule
 /// is checked without one. `cleanable` is `None` for a row with nothing
-/// behind it.
+/// behind it — said here as for a row that never named a file; a row's own
+/// item says it as [`clean_greyed`] does, from what the row names.
 pub fn why_not_clean(status: &Status, cleanable: Option<Cleanable>) -> Option<String> {
+    clean_greyed(status, cleanable, false)
+}
+
+/// [`why_not_clean`], with nothing behind a row that names a file (`named`)
+/// said as the file gone rather than never kept (D731). Pure.
+pub fn clean_greyed(status: &Status, cleanable: Option<Cleanable>, named: bool) -> Option<String> {
     match status {
         Status::Queued | Status::Cleaning => Some(t(Message::QueueActionCleanBusy)),
         Status::RewriteQueued | Status::Rewriting(_) => Some(t(Message::QueueActionCleanRewriting)),
         Status::Recorded(said) if !said.phase.is_end() => Some(t(Message::QueueActionCleanBusy)),
         Status::Recorded(said) => match said.action {
             Action::Rewrite if holds_a_rewrite(said) => Some(t(Message::QueueActionCleanRewritten)),
-            Action::Rewrite => cannot_clean(cleanable),
+            Action::Rewrite => cannot_clean(cleanable, named),
             Action::Inspect => Some(t(Message::QueueActionCleanDone)),
             Action::Clean | Action::CleanImage => {
-                in_place(status).or_else(|| cannot_clean(cleanable))
+                in_place(status).or_else(|| cannot_clean(cleanable, named))
             }
         },
-        Status::Done(_) => in_place(status).or_else(|| cannot_clean(cleanable)),
-        Status::Waiting => cannot_clean(cleanable),
+        Status::Done(_) => in_place(status).or_else(|| cannot_clean(cleanable, named)),
+        Status::Waiting => cannot_clean(cleanable, named),
     }
 }
 
@@ -667,11 +686,24 @@ pub fn why_not_clean(status: &Status, cleanable: Option<Cleanable>) -> Option<St
 /// thing not kept, already queued or being rewritten, or being cleaned.
 /// A row cleaned or rewritten before may be rewritten (again): that is
 /// asking, and Rewrite contains the clean (В2) — except a rewrite written in
-/// place, whose Rewrite again is greyed (D706). Pure.
+/// place, whose Rewrite again is greyed (D706). Pure. Nothing behind the
+/// row is said as for a row that never named a file; a row's own item says
+/// it as [`rewrite_greyed`] does.
 pub fn why_not_rewrite(
     status: &Status,
     cleanable: Option<Cleanable>,
     vacant: Option<String>,
+) -> Option<String> {
+    rewrite_greyed(status, cleanable, vacant, false)
+}
+
+/// [`why_not_rewrite`], with nothing behind a row that names a file
+/// (`named`) said as the file gone rather than never kept (D731). Pure.
+pub fn rewrite_greyed(
+    status: &Status,
+    cleanable: Option<Cleanable>,
+    vacant: Option<String>,
+    named: bool,
 ) -> Option<String> {
     match status {
         Status::Queued | Status::Cleaning => return Some(t(Message::QueueActionRewriteCleaning)),
@@ -689,7 +721,7 @@ pub fn why_not_rewrite(
         Status::Waiting | Status::Done(_) | Status::Recorded(_) => {}
     }
     match cleanable {
-        None => Some(t(Message::QueueActionNotKept)),
+        None => Some(not_behind(named)),
         Some(Cleanable::Picture(_)) => Some(t(Message::QueueActionRewriteNotText)),
         Some(Cleanable::No(unable)) => Some(wording::unable(unable)),
         Some(Cleanable::Text(_)) => vacant,
@@ -697,24 +729,109 @@ pub fn why_not_rewrite(
 }
 
 /// Why a row's Remove is greyed, or `None` when it is not: a clean holds
-/// the row while it is queued or running, and an agent's or the command
-/// line's rewrite in flight has a caller waiting for it (D355) — Cancel
-/// ends that one and tells the caller; a removal would take the item from
-/// under a call that is still waiting. Pure.
-pub fn why_not_remove(status: &Status, origin: Origin) -> Option<String> {
+/// the row while it is queued or running, and a caller's rewrite in flight
+/// has the caller waiting for it (D355) — Cancel ends that one and tells
+/// the caller; a removal would take the item from under a call that is
+/// still waiting. A caller's call is the action's, not the row's (D730):
+/// an agent's or the command line's row whose item the person pushed from
+/// the table (`consented`, Rewrite again) has nobody waiting, and is
+/// removed as a window row is. Pure.
+pub fn why_not_remove(status: &Status, origin: Origin, consented: bool) -> Option<String> {
+    let waited = journal::callers_call(Some(origin), consented);
     match status {
         Status::Queued | Status::Cleaning => Some(t(Message::QueueActionCleanBusy)),
-        Status::RewriteQueued | Status::Rewriting(_)
-            if matches!(origin, Origin::Agent | Origin::Cli) =>
-        {
+        Status::RewriteQueued | Status::Rewriting(_) if waited => {
             Some(t(Message::QueueActionRemoveWaited))
         }
-        Status::Recorded(said)
-            if !said.phase.is_end() && matches!(origin, Origin::Agent | Origin::Cli) =>
-        {
+        Status::Recorded(said) if !said.phase.is_end() && waited => {
             Some(t(Message::QueueActionRemoveWaited))
         }
         _ => None,
+    }
+}
+
+// Why the items that need the thing itself, or its result, are greyed
+// (D731): the reason goes on the line under the item, as Clean's does
+// (D269), and names what is missing — never who handed the thing over.
+
+/// What an item that needs the thing itself says on a row with nothing
+/// behind it: the file the row names went — or is no regular file any
+/// more — or it named none and nothing of its text was kept. `named` is
+/// whether the row names a file.
+fn nothing_behind(named: bool) -> String {
+    t(if named {
+        Message::QueueActionWhyGone
+    } else {
+        Message::QueueActionWhyNotKept
+    })
+}
+
+/// Why "Open with the default app" is greyed, or `None` when a file is
+/// behind the row to open (D731). A text that arrived this session has none
+/// to open. Pure.
+pub fn why_not_open(arrival: Option<&Arrival>, named: bool) -> Option<String> {
+    match arrival {
+        Some(arrival) if arrival.intake.path.is_some() => None,
+        Some(_) => Some(t(Message::QueueActionWhyNoFile)),
+        None => Some(nothing_behind(named)),
+    }
+}
+
+/// Why "Compare with the result" — and the double click on the row — is
+/// greyed, or `None` when it opens (D731, D733): a rewrite's result to put
+/// beside its original (`rewritten`), or a text behind the row. Pure.
+pub fn why_not_compare(arrival: Option<&Arrival>, named: bool, rewritten: bool) -> Option<String> {
+    match arrival {
+        _ if rewritten => None,
+        Some(arrival) if Subject::comparable(&arrival.intake) => None,
+        Some(_) => Some(t(Message::CompareRefusedNotText)),
+        None => Some(nothing_behind(named)),
+    }
+}
+
+/// Why "Open the result" and "Show the result in its folder" are greyed on
+/// a row whose result is no file (D731): nothing ended yet; the result went
+/// back to whoever asked; it is a text kept in the row, the thing having no
+/// file behind it; or nothing was written, which the row's status explains.
+/// Pure; asked only where [`Row::written`] names no file.
+pub fn why_no_result_file(status: &Status) -> String {
+    t(match status {
+        Status::Done(outcome) => match (&outcome.written, &outcome.text) {
+            (None, Some(_)) => Message::QueueActionWhyNoFile,
+            _ => Message::QueueActionWhyNothingWritten,
+        },
+        Status::Recorded(said) if said.phase.is_end() => match &said.result {
+            Some(Delivered::Caller) => Message::QueueActionWhyToCaller,
+            Some(Delivered::Row) => Message::QueueActionWhyNoFile,
+            Some(Delivered::File { .. } | Delivered::Nowhere) | None => {
+                Message::QueueActionWhyNothingWritten
+            }
+        },
+        _ => Message::QueueActionWhyNoResult,
+    })
+}
+
+/// Why "Copy the result" is greyed on a row with no text to copy (D731): it
+/// copies a text — a paste's clean, or a rewrite read back from its file or
+/// the batch queue's row — so a result that is a file says to open it, and
+/// otherwise the item says what [`why_no_result_file`] says, or that the
+/// text a row's result lived in is no longer kept. Pure; asked only where
+/// nothing is there to copy.
+pub fn why_not_copy(status: &Status) -> String {
+    let file = match status {
+        Status::Done(outcome) => outcome.written.is_some(),
+        Status::Recorded(said) if said.phase.is_end() => {
+            if matches!(said.result, Some(Delivered::Row)) {
+                return t(Message::QueueActionWhyNotKept);
+            }
+            matches!(said.result, Some(Delivered::File { .. }))
+        }
+        _ => false,
+    };
+    if file {
+        t(Message::QueueActionWhyResultFile)
+    } else {
+        why_no_result_file(status)
     }
 }
 
@@ -753,8 +870,8 @@ impl Look {
 
     fn of_entry(entry: &Entry) -> Self {
         let kind = journal::kind_of(entry.kind.as_deref());
-        // A path a caller named is shown as a file's would be (D356); it
-        // is only never opened.
+        // A path a caller named is shown as a recorded one is — and looked
+        // at like one too (D729).
         let path = entry
             .path
             .as_deref()
@@ -844,6 +961,11 @@ struct Row {
     look: Look,
     /// The batch queue's item, once a rewrite was pushed.
     item: Option<ItemId>,
+    /// Whether that item was pushed with a window's consent (D361) — the
+    /// person's action — rather than by a caller who waits for it (D730):
+    /// set when this table pushes, read off the queue's list for a row read
+    /// back. What Remove asks (D355): only a caller's call waits.
+    consented: bool,
     /// A single row's Rewrite says its price in its tooltip.
     price: Option<Price>,
     /// A cleaned paste's result as last saved in the Compare window (E7-9,
@@ -866,6 +988,12 @@ struct Row {
     /// behind it — a paste, an agent's text — which cannot be processed
     /// again (В4).
     arrival: Option<Arrival>,
+    /// The file a row read back from the journal names — the one recorded,
+    /// or the absolute one its caller named (D729) — whether or not it is
+    /// still there: what says, of a row with nothing behind it, whether its
+    /// file went or it never had one (D731). `None` for what arrived this
+    /// session, which always has its arrival.
+    named: Option<PathBuf>,
     preview: Preview,
     arrived_at: DateTime<Local>,
     status: Status,
@@ -879,6 +1007,18 @@ impl Row {
         self.arrival
             .as_ref()
             .map(|arrival| clean::cleanable(&arrival.intake))
+    }
+
+    /// Why its Clean is greyed, or `None` (D269) — nothing behind a row that
+    /// names a file said as the file gone (D731).
+    fn clean_why(&self) -> Option<String> {
+        clean_greyed(&self.status, self.cleanable(), self.named.is_some())
+    }
+
+    /// Why its Rewrite is greyed, or `None`, with the duty's `vacant` —
+    /// worded as [`Row::clean_why`] is.
+    fn rewrite_why(&self, vacant: Option<String>) -> Option<String> {
+        rewrite_greyed(&self.status, self.cleanable(), vacant, self.named.is_some())
     }
 
     /// What a rewrite of this row ended with, when it ended.
@@ -1410,11 +1550,13 @@ impl Queue {
                 origin,
                 look: Look::of(&arrival.intake),
                 item: None,
+                consented: false,
                 price: None,
                 edited: None,
                 edited_at: None,
                 keyword: None,
                 arrival: Some(arrival.clone()),
+                named: None,
                 preview: Preview::Pending,
                 arrived_at: now,
                 status: Status::Waiting,
@@ -1948,6 +2090,8 @@ fn holds(row: &Row, work: Option<&Work>, action: Action, home: &Home) -> bool {
     }
 }
 
+#[cfg(test)]
+mod origin_tests;
 #[cfg(test)]
 mod redo_tests;
 #[cfg(test)]
@@ -2547,9 +2691,11 @@ fn format_cell(look: &Look, cx: &App) -> AnyElement {
 /// picture is looked up at click time.
 struct Actions {
     id: u64,
-    /// The file behind the row, for "Open with the default app".
-    path: Option<PathBuf>,
-    comparable: bool,
+    /// The file behind the row, for "Open with the default app" — or why
+    /// there is none (D731).
+    open: Result<PathBuf, String>,
+    /// `None` when Compare opens; otherwise why not (D731).
+    compare: Option<String>,
     /// Which of the two the row would do again (D703): what the first two
     /// items are called, and which road each takes.
     again: Option<Again>,
@@ -2564,15 +2710,68 @@ struct Actions {
     /// `None` when the row can be removed; otherwise why not — a clean
     /// holds it, or a caller waits for its rewrite (D355).
     remove: Option<String>,
-    /// The result on disk, for Open the result and Show it in its folder.
-    written: Option<PathBuf>,
-    /// Whether there is a cleaned text to copy.
-    text: bool,
+    /// The result on disk, for Open the result and Show it in its folder —
+    /// or why there is none (D731).
+    written: Result<PathBuf, String>,
+    /// `None` when there is a text to copy — a paste's clean, a rewrite's
+    /// result — otherwise why not (D731).
+    copy: Option<String>,
     /// Whether there is a finished clean to report.
     report: bool,
     /// Why Report… is greyed, when there is a reason to give: a row whose
     /// status the journal keeps, of which only a summary is kept (D448).
     report_why: Option<String>,
+}
+
+/// A row's Actions menu as a test reads it: Clean's and Rewrite's labels,
+/// then every item by its key ([`Actions::items`]).
+#[cfg(test)]
+pub(crate) type Menu = ((Message, Message), Vec<(&'static str, Item)>);
+
+/// An item of the Actions menu as a test reads it: live, or greyed — with
+/// the reason drawn under it, or none.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Item {
+    Live,
+    Greyed(Option<String>),
+}
+
+#[cfg(test)]
+impl Actions {
+    /// Every item, in the menu's order, by the key its reason line is drawn
+    /// under (`queue-why-<key>-<id>`), with the two labels that change.
+    fn items(&self) -> Vec<(&'static str, Item)> {
+        let greyed = |why: &Option<String>| match why {
+            None => Item::Live,
+            Some(why) => Item::Greyed(Some(why.clone())),
+        };
+        let silent = |live: bool| {
+            if live {
+                Item::Live
+            } else {
+                Item::Greyed(None)
+            }
+        };
+        vec![
+            ("clean", greyed(&self.clean)),
+            ("rewrite", greyed(&self.rewrite)),
+            ("cancel", silent(self.cancel)),
+            ("open", greyed(&self.open.clone().err())),
+            ("compare", greyed(&self.compare)),
+            ("open-result", greyed(&self.written.clone().err())),
+            ("reveal-result", greyed(&self.written.clone().err())),
+            ("copy-result", greyed(&self.copy)),
+            (
+                "report",
+                match &self.report_why {
+                    Some(why) => Item::Greyed(Some(why.clone())),
+                    None => silent(self.report),
+                },
+            ),
+            ("remove", greyed(&self.remove)),
+        ]
+    }
 }
 
 /// The Actions menu.
@@ -2595,6 +2794,13 @@ struct Actions {
 /// menu is the same shape on every row and the reason an item does
 /// nothing is that it is greyed, not that it moved. A double click on
 /// the row is the Compare item taken the short way — [`row_frame`].
+///
+/// Every item that can be greyed for a reason says it on the line under
+/// its label (D269) — Open, Compare, Open the result, Show the result and
+/// Copy the result too (D731), each naming what is missing, never who
+/// handed the thing over — through the one [`menu_item`]. Cancel, and a
+/// Report… of a row nothing has happened to, are greyed with nothing to
+/// add.
 fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
     let id = actions.id;
     Button::new(("queue-actions", id))
@@ -2602,184 +2808,166 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
         .xsmall()
         .icon(IconName::Ellipsis)
         .tooltip(SharedString::from(t(Message::QueueActions)))
+        .debug_selector(move || format!("row-actions-{id}"))
         .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
-            let path = actions.path.clone();
-            let written = actions.written.clone();
-            let revealed = actions.written.clone();
+            let (opened, open_why) = split(actions.open.clone());
+            let (written, written_why) = split(actions.written.clone());
+            let revealed = written.clone();
             let (cleaning, comparing, copying, reporting) =
                 (queue.clone(), queue.clone(), queue.clone(), queue.clone());
             let (rewriting, cancelling, removing) = (queue.clone(), queue.clone(), queue.clone());
             let (clean_label, rewrite_label) = actions.labels;
+            let clean = clean_step(id, actions.again);
             // Rewrite after Clean, greyed with its reason the way Clean is
             // (D269): two actions, because they differ in cost and in where
             // the document goes (В2).
-            let rewrite = match actions.rewrite.clone() {
-                None => {
-                    let run = rewrite_step(id, actions.again);
-                    PopupMenuItem::new(SharedString::from(t(rewrite_label)))
-                        .icon(IconName::Pen)
-                        .on_click(move |_, _, cx| {
-                            rewriting.update(cx, |queue, cx| run(queue, cx));
-                        })
-                }
-                Some(why) => {
-                    let why = SharedString::from(why);
-                    PopupMenuItem::element(move |_, cx| {
-                        v_flex()
-                            .max_w(px(280.0))
-                            .child(SharedString::from(t(rewrite_label)))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(why.clone()),
-                            )
-                    })
-                    .icon(IconName::Pen)
-                    .disabled(true)
-                }
-            };
-            let clean = match actions.clean.clone() {
-                None => {
-                    let run = clean_step(id, actions.again);
-                    PopupMenuItem::new(SharedString::from(t(clean_label)))
-                        .icon(IconName::Broom)
-                        .on_click(move |_, _, cx| {
-                            cleaning.update(cx, |queue, cx| run(queue, cx));
-                        })
-                }
-                Some(why) => {
-                    let why = SharedString::from(why);
-                    PopupMenuItem::element(move |_, cx| {
-                        v_flex()
-                            .max_w(px(280.0))
-                            .child(SharedString::from(t(clean_label)))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(why.clone()),
-                            )
-                    })
-                    .icon(IconName::Broom)
-                    .disabled(true)
-                }
-            };
-            menu.item(clean)
-                .item(rewrite)
-                .item(
-                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionCancel)))
-                        .icon(IconName::CircleXmark)
-                        .disabled(!actions.cancel)
-                        .on_click(move |_, _, cx| {
-                            cancelling.update(cx, |queue, _| queue.cancel(id));
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionOpen)))
-                        .icon(IconName::ArrowUpRightFromSquare)
-                        .disabled(path.is_none())
-                        .on_click(move |_, _, cx| {
-                            if let Some(path) = &path {
-                                tracing::info!("opening a queued file with the system");
-                                cx.open_with_system(path);
-                            }
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionCompare)))
-                        .icon(IconName::CodeCompare)
-                        .disabled(!actions.comparable)
-                        .on_click(move |_, window, cx| {
-                            compare_row(id, comparing.clone(), window, cx);
-                        }),
-                )
-                .separator()
-                .item(
-                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionOpenResult)))
-                        .icon(IconName::ArrowUpRightFromSquare)
-                        .disabled(written.is_none())
-                        .on_click(move |_, _, cx| {
-                            if let Some(written) = &written {
-                                tracing::info!(id, "opening a result with the system");
-                                cx.open_with_system(written);
-                            }
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionRevealResult)))
-                        .icon(IconName::FolderOpen)
-                        .disabled(revealed.is_none())
-                        .on_click(move |_, _, cx| {
-                            if let Some(written) = &revealed {
-                                cx.reveal_path(written);
-                            }
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionCopyResult)))
-                        .icon(IconName::Copy)
-                        .disabled(!actions.text)
-                        .on_click(move |_, _, cx| copy_result(&copying, id, cx)),
-                )
-                .item(match actions.report_why.clone() {
-                    None => PopupMenuItem::new(SharedString::from(t(Message::QueueActionReport)))
-                        .icon(IconName::FileLines)
-                        .disabled(!actions.report)
-                        .on_click(move |_, _, cx| {
-                            // Deferred, for the reason `compare_row` is: the
-                            // shell builds the dialog in this window, and a
-                            // click runs inside this window's update.
-                            let reporting = reporting.clone();
-                            cx.defer(move |cx| {
-                                reporting.update(cx, |_, cx| cx.emit(QueueEvent::Report(id)));
-                            });
-                        }),
-                    // Greyed with its reason under it, as Clean is (D269, D448).
-                    Some(why) => {
-                        let why = SharedString::from(why);
-                        PopupMenuItem::element(move |_, cx| {
-                            v_flex()
-                                .max_w(px(280.0))
-                                .child(SharedString::from(t(Message::QueueActionReport)))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(why.clone()),
-                                )
-                        })
-                        .icon(IconName::FileLines)
-                        .disabled(true)
+            let rewrite = rewrite_step(id, actions.again);
+            menu.item(menu_item(
+                (id, "clean"),
+                clean_label,
+                IconName::Broom,
+                actions.clean.clone(),
+                move |_, _, cx| cleaning.update(cx, |queue, cx| clean(queue, cx)),
+            ))
+            .item(menu_item(
+                (id, "rewrite"),
+                rewrite_label,
+                IconName::Pen,
+                actions.rewrite.clone(),
+                move |_, _, cx| rewriting.update(cx, |queue, cx| rewrite(queue, cx)),
+            ))
+            .item(
+                PopupMenuItem::new(SharedString::from(t(Message::QueueActionCancel)))
+                    .icon(IconName::CircleXmark)
+                    .disabled(!actions.cancel)
+                    .on_click(move |_, _, cx| {
+                        cancelling.update(cx, |queue, _| queue.cancel(id));
+                    }),
+            )
+            .item(menu_item(
+                (id, "open"),
+                Message::QueueActionOpen,
+                IconName::ArrowUpRightFromSquare,
+                open_why,
+                move |_, _, cx| {
+                    if let Some(path) = &opened {
+                        tracing::info!("opening a queued file with the system");
+                        cx.open_with_system(path);
                     }
-                })
-                .separator()
-                .item(match actions.remove.clone() {
-                    None => PopupMenuItem::new(SharedString::from(t(Message::QueueActionRemove)))
-                        .icon(IconName::Trash)
-                        .on_click(move |_, _, cx| {
-                            removing.update(cx, |queue, cx| queue.remove(id, cx));
-                        }),
-                    // Greyed with its reason under it, as Clean is (D269).
-                    Some(why) => {
-                        let why = SharedString::from(why);
-                        PopupMenuItem::element(move |_, cx| {
-                            v_flex()
-                                .max_w(px(280.0))
-                                .child(SharedString::from(t(Message::QueueActionRemove)))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(why.clone()),
-                                )
-                        })
-                        .icon(IconName::Trash)
-                        .disabled(true)
+                },
+            ))
+            .item(menu_item(
+                (id, "compare"),
+                Message::QueueActionCompare,
+                IconName::CodeCompare,
+                actions.compare.clone(),
+                move |_, window, cx| compare_row(id, comparing.clone(), window, cx),
+            ))
+            .separator()
+            .item(menu_item(
+                (id, "open-result"),
+                Message::QueueActionOpenResult,
+                IconName::ArrowUpRightFromSquare,
+                written_why.clone(),
+                move |_, _, cx| {
+                    if let Some(written) = &written {
+                        tracing::info!(id, "opening a result with the system");
+                        cx.open_with_system(written);
                     }
-                })
+                },
+            ))
+            .item(menu_item(
+                (id, "reveal-result"),
+                Message::QueueActionRevealResult,
+                IconName::FolderOpen,
+                written_why,
+                move |_, _, cx| {
+                    if let Some(written) = &revealed {
+                        cx.reveal_path(written);
+                    }
+                },
+            ))
+            .item(menu_item(
+                (id, "copy-result"),
+                Message::QueueActionCopyResult,
+                IconName::Copy,
+                actions.copy.clone(),
+                move |_, _, cx| copy_result(&copying, id, cx),
+            ))
+            .item(match actions.report_why.clone() {
+                None => PopupMenuItem::new(SharedString::from(t(Message::QueueActionReport)))
+                    .icon(IconName::FileLines)
+                    .disabled(!actions.report)
+                    .on_click(move |_, _, cx| {
+                        // Deferred, for the reason `compare_row` is: the
+                        // shell builds the dialog in this window, and a
+                        // click runs inside this window's update.
+                        let reporting = reporting.clone();
+                        cx.defer(move |cx| {
+                            reporting.update(cx, |_, cx| cx.emit(QueueEvent::Report(id)));
+                        });
+                    }),
+                // Greyed with its reason under it, as Clean is (D269, D448).
+                why => menu_item(
+                    (id, "report"),
+                    Message::QueueActionReport,
+                    IconName::FileLines,
+                    why,
+                    |_, _, _| {},
+                ),
+            })
+            .separator()
+            .item(menu_item(
+                (id, "remove"),
+                Message::QueueActionRemove,
+                IconName::Trash,
+                actions.remove.clone(),
+                move |_, _, cx| removing.update(cx, |queue, cx| queue.remove(id, cx)),
+            ))
         })
         .into_any_element()
+}
+
+/// A thing to act on, or why there is none — as the menu takes them apart.
+fn split<T>(found: Result<T, String>) -> (Option<T>, Option<String>) {
+    match found {
+        Ok(found) => (Some(found), None),
+        Err(why) => (None, Some(why)),
+    }
+}
+
+/// One item of the Actions menu: live, `run` on a click — or, with `why`,
+/// greyed, the reason on a second line under the label in the muted
+/// colour, at most 280 points wide (D269, D731). The one way an item of
+/// this menu is greyed for a reason, so none is greyed in silence. The
+/// reason's line answers to `queue-why-<key>-<row>`, for a test.
+fn menu_item(
+    (id, key): (u64, &'static str),
+    label: Message,
+    icon: IconName,
+    why: Option<String>,
+    run: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> PopupMenuItem {
+    let Some(why) = why else {
+        return PopupMenuItem::new(SharedString::from(t(label)))
+            .icon(icon)
+            .on_click(run);
+    };
+    let why = SharedString::from(why);
+    PopupMenuItem::element(move |_, cx| {
+        v_flex()
+            .max_w(px(280.0))
+            .child(SharedString::from(t(label)))
+            .child(
+                div()
+                    .debug_selector(move || format!("queue-why-{key}-{id}"))
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(why.clone()),
+            )
+    })
+    .icon(icon)
+    .disabled(true)
 }
 
 /// Open the Compare window on row `id`, from a click in this window —
@@ -2884,6 +3072,25 @@ impl Queue {
     /// from here is opened with.
     pub fn comparison(&self, cx: &App) -> Comparison {
         self.preferences.read(cx).comparison()
+    }
+
+    /// Whether `row`'s Compare opens — the item and the double click alike:
+    /// a rewrite's result to put beside its original, or a text behind the
+    /// row. A row of the command line or of an agent has its text behind it
+    /// once its named file is looked at (D729), and opens as a window row
+    /// with the same things on disk does (D733).
+    fn comparable(&self, row: &Row) -> bool {
+        self.compare_greyed(row).is_none()
+    }
+
+    /// Why `row`'s Compare is greyed, or `None` when it opens — the one rule
+    /// the item, its reason and the double click read ([`why_not_compare`]).
+    fn compare_greyed(&self, row: &Row) -> Option<String> {
+        why_not_compare(
+            row.arrival.as_ref(),
+            row.named.is_some(),
+            self.made_for(row).is_some(),
+        )
     }
 
     /// What the Compare window is opened on for row `id`, if the row
@@ -3038,11 +3245,7 @@ impl Queue {
             (None, None, None) => Vec::new(),
         };
 
-        let comparable = self.made_for(row).is_some()
-            || row
-                .arrival
-                .as_ref()
-                .is_some_and(|arrival| Subject::comparable(&arrival.intake));
+        let comparable = self.comparable(row);
         let open = comparable.then(|| {
             let id = row.id;
             let queue = cx.entity();
@@ -3074,7 +3277,7 @@ impl Queue {
             .child(Column::Process.cell().child(process_cell(
                 row.id,
                 &row.status,
-                why_not_clean(&row.status, row.cleanable()),
+                row.clean_why(),
                 rewrite.clone(),
                 cx.entity(),
             )))
@@ -3097,31 +3300,54 @@ impl Queue {
                     ))),
             )
             .child(
-                Column::Actions.cell().child(actions_cell(
-                    Actions {
-                        id: row.id,
-                        path: row
-                            .arrival
-                            .as_ref()
-                            .and_then(|arrival| arrival.intake.path.clone()),
-                        comparable,
-                        again: again_of(&row.status),
-                        labels: labels(&row.status),
-                        clean: why_not_clean(&row.status, row.cleanable()),
-                        rewrite: rewrite.clone(),
-                        cancel: matches!(row.status, Status::RewriteQueued | Status::Rewriting(_))
-                            && row.item.is_some(),
-                        remove: why_not_remove(&row.status, row.origin),
-                        written: row.written(),
-                        text: row.outcome().is_some_and(|outcome| outcome.text.is_some())
-                            || row.rewritten(self.work.as_ref()).is_some(),
-                        report: row.outcome().is_some() && row.arrival.is_some(),
-                        report_why: why_no_report(&row.status),
-                    },
-                    cx.entity(),
-                )),
+                Column::Actions
+                    .cell()
+                    .child(actions_cell(self.actions_for(row, rewrite), cx.entity())),
             )
             .into_any_element()
+    }
+
+    /// What `row`'s Actions menu offers, and why each greyed item is
+    /// greyed — read off the row once per frame, the same for every row in
+    /// the same state whoever handed it over (D730, D731). `rewrite` is the
+    /// Rewrite item's reason, asked once for the rows of a draw (D452).
+    fn actions_for(&self, row: &Row, rewrite: Option<String>) -> Actions {
+        let named = row.named.is_some();
+        let copyable = row.outcome().is_some_and(|outcome| outcome.text.is_some())
+            || row.rewritten(self.work.as_ref()).is_some();
+        Actions {
+            id: row.id,
+            open: match why_not_open(row.arrival.as_ref(), named) {
+                None => row
+                    .arrival
+                    .as_ref()
+                    .and_then(|arrival| arrival.intake.path.clone())
+                    .ok_or_else(|| t(Message::QueueActionWhyNoFile)),
+                Some(why) => Err(why),
+            },
+            compare: self.compare_greyed(row),
+            again: again_of(&row.status),
+            labels: labels(&row.status),
+            clean: row.clean_why(),
+            rewrite,
+            cancel: matches!(row.status, Status::RewriteQueued | Status::Rewriting(_))
+                && row.item.is_some(),
+            remove: why_not_remove(&row.status, row.origin, row.consented),
+            written: row.written().ok_or_else(|| why_no_result_file(&row.status)),
+            copy: (!copyable).then(|| why_not_copy(&row.status)),
+            report: row.outcome().is_some() && row.arrival.is_some(),
+            report_why: why_no_report(&row.status),
+        }
+    }
+
+    /// Row `id`'s Actions menu as a test reads it: its two labels, and
+    /// every item, live or greyed with what its line says ([`Item`]).
+    #[cfg(test)]
+    pub(crate) fn menu_of(&self, id: u64, cx: &App) -> Option<Menu> {
+        let row = self.rows.iter().find(|row| row.id == id)?;
+        let vacant = self.vacancy(cx);
+        let actions = self.actions_for(row, self.why_not_rewrite_given(id, vacant.as_deref()));
+        Some((actions.labels, actions.items()))
     }
 
     /// The table with nothing in it: the invitation, and — while
@@ -3463,21 +3689,21 @@ pub(crate) mod tests {
                 })),
             ] {
                 assert_eq!(
-                    why_not_remove(&status, origin),
+                    why_not_remove(&status, origin, false),
                     Some(t(Message::QueueActionRemoveWaited)),
                     "{origin:?} {status:?}"
                 );
             }
         }
-        assert!(why_not_remove(&Status::RewriteQueued, Origin::Window).is_none());
-        assert!(why_not_remove(&Status::Cleaning, Origin::Window).is_some());
+        assert!(why_not_remove(&Status::RewriteQueued, Origin::Window, true).is_none());
+        assert!(why_not_remove(&Status::Cleaning, Origin::Window, true).is_some());
         let ended = Status::Recorded(Box::new(Said {
             action: Action::Rewrite,
             phase: Phase::Done,
             outcome: None,
             result: None,
         }));
-        assert!(why_not_remove(&ended, Origin::Agent).is_none());
+        assert!(why_not_remove(&ended, Origin::Agent, false).is_none());
     }
 
     /// D363: today's rows say the time; any other day's say the date too.

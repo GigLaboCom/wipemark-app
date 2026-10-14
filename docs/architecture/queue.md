@@ -281,6 +281,29 @@ holds — arrived and happened from the entry, the counts, "the full report
 was not kept" on the verifiable shelf, the third shelf from
 `not_established::ids()`, Copy JSON greyed.
 
+**Every greyed item says why** (D731). Open, Compare, Open the result,
+Show the result in its folder and Copy the result, greyed, carry their
+reason on the line under the label, as Clean's does (D269) — one
+`menu_item` draws every item greyed for a reason. The reason names what is
+missing, never who handed the thing over (`why_not_open`,
+`why_not_compare`, `why_no_result_file`, `why_not_copy`): nothing of the
+text was kept (no file named, its text gone back to whoever sent it); the
+file is no longer where it was (a file named, none behind the row now); it
+arrived with no file behind it (a paste, whose result lives in the row);
+there is no result yet; the result went back to whoever asked; nothing was
+written, which the status says; the result is a file, which Open the
+result opens (Copy copies a text); and, for Compare on a picture, the
+Compare window's own "this is not text". An agent's text-only row — no
+path, its result handed back — keeps Compare greyed, as a row is metadata
+and never the text (D312), and now says so
+(`a_greyed_compare_says_why_in_the_menu`, which opens the menu and finds
+each line drawn). Clean and Rewrite word "nothing behind the row" the same
+way, from `Row::named` (`Row::clean_why`, `Row::rewrite_why`): the file is
+no longer where it was, on a row whose named file went; D269's "it arrived
+with no file behind it and its text was not kept" only on a row that never
+had one (`clean_and_rewrite_on_a_gone_file_say_it_is_gone`). Cancel, and
+Report… on a row nothing has happened to, stay greyed with nothing to add.
+
 ## Rewriting (E4-6b)
 
 ```
@@ -575,10 +598,37 @@ own number stays the element id (two id spaces). A row says who asked
   never on the GPUI thread; MCP's connection threads directly, handing the
   id back as `result._meta["wipemark/journal"]`; the **bookkeeper**, a
   thread on the queue's first channel, writes every rewrite's start and a
-  window rewrite's end, while an agent's or the command line's end is
-  written by the call that waits for it, so the command line's own update
-  (the file it wrote) comes last (D313, D321). A start heard late never
-  reopens an ended row (`Journal::update_open`).
+  window rewrite's end, while a caller's end is written by the call that
+  waits for it, so the command line's own update (the file it wrote) comes
+  last (D313, D321). A start heard late never reopens an ended row
+  (`Journal::update_open`).
+* **A caller's call is the action's, not the row's** (D730). Which rewrite
+  is a caller's — its text back to whoever asked, its end written by the
+  waiting call, abandoned at a launch — is read off its batch-queue item,
+  never off the row's origin: a window's push always records the person's
+  consent (D361, D393) and a caller's carries none
+  (`journal::callers_call`, `journal::consented`). So Rewrite again pressed
+  in the table on a command line's or an agent's row (D703) is the
+  person's: its result goes over the row's own (`Row::written()`, by
+  journal id), the bookkeeper writes its end, and a launch leaves it for
+  the queue. The table, the bookkeeper, the launch's settling and Remove
+  read the one rule: Remove is greyed (D355) only while a caller's call
+  waits, and a redo the person pressed on a caller's row is removed as a
+  window row's rewrite is (`Row::consented`, set at the push and read off
+  the queue's list for a row read back;
+  `remove_waits_for_a_caller_and_never_for_the_persons_redo`).
+* **Every road, one menu** (D732). One file down every road that ends as
+  a row — a drop on the main window, a drop on the panel, the command line
+  through the application, an agent naming `wipemark/path` — and, once the
+  table has looked at each row's file, rows in the same status offer the
+  same Actions items with the same reasons: a rewrite done into a file, a
+  clean done here (the command line's and the agent's rows after the
+  person's Clean again), a result handed back to whoever asked. An agent's
+  call with no path is the one row whose document-needing items — Clean,
+  Rewrite, Open, Compare — are greyed, each saying why
+  (`where_a_thing_came_from_never_changes_what_its_row_can_do`, in
+  `queue/origin_tests.rs`; the intake parity test of the "Every way in"
+  rule is still to be built, README §7 E7).
 * **The command line**, with no application, writes its own row through
   `JournalWriter`, which never creates or migrates a database (D314, В5);
   the window notices it by `PRAGMA data_version`, read once a second, and
@@ -608,14 +658,30 @@ own number stays the element id (two id spaces). A row says who asked
   task of its own, so a file that will not answer holds nothing else up
   and the read always ends. A path that is not a regular file or a folder
   — a FIFO, a terminal's `/dev/stdin`, a device — is never opened: the row
-  has nothing behind it. The command line records such a path as no file,
-  and a path an MCP client names in `_meta` is the row's `said_path`,
-  shown and never opened.
+  has nothing behind it. The command line records such a path as no file.
+* **A named path is looked at like any other** (D729, the owner's row 36
+  at the macOS acceptance, 2026-10-14: "the behaviour must not break the
+  UI depending on where a thing came from"). A path an MCP client names in
+  `_meta` — the command line's own file, when the application runs its
+  rewrite — is the row's `said_path`, and `journal::arrival_of` takes it
+  when the row recorded no `path`, under D356's rule exactly: `metadata`
+  first, a regular file or a folder only, its head read in the look-up's
+  own task — and, for a name another process gave, the command line's own
+  rule for its rows: an absolute path only, and nothing under `/dev` or
+  `/proc`, whose `/dev/fd/N` and `/proc/self/…` would be this
+  application's own descriptors here (`journal::named_file`). So a row of the command line or of an
+  agent has its file behind it whenever the file is on disk, and is a
+  window's row from there on. It is safe because nothing goes the other
+  way: the head is read on this side and sent to nobody; Open, Compare,
+  Clean again and Rewrite again open the file only when the person clicks;
+  and a file changed since the call is a window row's file changed since
+  its drop.
 * **It survives a restart** (В3). At launch (D317) a window clean left
   mid-way waits again — or, with no file behind it, goes, its text never
-  having been kept — an agent's or the command line's rewrite still queued
-  is cancelled and its queue row removed (whoever asked is gone), and a
-  window's rewrite is left for the queue to take up. **Remove** on a row,
+  having been kept — a caller's rewrite still queued is cancelled and its
+  queue row removed (whoever asked is gone), and a window's rewrite — a
+  redo the person asked for on a caller's row included (D730) — is left
+  for the queue to take up. **Remove** on a row,
   **Clear finished** on the toolbar, and **Keep finished rows** on the
   Retention page (`journal.keep_days`, a week by default) take rows away —
   with the queue row of a result whose only home was the row. The Arrived
