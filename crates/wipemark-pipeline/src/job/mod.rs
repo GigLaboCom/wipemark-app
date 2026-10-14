@@ -235,28 +235,46 @@ pub enum Ending {
 /// look at a clock or at a client that may have hung up, and to call
 /// [`JobHandle::cancel`] — after which the job still ends with exactly one
 /// terminal event, which this returns.
+///
+/// It returns once the job's thread has let go of its engine too
+/// ([`released`], D741): a caller that ends its process straight after —
+/// the CLI — never reaches `exit` while that thread is still freeing a
+/// model. On Metal that was an abort after all the work (F31).
 pub fn wait(
     events: &flume::Receiver<Event>,
     every: Duration,
     mut heard: impl FnMut(Option<&Event>),
 ) -> Ending {
-    loop {
+    let ending = loop {
         match events.recv_timeout(every) {
             Ok(event) => {
                 heard(Some(&event));
                 match event {
                     Event::Finished {
                         elapsed, outcome, ..
-                    } => return Ending::Finished { elapsed, outcome },
-                    Event::Cancelled { .. } => return Ending::Cancelled,
-                    Event::Failed { error, .. } => return Ending::Failed(error),
+                    } => break Ending::Finished { elapsed, outcome },
+                    Event::Cancelled { .. } => break Ending::Cancelled,
+                    Event::Failed { error, .. } => break Ending::Failed(error),
                     _ => {}
                 }
             }
             Err(flume::RecvTimeoutError::Timeout) => heard(None),
-            Err(flume::RecvTimeoutError::Disconnected) => return Ending::Lost,
+            Err(flume::RecvTimeoutError::Disconnected) => break Ending::Lost,
         }
-    }
+    };
+    released(events);
+    ending
+}
+
+/// Block until a job's thread holds nothing: its events are closed, and the
+/// thread lets go of its engine before it closes them (D740). When it held
+/// the engine's last reference, the engine's drop — which waits for the
+/// model to be freed (D184) — is over by then.
+///
+/// [`wait`] does this itself; a caller that reads the events on its own
+/// calls it after the terminal one, before it ends the process.
+pub fn released(events: &flume::Receiver<Event>) {
+    while events.recv().is_ok() {}
 }
 
 /// Poll `future` to completion on this thread — for a surface that has to
@@ -289,7 +307,9 @@ pub fn seed_for(base: u64, effort: Effort, chunk: usize, round: u8, candidate: u
 /// [`Event`]s, the last of which is exactly one of [`Event::Finished`] (with
 /// the document and the report), [`Event::Cancelled`] or
 /// [`Event::Failed`]. Dropping the receiver cancels the job — nobody is
-/// left to read what it would produce.
+/// left to read what it would produce. The job's thread holds `engine`
+/// until after the terminal event and lets go of it before the receiver
+/// sees the channel close (D740, [`released`]).
 pub fn start(
     id: JobId,
     document: Document,
@@ -349,6 +369,11 @@ fn spawn(
                 cancel,
                 started: Instant::now(),
             };
+            // Bound after `emit`, so dropped before it, on a return and on
+            // a panic alike: the engine is let go of before the events
+            // close, and a reader that waits for them to close
+            // ([`released`]) knows this thread holds no model (D740).
+            let engine = engine;
             run(&emit, &document, &options, engine.as_ref(), carried);
         })
         .map_err(|error| Refused::Thread {

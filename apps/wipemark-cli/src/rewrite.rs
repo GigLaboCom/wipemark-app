@@ -1635,6 +1635,90 @@ mod tests {
             .is_some_and(|text| text.starts_with("build The")));
     }
 
+    /// A model double that takes its time to let go, the way a local model
+    /// is freed when its engine drops (D184), and says when it has.
+    struct Freeing {
+        inner: FakeEngine,
+        freed: Arc<AtomicBool>,
+    }
+
+    impl Drop for Freeing {
+        fn drop(&mut self) {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            self.freed.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[wipemark_engine::async_trait]
+    impl RewriteEngine for Freeing {
+        fn info(&self) -> wipemark_engine::EngineInfo {
+            self.inner.info()
+        }
+
+        async fn complete(
+            &self,
+            req: wipemark_engine::ChatRequest,
+            sink: wipemark_engine::TokenSink,
+            cancel: wipemark_engine::CancellationToken,
+        ) -> Result<wipemark_engine::Completion, wipemark_engine::EngineError> {
+            self.inner.complete(req, sink, cancel).await
+        }
+
+        async fn warmup(&self) -> Result<(), wipemark_engine::EngineError> {
+            Ok(())
+        }
+
+        async fn unload(&self) {}
+    }
+
+    /// D740–D742 (F31): the command's own model is let go of before the
+    /// command hands its exit code back — whatever the code. The job's
+    /// thread holds the engine's last reference; on Metal a process that
+    /// reached `exit` while that thread was still freeing the model aborted
+    /// after all the work (134, `GGML_ASSERT([rsets->data count] == 0)`).
+    /// Hand the code back at the job's terminal event (the rule before) and
+    /// the double is still freeing: red.
+    #[test]
+    fn the_commands_own_model_is_let_go_of_before_it_hands_back_its_exit_code() {
+        let marked = format!("The build\u{200B} {}", &PARAGRAPH[10..]);
+        for (input, cancelled, wanted) in [
+            (PARAGRAPH.to_owned(), false, Exit::Clean),
+            (marked, false, Exit::Findings),
+            (PARAGRAPH.to_owned(), true, Exit::Usage),
+        ] {
+            let freed = Arc::new(AtomicBool::new(false));
+            let gone = Arc::clone(&freed);
+            let interrupted = AtomicBool::new(cancelled);
+            let own = move |_: Option<&Layout>,
+                            _: &mut Io|
+                  -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {
+                // Slow enough, when cancelled, for the cancel to land first.
+                let delay = std::time::Duration::from_millis(if cancelled { 20 } else { 0 });
+                Ok((
+                    Arc::new(Freeing {
+                        inner: FakeEngine::answering(|req, _| swapped(req)).with_token_delay(delay),
+                        freed: Arc::clone(&gone),
+                    }),
+                    Executor::LocalCpu,
+                ))
+            };
+            let roads = Roads {
+                layout: None,
+                terminal: false,
+                interrupted: &interrupted,
+                own: &own,
+            };
+            let (exit, _, stderr) = run(input.as_bytes(), |io| {
+                rewrite_with(&flags(false), io, &roads)
+            });
+            assert_eq!(exit, wanted, "{stderr}");
+            assert!(
+                freed.load(Ordering::SeqCst),
+                "exit {exit:?} handed back while the job still held the model"
+            );
+        }
+    }
+
     /// A second paragraph, for a document of two.
     const OTHER: &str = "Most of the time a clean checkout is all it takes, and the rest of \
                          the steps are written down in the guide that ships with the source of \

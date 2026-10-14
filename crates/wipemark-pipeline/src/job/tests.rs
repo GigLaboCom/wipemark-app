@@ -6,6 +6,7 @@
 //! rejection, the round that followed or did not, the winner, and the
 //! document that came back.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -1442,4 +1443,100 @@ fn a_caller_with_no_window_waits_for_the_end_and_may_cancel_on_the_way() {
     });
     assert!(matches!(ending, Ending::Cancelled), "{ending:?}");
     assert!(quiet >= 1);
+}
+
+/// An engine that takes its time to let go, the way a local model is
+/// freed when its engine drops (D184), and says when it has.
+struct Freeing {
+    inner: FakeEngine,
+    freed: Arc<AtomicBool>,
+    panics: bool,
+}
+
+impl Freeing {
+    fn new(panics: bool) -> (Self, Arc<AtomicBool>) {
+        let freed = Arc::new(AtomicBool::new(false));
+        let engine = Freeing {
+            inner: FakeEngine::answering(|req, _| swap(&text_of(req))),
+            freed: Arc::clone(&freed),
+            panics,
+        };
+        (engine, freed)
+    }
+}
+
+impl Drop for Freeing {
+    fn drop(&mut self) {
+        std::thread::sleep(Duration::from_millis(300));
+        self.freed.store(true, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl RewriteEngine for Freeing {
+    fn info(&self) -> EngineInfo {
+        self.inner.info()
+    }
+
+    async fn complete(
+        &self,
+        req: ChatRequest,
+        sink: TokenSink,
+        cancel: CancellationToken,
+    ) -> Result<Completion, EngineError> {
+        assert!(!self.panics, "the engine went away in the middle of a call");
+        self.inner.complete(req, sink, cancel).await
+    }
+
+    async fn warmup(&self) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    async fn unload(&self) {}
+}
+
+/// D740, D741 (F31): the job's thread holds the engine's last reference,
+/// as the CLI's does, and `wait` comes back only once that engine has been
+/// let go of — its drop over. A caller that ends the process straight
+/// after never reaches `exit` while a model is being freed; on Metal that
+/// was an abort after all the work. Return at the terminal event (the rule
+/// before) and the engine is still freeing: red.
+#[test]
+fn a_wait_comes_back_once_the_job_has_let_go_of_its_engine() {
+    let (engine, freed) = Freeing::new(false);
+    let (_, receiver) = start(
+        JobId(73),
+        document(EN, TextFormat::Plain),
+        options(1, 1),
+        Arc::new(engine),
+    )
+    .expect("starts");
+    let ending = wait(&receiver, Duration::from_millis(10), |_| {});
+    assert!(matches!(ending, Ending::Finished { .. }), "{ending:?}");
+    assert!(
+        freed.load(Ordering::SeqCst),
+        "the wait came back while the job's thread still held its engine"
+    );
+}
+
+/// D740: a job whose thread panics lets go of its engine before its events
+/// close, as one that ends does. Drop the engine with the rest of the
+/// thread's captures — after the events' sender — and the wait hears the
+/// channel close while the engine is still freeing: red.
+#[test]
+fn a_job_that_panics_lets_go_of_its_engine_before_its_events_close() {
+    let (engine, freed) = Freeing::new(true);
+    let (_, receiver) = start(
+        JobId(74),
+        document(EN, TextFormat::Plain),
+        options(1, 1),
+        Arc::new(engine),
+    )
+    .expect("starts");
+    let ending = wait(&receiver, Duration::from_millis(10), |_| {});
+    assert!(matches!(ending, Ending::Lost), "{ending:?}");
+    assert!(
+        freed.load(Ordering::SeqCst),
+        "the events closed while the job's thread still held its engine"
+    );
 }

@@ -11,7 +11,7 @@ use std::time::Duration;
 use serde_json::Value;
 use wipemark_pipeline::cost::Executor;
 use wipemark_pipeline::report::Verdict;
-use wipemark_pipeline::{start, Document, Event, JobId, Options};
+use wipemark_pipeline::{released, start, Document, Event, JobId, Options};
 
 use crate::args::Args;
 use crate::{corpus, engine, judge, run};
@@ -44,6 +44,10 @@ pub fn main(args: &Args) {
                 Ok(_) => {}
             }
         };
+        // The job's thread lets go of its clone of the engine before the
+        // next item, and before this process can end under a model being
+        // freed (D740; F31 on Metal).
+        released(&events);
         for chunk in &outcome.report.chunks {
             for attempt in &chunk.attempts {
                 let k = (attempt.round - 1) * run::SEEDS.candidates + attempt.candidate;
