@@ -564,7 +564,7 @@ impl Queue {
     /// Why row `id`'s Rewrite is greyed, or `None`.
     pub(super) fn why_not_rewrite(&self, id: u64, cx: &gpui::App) -> Option<String> {
         let row = self.rows.iter().find(|row| row.id == id)?;
-        super::why_not_rewrite(&row.status, row.cleanable(), self.vacancy(cx))
+        row.rewrite_why(self.vacancy(cx))
     }
 
     /// [`Queue::why_not_rewrite`] with the duty's answer already taken:
@@ -572,7 +572,7 @@ impl Queue {
     /// rather than once a row (D452).
     pub(super) fn why_not_rewrite_given(&self, id: u64, vacant: Option<&str>) -> Option<String> {
         let row = self.rows.iter().find(|row| row.id == id)?;
-        super::why_not_rewrite(&row.status, row.cleanable(), vacant.map(str::to_owned))
+        row.rewrite_why(vacant.map(str::to_owned))
     }
 
     /// The rows Rewrite all would take, in the order they arrived: every

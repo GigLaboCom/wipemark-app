@@ -873,6 +873,68 @@ fn where_a_thing_came_from_never_changes_what_its_row_can_do(cx: &mut TestAppCon
     );
 }
 
+/// D731, for Clean and Rewrite too: on a row with nothing behind it, the
+/// two say what is missing as Open and Compare do — "The file is no longer
+/// where it was" for a row that names a file that went, and D269's "not
+/// kept" only for a row that never had one. Pure, and in the menu of a
+/// command line's row whose named file was moved away beside an agent's
+/// text-only row. Word "nothing behind" without `Row::named`, as D269 did,
+/// and the moved file's Clean and Rewrite say it never had one: red.
+#[gpui::test]
+fn clean_and_rewrite_on_a_gone_file_say_it_is_gone(cx: &mut TestAppContext) {
+    use super::{clean_greyed, rewrite_greyed};
+    let gone_why = Some(t(Message::QueueActionWhyGone));
+    let never_why = Some(t(Message::QueueActionNotKept));
+    for status in [
+        Status::Waiting,
+        said(Action::Clean, Phase::Done, Some(Delivered::Caller)),
+        said(Action::Rewrite, Phase::Done, Some(Delivered::Caller)),
+        said(Action::Rewrite, Phase::Failed, None),
+    ] {
+        assert_eq!(clean_greyed(&status, None, true), gone_why, "{status:?}");
+        assert_eq!(clean_greyed(&status, None, false), never_why, "{status:?}");
+        assert_eq!(
+            rewrite_greyed(&status, None, None, true),
+            gone_why,
+            "{status:?}"
+        );
+        assert_eq!(
+            rewrite_greyed(&status, None, None, false),
+            never_why,
+            "{status:?}"
+        );
+    }
+
+    let scratch = Scratch::new("gone-clean");
+    let gone = scratch.0.join("moved-away.md");
+    let (store, agents) = recorded(Origin::Agent, &text_only());
+    let commands = record(
+        &store,
+        Origin::Cli,
+        &Entry {
+            said_path: Some(gone.to_string_lossy().into_owned()),
+            ..text_only()
+        },
+    );
+    let work = work_over(store, Some(swapping()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work));
+    here_on_duty(&preferences, cx);
+    looked_at(&queue, 2, cx);
+    let (never, moved) = (row_of(&queue, agents, cx), row_of(&queue, commands, cx));
+    for key in ["clean", "rewrite"] {
+        assert_eq!(
+            item_of(&queue, moved, key, cx),
+            Item::Greyed(gone_why.clone()),
+            "{key} on a row whose file went"
+        );
+        assert_eq!(
+            item_of(&queue, never, key, cx),
+            Item::Greyed(never_why.clone()),
+            "{key} on a row that never had a file"
+        );
+    }
+}
+
 /// What row `id`'s Actions menu says of `key`.
 fn item_of(queue: &Entity<Queue>, id: u64, key: &str, cx: &mut VisualTestContext) -> Item {
     cx.update(|_, cx| queue.read(cx).menu_of(id, cx))

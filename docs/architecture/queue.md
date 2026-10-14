@@ -297,8 +297,12 @@ Compare window's own "this is not text". An agent's text-only row — no
 path, its result handed back — keeps Compare greyed, as a row is metadata
 and never the text (D312), and now says so
 (`a_greyed_compare_says_why_in_the_menu`, which opens the menu and finds
-each line drawn). Cancel, and Report… on a row nothing has happened to,
-stay greyed with nothing to add.
+each line drawn). Clean and Rewrite word "nothing behind the row" the same
+way, from `Row::named` (`Row::clean_why`, `Row::rewrite_why`): the file is
+no longer where it was, on a row whose named file went; D269's "it arrived
+with no file behind it and its text was not kept" only on a row that never
+had one (`clean_and_rewrite_on_a_gone_file_say_it_is_gone`). Cancel, and
+Report… on a row nothing has happened to, stay greyed with nothing to add.
 
 ## Rewriting (E4-6b)
 

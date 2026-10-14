@@ -613,11 +613,23 @@ fn in_place(status: &Status) -> Option<String> {
     ))
 }
 
+/// What Clean and Rewrite say on a row with nothing behind it (D269),
+/// worded for what is missing (D731): the file the row names went — or is
+/// no regular file any more — or it never named one and its text was not
+/// kept. `named` is whether the row names a file (`Row::named`).
+fn not_behind(named: bool) -> String {
+    t(if named {
+        Message::QueueActionWhyGone
+    } else {
+        Message::QueueActionNotKept
+    })
+}
+
 /// Why a thing cannot be cleaned at all, or `None` when it can: nothing
-/// behind the row, or what intake established it is.
-fn cannot_clean(cleanable: Option<Cleanable>) -> Option<String> {
+/// behind the row ([`not_behind`]), or what intake established it is.
+fn cannot_clean(cleanable: Option<Cleanable>, named: bool) -> Option<String> {
     match cleanable {
-        None => Some(t(Message::QueueActionNotKept)),
+        None => Some(not_behind(named)),
         Some(Cleanable::No(unable)) => Some(wording::unable(unable)),
         Some(Cleanable::Text(_) | Cleanable::Picture(_)) => None,
     }
@@ -643,22 +655,29 @@ fn holds_a_rewrite(said: &Said) -> bool {
 /// cancelled or rewrote nothing is cleaned as a first clean would be (D720);
 /// and an inspected row keeps it greyed as it was. Pure, so the menu's rule
 /// is checked without one. `cleanable` is `None` for a row with nothing
-/// behind it.
+/// behind it — said here as for a row that never named a file; a row's own
+/// item says it as [`clean_greyed`] does, from what the row names.
 pub fn why_not_clean(status: &Status, cleanable: Option<Cleanable>) -> Option<String> {
+    clean_greyed(status, cleanable, false)
+}
+
+/// [`why_not_clean`], with nothing behind a row that names a file (`named`)
+/// said as the file gone rather than never kept (D731). Pure.
+pub fn clean_greyed(status: &Status, cleanable: Option<Cleanable>, named: bool) -> Option<String> {
     match status {
         Status::Queued | Status::Cleaning => Some(t(Message::QueueActionCleanBusy)),
         Status::RewriteQueued | Status::Rewriting(_) => Some(t(Message::QueueActionCleanRewriting)),
         Status::Recorded(said) if !said.phase.is_end() => Some(t(Message::QueueActionCleanBusy)),
         Status::Recorded(said) => match said.action {
             Action::Rewrite if holds_a_rewrite(said) => Some(t(Message::QueueActionCleanRewritten)),
-            Action::Rewrite => cannot_clean(cleanable),
+            Action::Rewrite => cannot_clean(cleanable, named),
             Action::Inspect => Some(t(Message::QueueActionCleanDone)),
             Action::Clean | Action::CleanImage => {
-                in_place(status).or_else(|| cannot_clean(cleanable))
+                in_place(status).or_else(|| cannot_clean(cleanable, named))
             }
         },
-        Status::Done(_) => in_place(status).or_else(|| cannot_clean(cleanable)),
-        Status::Waiting => cannot_clean(cleanable),
+        Status::Done(_) => in_place(status).or_else(|| cannot_clean(cleanable, named)),
+        Status::Waiting => cannot_clean(cleanable, named),
     }
 }
 
@@ -667,11 +686,24 @@ pub fn why_not_clean(status: &Status, cleanable: Option<Cleanable>) -> Option<St
 /// thing not kept, already queued or being rewritten, or being cleaned.
 /// A row cleaned or rewritten before may be rewritten (again): that is
 /// asking, and Rewrite contains the clean (В2) — except a rewrite written in
-/// place, whose Rewrite again is greyed (D706). Pure.
+/// place, whose Rewrite again is greyed (D706). Pure. Nothing behind the
+/// row is said as for a row that never named a file; a row's own item says
+/// it as [`rewrite_greyed`] does.
 pub fn why_not_rewrite(
     status: &Status,
     cleanable: Option<Cleanable>,
     vacant: Option<String>,
+) -> Option<String> {
+    rewrite_greyed(status, cleanable, vacant, false)
+}
+
+/// [`why_not_rewrite`], with nothing behind a row that names a file
+/// (`named`) said as the file gone rather than never kept (D731). Pure.
+pub fn rewrite_greyed(
+    status: &Status,
+    cleanable: Option<Cleanable>,
+    vacant: Option<String>,
+    named: bool,
 ) -> Option<String> {
     match status {
         Status::Queued | Status::Cleaning => return Some(t(Message::QueueActionRewriteCleaning)),
@@ -689,7 +721,7 @@ pub fn why_not_rewrite(
         Status::Waiting | Status::Done(_) | Status::Recorded(_) => {}
     }
     match cleanable {
-        None => Some(t(Message::QueueActionNotKept)),
+        None => Some(not_behind(named)),
         Some(Cleanable::Picture(_)) => Some(t(Message::QueueActionRewriteNotText)),
         Some(Cleanable::No(unable)) => Some(wording::unable(unable)),
         Some(Cleanable::Text(_)) => vacant,
@@ -975,6 +1007,18 @@ impl Row {
         self.arrival
             .as_ref()
             .map(|arrival| clean::cleanable(&arrival.intake))
+    }
+
+    /// Why its Clean is greyed, or `None` (D269) — nothing behind a row that
+    /// names a file said as the file gone (D731).
+    fn clean_why(&self) -> Option<String> {
+        clean_greyed(&self.status, self.cleanable(), self.named.is_some())
+    }
+
+    /// Why its Rewrite is greyed, or `None`, with the duty's `vacant` —
+    /// worded as [`Row::clean_why`] is.
+    fn rewrite_why(&self, vacant: Option<String>) -> Option<String> {
+        rewrite_greyed(&self.status, self.cleanable(), vacant, self.named.is_some())
     }
 
     /// What a rewrite of this row ended with, when it ended.
@@ -3233,7 +3277,7 @@ impl Queue {
             .child(Column::Process.cell().child(process_cell(
                 row.id,
                 &row.status,
-                why_not_clean(&row.status, row.cleanable()),
+                row.clean_why(),
                 rewrite.clone(),
                 cx.entity(),
             )))
@@ -3284,7 +3328,7 @@ impl Queue {
             compare: self.compare_greyed(row),
             again: again_of(&row.status),
             labels: labels(&row.status),
-            clean: why_not_clean(&row.status, row.cleanable()),
+            clean: row.clean_why(),
             rewrite,
             cancel: matches!(row.status, Status::RewriteQueued | Status::Rewriting(_))
                 && row.item.is_some(),
