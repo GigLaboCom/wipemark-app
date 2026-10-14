@@ -350,11 +350,12 @@ struct Labels {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 impl Labels {
-    /// The labels in the language on screen now.
-    fn now() -> Self {
+    /// The labels in the language on screen now, the panel's item saying
+    /// what pressing it does while the panel is `panel_open` or not.
+    fn now(panel_open: bool) -> Self {
         Self {
             show: t(Message::TrayShow),
-            panel: t(Message::TrayPanel),
+            panel: panel_label(panel_open),
             clipboard: t(Message::TrayCleanClipboard),
             unload: t(Message::TrayUnloadModel),
             appearance: t(Message::TrayAppearance),
@@ -366,6 +367,22 @@ impl Labels {
                 .collect(),
         }
     }
+}
+
+/// The panel item's words: what pressing it does now — show the panel
+/// while it is away, hide it while it is on screen (the owner,
+/// 2026-10-14). The same item and the same command either way
+/// ([`TrayCommand::Panel`] toggles); only the words follow the panel.
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "linux")),
+    allow(dead_code, reason = "only the macOS and Linux trays have words")
+)]
+pub(crate) fn panel_label(open: bool) -> String {
+    t(if open {
+        Message::TrayPanelHide
+    } else {
+        Message::TrayPanel
+    })
 }
 
 /// The menu and the items whose state or words change after it is
@@ -511,6 +528,9 @@ enum Change {
     Labels(Labels),
     /// Whether a model is loaded, which is whether Unload is enabled.
     Loaded(bool),
+    /// The panel item's words, as the panel came or went
+    /// ([`panel_label`]).
+    Panel(String),
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -539,6 +559,7 @@ impl Menu {
                 }
             }
             Change::Loaded(loaded) => self.unload.set_enabled(loaded),
+            Change::Panel(label) => self.panel.set_text(&label),
         }
     }
 }
@@ -593,6 +614,9 @@ pub struct Tray {
     /// [`Tray::relabel`].
     menu: Menu,
     commands: flume::Receiver<TrayCommand>,
+    /// Whether the panel is on screen, so a relabel keeps the panel
+    /// item's words ([`Tray::show_panel_open`]).
+    panel_open: std::cell::Cell<bool>,
 }
 
 /// The Linux item, seen from the GPUI side: the clicks coming in, and
@@ -602,6 +626,9 @@ pub struct Tray {
 pub struct Tray {
     commands: flume::Receiver<TrayCommand>,
     updates: flume::Sender<linux::Update>,
+    /// Whether the panel is on screen, so a relabel keeps the panel
+    /// item's words ([`Tray::show_panel_open`]).
+    panel_open: std::cell::Cell<bool>,
 }
 
 /// There is no tray on this platform, and the type says so: `install`
@@ -638,12 +665,22 @@ impl Tray {
     /// app started in is the tray version of a stale tick. The words are
     /// read here, on the GPUI thread, whichever thread the menu is on.
     pub fn relabel(&self) {
-        self.change(Change::Labels(Labels::now()));
+        self.change(Change::Labels(Labels::now(self.panel_open.get())));
     }
 
     /// Enable "Unload model" while a model is loaded, and only then.
     pub fn show_loaded(&self, loaded: bool) {
         self.change(Change::Loaded(loaded));
+    }
+
+    /// Say "Hide the panel" while the panel is on screen and "Show the
+    /// panel" while it is not — whichever way it came or went: this
+    /// item, the system-wide shortcut, Escape, its close (the owner,
+    /// 2026-10-14). Told by the panel itself ([`crate::panel`]).
+    pub fn show_panel_open(&self, open: bool) {
+        if self.panel_open.replace(open) != open {
+            self.change(Change::Panel(panel_label(open)));
+        }
     }
 
     #[cfg(target_os = "macos")]
@@ -706,6 +743,10 @@ impl Tray {
         match *self {}
     }
 
+    pub fn show_panel_open(&self, _open: bool) {
+        match *self {}
+    }
+
     pub fn leave(&self) -> flume::Receiver<()> {
         match *self {}
     }
@@ -750,7 +791,7 @@ fn install_now(current: ThemePreference) -> Option<Tray> {
         }
     };
 
-    let menu = match build_menu(current, &Labels::now()) {
+    let menu = match build_menu(current, &Labels::now(false)) {
         Ok(menu) => menu,
         Err(error) => {
             tracing::warn!(%error, "tray skipped");
@@ -781,6 +822,7 @@ fn install_now(current: ThemePreference) -> Option<Tray> {
         _icon: icon,
         menu,
         commands,
+        panel_open: std::cell::Cell::new(false),
     })
 }
 
@@ -793,7 +835,7 @@ pub fn install(current: ThemePreference) -> Pending {
             return answered(None);
         }
     };
-    linux::start(linux::Gtk, current, Labels::now(), image, listen())
+    linux::start(linux::Gtk, current, Labels::now(false), image, listen())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -1025,7 +1067,14 @@ mod linux {
                     }
                 };
                 let (updates, inbox) = flume::unbounded();
-                if answer.send(Some(Tray { commands, updates })).is_err() {
+                if answer
+                    .send(Some(Tray {
+                        commands,
+                        updates,
+                        panel_open: std::cell::Cell::new(false),
+                    }))
+                    .is_err()
+                {
                     // Nobody is waiting for the item any more; it goes
                     // with this thread.
                     return;
@@ -1244,6 +1293,21 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::*;
+
+    /// The panel item says what pressing it does: Show while the panel is
+    /// away, Hide while it is on screen — and a relabel (a language change)
+    /// keeps the word the panel's state calls for, rather than putting Show
+    /// back over an open panel (the owner, 2026-10-14).
+    #[test]
+    fn the_panel_item_says_show_or_hide_as_the_panel_is() {
+        assert_eq!(panel_label(false), "Show the panel");
+        assert_eq!(panel_label(true), "Hide the panel");
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            assert_eq!(Labels::now(false).panel, "Show the panel");
+            assert_eq!(Labels::now(true).panel, "Hide the panel");
+        }
+    }
 
     #[test]
     fn every_command_round_trips_through_its_menu_id() {

@@ -807,6 +807,7 @@ confidence-likely-false-positive = скорее всего, не метка
 
 tray-show = Показать { -brand-name }
 tray-panel = Показать панель
+tray-panel-hide = Скрыть панель
 tray-clean-clipboard = Очистить буфер обмена — пока нет
 tray-unload-model = Выгрузить модель
 tray-appearance = Оформление

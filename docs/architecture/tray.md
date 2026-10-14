@@ -8,7 +8,7 @@ The system-wide shortcut beside it is [hotkeys.md](hotkeys.md).
 
 ## The menu
 
-Show Wipemark · Show the panel · Clean Clipboard — not yet (disabled) ·
+Show Wipemark · Show the panel / Hide the panel · Clean Clipboard — not yet (disabled) ·
 Unload model (enabled while a model is loaded) · — · Appearance ▸
 System / Light / Dark · — · Settings… · Quit Wipemark.
 
@@ -18,6 +18,16 @@ thread. A click reaches the application as a `TrayCommand` over a
 `flume` channel — `muda`'s callback has no `&mut App` in scope — and
 `main::adopt_tray` performs it. Nothing about the menu differs between
 macOS and Linux; what differs is which thread owns it.
+
+**The panel item says what pressing it does** (D722, the owner,
+2026-10-14): *Show the panel* while the panel is away, *Hide the panel*
+while it is on screen. The command is the same toggle either way; only
+the words follow. The panel tells the tray itself: a panel view counts
+as on screen from the moment it is made and stops counting when it is
+released (`panel::Shown`, `said_shown`), so every road that closes it —
+this item, the system-wide shortcut, Escape, its close — turns the item
+back to Show. `Tray::show_panel_open` remembers the state, so a
+`relabel` (a language change) keeps the right word.
 
 ## macOS
 
@@ -42,7 +52,7 @@ and a decimal comma under `ru_RU` or `de_DE` is not something llama.cpp
 or anything else in the process should inherit), builds the menu and
 the item, and runs `gtk::main` until Quit. The widgets never leave that
 thread: a change made on the GPUI side (`Tray::show_theme`, `relabel`,
-`show_loaded`) is a `tray::Change` sent over a channel and applied by a
+`show_loaded`, `show_panel_open`) is a `tray::Change` sent over a channel and applied by a
 local future on GTK's main context. This is how `tray-icon`'s own
 documentation and Tauri do it — an event loop on the thread the item is
 created on — with GTK's loop instead of `tao`'s. GTK 3 is therefore a

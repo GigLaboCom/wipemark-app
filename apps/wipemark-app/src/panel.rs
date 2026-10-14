@@ -164,6 +164,40 @@ struct Opened(AnyWindowHandle);
 
 impl Global for Opened {}
 
+/// How many panel views are alive: one while the panel is on screen, none
+/// once it is gone, however it went — the menu item, the system-wide
+/// shortcut, Escape, its close. A count rather than a flag, so a panel
+/// summoned again before the last one's view is released still reads as
+/// open. What the menu bar's panel item says follows it (the owner,
+/// 2026-10-14: "Show the panel" / "Hide the panel").
+#[derive(Default)]
+struct Shown(usize);
+
+impl Global for Shown {}
+
+/// Whether a panel is on screen, by [`Shown`].
+pub fn is_shown(cx: &App) -> bool {
+    cx.try_global::<Shown>().is_some_and(|shown| shown.0 > 0)
+}
+
+/// A panel view came (`true`) or went: count it, and tell the menu bar's
+/// item when that changes whether one is on screen.
+fn said_shown(came: bool, cx: &mut App) {
+    let was = is_shown(cx);
+    let shown = cx.default_global::<Shown>();
+    shown.0 = if came {
+        shown.0 + 1
+    } else {
+        shown.0.saturating_sub(1)
+    };
+    let now = is_shown(cx);
+    if now != was {
+        if let Some(tray) = cx.try_global::<crate::tray::Tray>() {
+            tray.show_panel_open(now);
+        }
+    }
+}
+
 /// Bind Escape inside the panel.
 ///
 /// Called once from `main`, after `gpui_component::init`. Scoped to the
@@ -640,6 +674,11 @@ impl PanelView {
     ) -> Self {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
+
+        // The menu bar's panel item says Hide while this view lives, and
+        // Show once it is released — whichever road closed the window.
+        said_shown(true, cx);
+        cx.on_release(|_, cx| said_shown(false, cx)).detach();
 
         preferences.update(cx, |held, cx| {
             held.panel_moved(screen::of_window(window, cx), cx);
@@ -1801,6 +1840,28 @@ mod tests {
         fn drop(&mut self) {
             std::fs::remove_dir_all(&self.scratch).ok();
         }
+    }
+
+    /// The menu bar's panel item follows the panel (the owner, 2026-10-14):
+    /// a panel view counts as on screen from the moment it is made, and
+    /// stops counting when it is released — however its window went. Take
+    /// out the release hook and the panel reads as open for ever: red.
+    #[gpui::test]
+    fn the_panel_counts_as_shown_until_its_window_goes(cx: &mut gpui::TestAppContext) {
+        let (listed, cx) = Listed::new("shown", false, cx);
+        assert!(
+            cx.cx.read(super::is_shown),
+            "a panel on screen reads as away"
+        );
+        // The test's own handles go first: in the application only the
+        // window holds the panel's view.
+        drop(listed);
+        cx.update(|window, _| window.remove_window());
+        cx.run_until_parked();
+        assert!(
+            !cx.cx.read(super::is_shown),
+            "a panel whose window went still reads as on screen"
+        );
     }
 
     /// The live check's case 13, as a test: a drop of a marked text, a

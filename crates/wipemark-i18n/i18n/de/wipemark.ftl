@@ -788,6 +788,7 @@ confidence-likely-false-positive = wahrscheinlich keine Markierung
 
 tray-show = { -brand-name } anzeigen
 tray-panel = Panel anzeigen
+tray-panel-hide = Panel ausblenden
 tray-clean-clipboard = Zwischenablage säubern — noch nicht
 tray-unload-model = Modell entladen
 tray-appearance = Erscheinungsbild

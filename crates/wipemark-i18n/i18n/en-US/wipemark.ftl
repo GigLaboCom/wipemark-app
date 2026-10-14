@@ -1351,6 +1351,9 @@ tray-show = Show { -brand-name }
 # Placement page says. Clicking this again sends it away, the way the
 # same item in every menu bar does.
 tray-panel = Show the panel
+# The same item while the panel is on screen: pressing it sends the
+# panel away, so it says so (the owner, 2026-10-14).
+tray-panel-hide = Hide the panel
 tray-clean-clipboard = Clean Clipboard — not yet
 tray-unload-model = Unload model
 tray-appearance = Appearance
