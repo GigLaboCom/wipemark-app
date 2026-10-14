@@ -571,6 +571,17 @@ impl EngineHandle {
             .clone()
     }
 
+    /// Shut the engine in the slot down — its model freed before this
+    /// returns, whoever else holds the engine (D743): what the quit does
+    /// before the slot is emptied. A job of the batch queue holds a clone
+    /// until it ends, and a change of duty waits for it (D395), so the
+    /// engine in the slot is the one any job is running on. **Blocking.**
+    fn shut_down(&self) {
+        if let Slot::Engine(engine) = self.slot() {
+            engine.shut_down();
+        }
+    }
+
     /// Put `slot` in the slot, where it sends a document said as its own
     /// engine says it: an endpoint by its remote, a built engine by whether
     /// it runs on this machine — for a test that puts an engine there by
@@ -1116,9 +1127,16 @@ impl EngineHost {
         cx: &Context<Self>,
     ) -> Self {
         let quit = cx.on_app_quit(|host: &mut Self, _| {
-            // The engine goes with the slot. The last reference's drop
-            // stops the worker and waits for it to free the model, so the
-            // process never reaches `exit` under a free (D96, E2-4).
+            // The model goes first, whoever holds the engine: a job of the
+            // batch queue running now holds a clone, and the slot's drop
+            // would then not be the last — the process reached `exit` with
+            // a model on the GPU, which Metal's teardown aborts on (D743,
+            // F31). The job is told `Stopped` and its item waits for the
+            // next open with its decided chunks. Then the engine goes with
+            // the slot; the last reference's drop stops the worker and waits
+            // for it (D96, E2-4). Here, in the handler and not its future:
+            // AppKit's terminate runs the handlers and then `exit`.
+            host.handle.shut_down();
             host.handle.set_to(Slot::Nothing, None);
             host.loading = None;
             host.idle = None;
@@ -2422,6 +2440,73 @@ mod tests {
             Some(&(false, Some(z))),
             "the last word to the queue was not the new engine, settled: {told:?}"
         );
+    }
+
+    /// A test double that counts how often it was shut down.
+    #[derive(Default)]
+    struct ShutDown {
+        times: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl RewriteEngine for ShutDown {
+        fn info(&self) -> EngineInfo {
+            EngineInfo {
+                vendor: Vendor::OpenLlm,
+                model_id: "shut-down".to_owned(),
+                local: true,
+                ctx_len: Some(512),
+                draft: None,
+            }
+        }
+
+        async fn complete(
+            &self,
+            _req: ChatRequest,
+            _sink: TokenSink,
+            _cancel: CancellationToken,
+        ) -> Result<Completion, EngineError> {
+            Err(EngineError::Unavailable(Unavailable::Stopped))
+        }
+
+        async fn warmup(&self) -> Result<(), EngineError> {
+            Ok(())
+        }
+
+        async fn unload(&self) {}
+
+        fn shut_down(&self) {
+            self.times.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// D743 (F31): the application quits while a job holds the engine on
+    /// duty — a rewrite of the batch queue running — and the quit shuts
+    /// that engine down before it empties the slot, so the job's clone does
+    /// not carry a loaded model into `exit` (on Metal an abort in ggml's
+    /// teardown). Empty the slot alone (the rule before) and the engine is
+    /// never told while the job still holds it: red.
+    #[gpui::test]
+    fn the_quit_shuts_the_engine_down_under_a_running_job(cx: &mut gpui::TestAppContext) {
+        let vault = Arc::new(Vault::in_memory("com.GigLabo.wipemark.test"));
+        let (handle, inbox) = EngineHandle::new();
+        let _host = cx.new(|cx| EngineHost::listening(handle.clone(), inbox, vault, cx));
+        let engine = Arc::new(ShutDown::default());
+        handle.set(Slot::Engine(engine.clone()));
+        let job = block_on(handle.for_job()).expect("the engine on duty");
+        cx.run_until_parked();
+
+        cx.update(|cx| cx.shutdown());
+        assert_eq!(
+            engine.times.load(Ordering::SeqCst),
+            1,
+            "the quit left the engine to a job that still holds it"
+        );
+        assert!(
+            matches!(handle.slot(), Slot::Nothing),
+            "the slot kept its engine"
+        );
+        drop(job);
     }
 
     /// D370: the slot says where its engine sends a document as the

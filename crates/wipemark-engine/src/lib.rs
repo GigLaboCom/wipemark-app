@@ -405,6 +405,21 @@ pub trait RewriteEngine: Send + Sync {
     fn watch_loads(&self, sink: LoadSink) {
         let _ = sink;
     }
+
+    /// Stop for good and let go of what this engine holds, now — whoever
+    /// else still holds the engine (D743). A decode in flight stops at its
+    /// next step, a load at its next tensor, and a model is freed before
+    /// this returns; every call after it is refused
+    /// [`Unavailable::Stopped`] and loads nothing. **Blocking.**
+    ///
+    /// For a process on its way out while a job may still hold a clone —
+    /// the application's quit: a model left on a GPU when the process
+    /// reaches `exit` is torn down under ggml's own teardown, which on Metal
+    /// aborts (F31). Dropping the last reference does the same and more
+    /// (D184); this is for when the last reference is not the caller's. An
+    /// engine with nothing loaded here — an endpoint, a fake — has nothing
+    /// to let go of.
+    fn shut_down(&self) {}
 }
 
 #[cfg(test)]

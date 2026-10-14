@@ -352,6 +352,74 @@ fn a_process_that_used_a_model_exits_cleanly() {
     }
 }
 
+/// The child half of
+/// [`a_process_that_shuts_its_engine_down_under_a_running_job_exits_cleanly`]:
+/// does nothing unless that test started it.
+#[tokio::test]
+#[ignore = "started by a_process_that_shuts_its_engine_down_under_a_running_job_exits_cleanly"]
+async fn shut_down_child() {
+    if std::env::var_os("WIPEMARK_SHUT_DOWN_CHILD").is_none() {
+        return;
+    }
+    let engine: std::sync::Arc<dyn RewriteEngine> = std::sync::Arc::new(engine(2048));
+    let job = std::sync::Arc::clone(&engine);
+    let (sink, streamed) = flume::unbounded();
+    // A job on a thread of its own, as the batch queue runs one, holding a
+    // clone of the engine to the end of the process.
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("a runtime");
+        let _ = runtime.block_on(job.complete(
+            request(CREATIVE, 0.8, 1, 4000),
+            sink,
+            CancellationToken::new(),
+        ));
+        loop {
+            std::thread::park();
+        }
+    });
+    // The decode is running.
+    streamed
+        .recv_timeout(Duration::from_secs(300))
+        .expect("a piece of the answer");
+    // The application's quit: the model goes now, though the job still
+    // holds the engine; the process ends with the job's thread holding it.
+    engine.shut_down();
+}
+
+/// D743 (F31): the application quits while a job of its batch queue is
+/// decoding — the job's thread holds a clone of the engine, so the slot's
+/// drop is not the last and frees nothing. On Metal a process that reaches
+/// `exit` with a model still loaded aborts in ggml's teardown
+/// (`GGML_ASSERT([rsets->data count] == 0)`, 134). `shut_down` frees the
+/// model under the job, and the process ends cleanly. The trait's default
+/// `shut_down` (nothing) leaves the model loaded: red on a Metal build.
+#[test]
+#[ignore = "needs WIPEMARK_TEST_GGUF"]
+fn a_process_that_shuts_its_engine_down_under_a_running_job_exits_cleanly() {
+    let _ = gguf();
+    let exe = std::env::current_exe().expect("the test binary");
+    for round in 1..=3 {
+        let status = std::process::Command::new(&exe)
+            .args([
+                "--ignored",
+                "--exact",
+                "shut_down_child",
+                "--test-threads=1",
+            ])
+            .env("WIPEMARK_SHUT_DOWN_CHILD", "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("the child starts");
+        assert!(
+            status.success(),
+            "round {round}: a process whose engine was shut down under a job ended with {status}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // E2-4: the two models the bump is for, each behind a variable of its own.
 //
