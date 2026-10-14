@@ -1,21 +1,28 @@
 # Wipemark
 
 Native desktop tool that strips AI provenance marks from **your own**
-content. Rust + GPUI, one binary plus the models it downloads itself. No
-Tauri, no Python, no torch.
+content. Rust + GPUI: one application and its command line, plus the
+models it downloads itself. No Tauri, no Python, no torch.
 
 Two layers, kept apart on purpose:
 
 * **Layer A — deterministic.** Invisible Unicode: zero-width characters,
   bidi controls, tag characters, variation selectors, private-use and
-  noncharacter code points. Counted, positioned, reproducible. Runs
-  offline, always, free.
+  noncharacter code points; and letters borrowed from another script
+  inside a word, which are reported and replaced only on request.
+  Counted, positioned, reproducible. Runs offline, always, free.
 * **Layer B — best-effort.** Statistical marks, addressed by rewriting
-  the text with a model — locally, or through any OpenAI-compatible
+  the text with a model — on this machine through llama.cpp (Metal on
+  macOS, Vulkan on Linux), or through Ollama or any OpenAI-compatible
   endpoint you point it at.
 
-Phase 2 adds container-level metadata for images (C2PA, EXIF, XMP, IPTC,
-generator parameters) without ever re-encoding pixels.
+Pictures get both kinds of treatment. A PNG, JPEG or WebP loses its AI
+provenance metadata (C2PA, EXIF, XMP, IPTC, generator parameters), and
+when that is all it carries its image data is kept byte for byte. A
+visible mark this version knows — Gemini's, and Grok's on X — comes off
+once it is proved, and the picture is then written again (a JPEG at
+quality 95, a lossy WebP as lossless). Marks no eye sees in the pixels
+are neither looked for nor removed.
 
 ## Install
 
@@ -38,20 +45,41 @@ There is no Windows build yet.
 <!-- TODO: link the downloads once the owner decides where 0.1.0 is
 published (GitHub Releases or the release service). -->
 
-## What this build is
+## What 0.1.0 is
 
-**Layer A is real; Layer B is not in this version.** Layer A — the
-Unicode 18.0.0 tables, the classifier and the orthography it keeps, the
-scrubber, NFKC, homoglyphs and the five guards — runs from the command
-line (`wipemark-cli inspect` and `wipemark-cli clean`) and, for an
-agent, over MCP (the `inspect` and `clean` tools). The windows take what
-arrives, say what it is and compare a result with its original; they do
-not clean yet, and say so. `rewrite`, `models` and `audit` exit 2 and say
-that they are not in this version yet. See
-[docs/architecture/skeleton.md](docs/architecture/skeleton.md) for what
-exists and what comes next, and
-[docs/architecture/layer-a.md](docs/architecture/layer-a.md) for Layer A
-itself.
+Everything below runs; what a window cannot do yet, it says out loud.
+
+* **Layer A** — the Unicode 18.0.0 tables, the classifier and the
+  orthography it keeps, the scrubber, NFKC, homoglyphs and the five
+  guards — runs in the main window, in the panel, from the command line
+  (`wipemark-cli inspect`, `clean` and `audit`) and, for an agent, over
+  MCP.
+* **Layer B** rewrites a text paragraph by paragraph between two passes
+  of Layer A, in one queue: one rewrite at a time, whoever asked — the
+  windows, an agent or the command line. The queue survives a restart,
+  `kill -9` included, and picks a rewrite up where it stopped. Who
+  rewrites is the Engine page's choice: a model on this machine, an
+  endpoint, or one before the other. A text goes past this machine only
+  to an endpoint you allowed.
+* **One list.** Every document, from every surface, is a row in the main
+  window's table unless the call opts out: what it was, what was done and
+  where the result went — never the text.
+* **Results** are new files: `name.cleaned.ext` and `name.rewritten.ext`
+  beside the original, or in the folder the Retention page names. The
+  original is touched only when you ask for that (Retention's *In place*,
+  the command line's `--in-place`), and is set aside first.
+* **Compare** puts a result beside its original, marks what changed, and
+  saves your edits over the result's own file.
+* **Models.** The first launch walks through what this machine has room
+  for. The catalogue offers Qwen3 4B, Gemma 4 12B, Gemma 3 12B and
+  Qwen3.8 27B, each verified against its checksum; a GGUF of your own
+  can be added.
+
+[docs/plan/v1-release.md](docs/plan/v1-release.md) says what ships and
+what waits for the next version,
+[docs/architecture/map.md](docs/architecture/map.md) what each crate and
+module owns, and [docs/architecture/layer-a.md](docs/architecture/layer-a.md)
+is Layer A itself.
 
 ## The honesty contract
 
@@ -78,17 +106,22 @@ file.
 A window of its own — real titlebar, real close button, its own place in
 Mission Control — opened three ways: the gear at the right of the status
 bar, **⌘,** (Ctrl+, off macOS), or **Settings…** in the menu bar. Every
-preference the later epics add lands there rather than in the window
-chrome; the status bar says what the application is *doing*, and a
-preference is not that.
+preference lands there rather than in the window chrome; the status bar
+says what the application is *doing*, and a preference is not that.
 
 Sections are listed down the left, the way every desktop's preferences
 window lists them:
 
-| Section     | What is in it |
-|-------------|---------------|
-| **General** | Appearance and language — what does not belong to a named feature |
-| **MCP**     | Whether Wipemark answers an agent, where it listens, and the snippet that connects a client |
+| Section | What is in it |
+|---|---|
+| **General** | Appearance, language, the two system-wide shortcuts (bring Wipemark forward, summon the panel), what happens to a thing as it lands, and the first-launch walk-through again |
+| **Placement** | Which screen a window opens on, where on it, and the panel's own rows |
+| **Compare** | What the Compare window marks, where its line numbers sit, wrapping, scrolling together, and saving as you type |
+| **Engine** | Who rewrites — this machine, an endpoint, or one before the other — how long a local model stays loaded, and the endpoint itself (Ollama or OpenAI-compatible, its key in the OS credential store) |
+| **Rewriting** | The templates a model is sent, in each language, and the template profiles (*Shipped*, *Keep voice*, and your own) |
+| **Models** | The catalogue's downloads, the models folder, the models you added, and which one rewrites |
+| **Retention** | Where a result goes, whether a pasted text and its result are kept and for how long, and how long finished rows stay in the list |
+| **MCP** | Whether Wipemark answers an agent, where it listens, and the snippet that connects a client |
 
 It can also be opened straight to a section from the command line, which
 is what a support answer can paste and what the screenshots in this repo
@@ -96,7 +129,7 @@ were taken with:
 
 ```sh
 wipemark --settings          # General
-wipemark --settings=mcp
+wipemark --settings=mcp      # general, placement, compare, engine, prompts, models, retention, mcp
 open -a Wipemark --args --settings=mcp
 ```
 
@@ -143,22 +176,33 @@ Protocol — the arrangement `heretic-lazy-shot` makes for its captures.
 Layer A is deterministic and verifiable, which is exactly the sort of
 step an agent should be able to run over its own output.
 
-The server is real. Switch it on and it binds, answers `initialize`,
-introduces itself and lists its tools; it starts with the application
-rather than when you visit the page that describes it, so an agent can
-rely on it being there. **Both tools run Layer A.** `inspect` answers
-with the report — what would be removed, replaced or kept, each with its
-byte offsets, the Unicode version and the three shelves — as JSON text
-and the same object as `structuredContent`; `clean` answers with
-`{"text", "report"}`, the cleaned text beside the report of what was
-done. A call it cannot run — `text` missing, an argument of the wrong
-type, one the tool does not take — is refused as a *result* with
-`isError: true` that names the argument, never as an empty report: an
-agent that got "nothing found" back from a scrubber that never ran would
-file the document as clean. A request over 1 MiB is refused whole with
-HTTP `413` before it is read, never truncated. Nothing rewrites over MCP:
-Layer B is not in this version, and the banner at the top of the pane
-says both things — what is running, and what it will not pretend to do.
+It is off until you switch it on (**Serve over MCP**). Then it starts
+with the application rather than when you visit the page that describes
+it, so an agent can rely on it being there. It answers `initialize`,
+introduces itself and lists **five tools**:
+
+* `inspect` and `clean` run Layer A on a text. `inspect` answers with the
+  report — what would be removed, replaced or kept, each with its byte
+  offsets, the Unicode version and the three shelves — as JSON text and
+  the same object as `structuredContent`; `clean` answers with
+  `{"text", "report"}`, the cleaned text beside the report of what was
+  done.
+* `inspect_image` and `clean_image` do the same for a PNG, JPEG or WebP:
+  its metadata, and the visible marks this version knows, which
+  `clean_image` removes when it can prove them.
+* `rewrite` has the engine on duty rewrite the text between two passes
+  of Layer A, in the same queue as the main window's rewrites — the text
+  goes wherever the Engine page sends it. Its `profile` argument names a
+  template profile to rewrite with instead of the saved templates.
+
+Every `clean`, `clean_image` and `rewrite` is a row in the main window's
+list unless the call says `"record": false`. A call it cannot run —
+`text` missing, an argument of the wrong type, one the tool does not
+take, a rewrite that rewrote nothing — is refused as a *result* with
+`isError: true` that says why, never as an empty report: an agent that
+got "nothing found" back from a scrubber that never ran would file the
+document as clean. A request over 1 MiB is refused whole with HTTP `413`
+before it is read, never truncated.
 
 Three rows:
 
@@ -212,8 +256,12 @@ Preferences live in the `settings` table of the local database, one row
 per preference — `ui.theme` is `"system"`, `"light"` or `"dark"`:
 
 ```
-~/Library/Application Support/com.GigLabo.wipemark/wipemark.db
+~/Library/Application Support/com.GigLabo.wipemark/wipemark.db   # macOS
+~/.local/share/wipemark/wipemark.db                              # Linux ($XDG_DATA_HOME)
 ```
+
+`WIPEMARK_DATA_DIR` moves the whole data directory — the database, the
+models and the logs — for the application and the command line alike.
 
 ```sh
 sqlite3 wipemark.db 'SELECT key, value FROM settings'
@@ -248,20 +296,29 @@ click in the dialog.
 
 ## Menu bar
 
-On macOS Wipemark keeps an item in the menu bar: **Show Wipemark**, an
-**Appearance** submenu holding the same three choices as the Settings
-window, **Settings…**, and **Quit Wipemark**. Ticking a theme in either
-place moves the other. The submenu survives the Settings window rather
-than being replaced by it — it is three ticks a glance can read, and
-reaching it does not put a window on screen at all. The icon is a
-template image, so the menu bar draws it light or dark to match itself,
-at whatever contrast the user's wallpaper forces.
+Wipemark keeps an item in the menu bar on macOS, and an indicator in the
+panel on Linux (libayatana-appindicator; GNOME needs its AppIndicator
+extension). One menu on both: **Show Wipemark**, **Show the panel** /
+**Hide the panel** (the words follow the panel), a greyed *Clean
+Clipboard — not yet*, **Unload model** (enabled while a model is
+loaded), an **Appearance** submenu holding the same
+three choices as the Settings window, **Settings…**, and **Quit
+Wipemark**. Ticking a theme in either place moves the other. The macOS
+icon is a template image, so the menu bar draws it light or dark to
+match itself.
 
 While that item is there, the *main* window's close button hides the
 application rather than ending it — the menu bar is the way back, and
-Quit is the way out. Closing Settings closes only Settings. Nothing else
-changes: with no menu-bar item, which is every platform but macOS today,
-the main window's close button closes.
+Quit is the way out. Closing Settings closes only Settings. Where there
+is no item — a desktop with nothing to draw it — the main window's close
+button closes.
+
+The **panel** is the small window summoned over whatever you are working
+in — by the menu, by the system-wide shortcut (**⌘⌥D** on macOS,
+recorded anew on the General page), or by `wipemark --panel`. Drop,
+paste or import onto it, as onto the main window; what lands is a row of
+the one list. On macOS it comes and goes on its own, without bringing a
+minimised main window back.
 
 ## Build
 
@@ -272,8 +329,16 @@ git submodule update --init --recursive
 
 cargo run -p wipemark-app          # the GUI  (binary: wipemark)
 cargo run -p wipemark-cli -- --help
+
+# with the local engine: links llama.cpp's pinned prebuilt release
+cargo build --release --locked --features llama-native -p wipemark-app -p wipemark-cli
+scripts/release/macos/bundle.sh target/release dist   # Wipemark.app and the .dmg
 ```
 
+A build without `llama-native` has no model on this machine: a local
+rewrite is refused, never faked, and an endpoint still works. The Linux
+AppImage and `.deb` come from `scripts/release/linux/build.sh` in a
+pinned builder ([docs/architecture/packaging.md](docs/architecture/packaging.md)).
 The first build compiles GPUI (the `gpui-pre` crates from crates.io) and
 takes a while. See [CONTRIBUTING.md](CONTRIBUTING.md) for where GPUI and
 the vendored component come from, and `scripts/check-gpui-pin.sh` for the
@@ -283,38 +348,57 @@ check that there is exactly one of each.
 
 ```
 crates/
-  wipemark-core/      Layer A: Unicode taxonomy, scrubber, report types — zero deps
-  wipemark-engine/    RewriteEngine trait, OpenAI-compatible + llama backends, FakeEngine
-  wipemark-models/    model manifest, on-disk layout, resumable verifying downloader
-  wipemark-pipeline/  job state machine, chunking, candidates × rounds, scorers, batch
-  wipemark-image/     phase 2: container metadata, never pixels
-  wipemark-license/   Ed25519/PASETO activation, offline grace
+  wipemark-core/        Layer A: UCD tables, classifier, scrubber, NFKC, homoglyphs, guards, the report — zero deps
+  wipemark-engine/      RewriteEngine; the local engine (llama.cpp), the HTTP engine, FakeEngine for tests
+  wipemark-llama-sys/   llama.cpp's build and raw bindings, pinned at b10731, prebuilt by default
+  wipemark-llama/       the one unsafe module over them, chat formats, the runtime and its backends
+  wipemark-pipeline/    preparation, prompts and template profiles, the rewrite loop, the bench
+  wipemark-models/      the catalogue, the verifying resumable downloader, added models, the host probe
+  wipemark-store/       SQLite: settings rows, the queue's tables, the document journal
+  wipemark-queue/       the batch queue — one rewrite at a time, resumable, survives kill -9
+  wipemark-intake/      what was handed over and what it is; the one module that writes in place
+  wipemark-image/       PNG/JPEG/WebP metadata: inspect, strip
+  wipemark-pixels/      visible marks as data: propose, verify, restore
+  wipemark-picture/     a picture through both passes, one writer
+  wipemark-i18n/        Fluent catalogues (en-US, de, ru)
+  wipemark-log/         the rotating log file
+  wipemark-secret/      the OS credential store
+  wipemark-license/     types only; no licence in 0.1.0
 apps/
-  wipemark-app/       GPUI application    (binary: wipemark)
-  wipemark-cli/       scriptable frontend (binary: wipemark-cli)
+  wipemark-app/         GPUI application    (binary: wipemark)
+  wipemark-cli/         scriptable frontend (binary: wipemark-cli)
 ```
 
-Dependencies run one way — `core ← engine ← pipeline ← app/cli`, with
-`models` independent of `engine` and `image` depending only on `core` —
+Dependencies run one way — `core ← engine ← pipeline ← app/cli`;
+`engine → llama → llama-sys`; `image` and `pixels` depend only on `core`
+and never on each other; `picture → core, image, pixels`;
+`pipeline ← queue → store, intake`; nothing depends on an app crate —
 and `scripts/check-dep-direction.sh` fails the build if they stop.
 
 ## CLI exit codes
 
 ```
 0  clean       the input was read in full and nothing in it looks like a mark;
-               for clean, the result was written
+               for clean and rewrite, the result was written
 1  findings    the input carries something that looks like a mark — for clean
-               as well, after removing it; for clean, the result was written
+               and rewrite as well, after removing it; the result was written
 2  usage       bad arguments, or a refusal: a path that does not exist, a
-               folder, --out naming a folder or the input; and rewrite,
-               models and audit, which this version does not run yet
+               folder, --out naming a folder or the input, a result already
+               beside the input; for rewrite, no engine that may answer, a job
+               that failed or was cancelled, and a rewrite that rewrote
+               nothing — nothing is written
 3  partial     inconclusive: the input exists and could not be read, is not
                text, is in an 8-bit encoding this version does not name, or
-               holds an invalid sequence; or the result or standard output
-               could not be written — inconclusive is not clean
+               holds an invalid sequence; a picture whose pixels were not
+               examined, or whose mark stayed; a rewrite that kept some
+               paragraphs as they were; or the result or standard output
+               could not be written — inconclusive is not clean (3 beats 1)
 ```
 
-Which makes the binary usable as a pre-commit hook or a CI step.
+Which makes the binary usable as a pre-commit hook or a CI step;
+`audit <dir>` exits 3 when any file could not be read, findings or not.
+[docs/architecture/cli.md](docs/architecture/cli.md) has every command's
+codes.
 
 ## Gates
 
@@ -325,9 +409,13 @@ rustup run nightly rustfmt --edition 2021 --check $(find crates apps -name '*.rs
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 scripts/check-dep-direction.sh
+scripts/check-gpui-pin.sh
+scripts/check-zune-pin.sh
 ```
 
-CI runs all four (`.woodpecker/gate.yaml`).
+CI runs them on every push and pull request, with `--locked`
+(`.github/workflows/gate.yml`), together with the feature checks;
+[CLAUDE.md](CLAUDE.md) lists those and the native gates for llama.cpp.
 
 ## License
 
@@ -345,6 +433,9 @@ version is also available under the
 "Wipemark" and its logo are trademarks of GigLabo and Denis Esakov and are
 not licensed for other use. Third-party components keep their own licences:
 see [NOTICE](NOTICE) and, in every release package, `THIRD-PARTY.md`.
+<!-- TODO: the macOS bundle carries THIRD-PARTY.md only once
+scripts/release/third-party.py has written it (bundle.sh copies it "when
+built"); the local dist/ builds of the acceptance have none. -->
 
 **Acceptable use.** Wipemark is built to clean *your own* content: text and
 pictures you wrote, made or have the right to change. Do not use it to
