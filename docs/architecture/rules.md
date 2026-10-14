@@ -1496,6 +1496,18 @@
   page, the Models card of the model on duty and the status bar draw
   from. See `docs/architecture/local-engine.md`, "Keeping a model" and "A
   load, as it goes".
+* **No process reaches `exit` with a local model loaded** (F31,
+  D740–D744, 2026-10-15). On Metal, llama.cpp frees its devices in a
+  static destructor at `exit` and asserts that no model buffer is left;
+  a model still loaded there is an abort (134, "Wipemark quit
+  unexpectedly"). A job's thread lets go of its engine before it
+  closes its events (D740). `job::wait` returns only once they are closed
+  (`released`, D741), so the CLI hands back its exit code with its model
+  freed (D742). The application's quit — Quit, the tray's, the Dock's and
+  the three signals, all through GPUI's quit handlers — shuts the engine
+  on duty down (`RewriteEngine::shut_down`) under a running job, before
+  the slot is emptied (D743). A second Ctrl-C or signal ends at once with
+  `_exit` (D744, D717). See `docs/architecture/local-engine.md`.
 * **A document goes back byte for byte.** `wipemark_pipeline::prepare`
   turns a document into chunks — one paragraph or one list item each,
   never merged, and never a list marker — and every

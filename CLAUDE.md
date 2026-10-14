@@ -327,6 +327,7 @@ the gate test named there is what holds each one.
 **Engines and models**
 - Who rewrites is decided in one place (`duty.rs`); an endpoint past loopback is default-deny, a key never crosses a plaintext hop; `engine_for` never hands out a fake.
 - A model is loaded by policy in one place (`engine_host.rs`); never unloaded under a running decode.
+- No process reaches `exit` with a local model loaded: the CLI waits for its job to let go, the application's quit shuts the engine down (D740–D744).
 - The local engine is ours, pinned to one llama.cpp commit; refused rather than faked when it cannot run.
 - A downloaded model is verified and resumable; the product never deletes a file it did not download.
 - `None` means unknown, never "no".
@@ -412,5 +413,5 @@ with `"think": false` (D709).
 and the socket go. A second signal ends the process at once.
 
 Everything else is stage two (§4 of the release plan). The next free
-decision block is **D745** (D740–D744 are held for F31, the exit after a local rewrite on Metal; D735–D739 make the panel on macOS come and go on its own, F30; D734 makes the program's own directory a link's target, F29; D729–D733 make a row's actions depend on what is on disk, never on where the row came from; D728 makes AppKit window changes outside a GPUI update, F24; D723–D727 are the panel's nine anchors; D722 is the tray's Show/Hide panel item; D721 puts Compare's wrap on by default; D703–D708 are Redo a row's, D709–D714 F20/F19's, D715–D719 F1/F7's, D720 where the two meet; D702 is the macOS acceptance's Rewrite all; D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
+decision block is **D745** (D740–D744 make no process reach `exit` with a local model loaded, F31; D735–D739 make the panel on macOS come and go on its own, F30; D734 makes the program's own directory a link's target, F29; D729–D733 make a row's actions depend on what is on disk, never on where the row came from; D728 makes AppKit window changes outside a GPUI update, F24; D723–D727 are the panel's nine anchors; D722 is the tray's Show/Hide panel item; D721 puts Compare's wrap on by default; D703–D708 are Redo a row's, D709–D714 F20/F19's, D715–D719 F1/F7's, D720 where the two meet; D702 is the macOS acceptance's Rewrite all; D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
 history of every merge is [docs/plan/history.md](docs/plan/history.md).
