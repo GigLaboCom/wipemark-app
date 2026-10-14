@@ -1095,10 +1095,17 @@ fn status_of(action: Action, phase: Phase, entry: &Entry) -> Status {
 /// to keep what it has: a clean of this session (richer than its
 /// summary), a clean the line owns, a rewrite whose progress the batch
 /// queue owns.
+///
+/// A clean of this session is kept whatever the journal says of the row.
+/// Nothing but this window moves the row on from it — a rewrite or a
+/// clean again it pushes sets the row's status first — so a word of the
+/// journal's that is not the clean's own is older than the clean: a read
+/// that came back with the row as it stood before the window's writer
+/// reached the database (a rewrite's end, on a row cleaned the moment it
+/// said *Not rewritten*, D720).
 fn refreshed(current: &Status, action: Action, phase: Phase, entry: &Entry) -> Option<Status> {
     match current {
-        Status::Queued | Status::Cleaning => None,
-        Status::Done(_) if matches!(action, Action::Clean | Action::CleanImage) => None,
+        Status::Queued | Status::Cleaning | Status::Done(_) => None,
         Status::RewriteQueued | Status::Rewriting(_) if !phase.is_end() => None,
         _ => Some(status_of(action, phase, entry)),
     }

@@ -522,7 +522,9 @@ impl Rewriter {
                 result: delivered.or(Some(Delivered::Nowhere)),
                 ..entry
             };
-            work.journal.change(
+            // Over nothing the person moved the row on to after the table
+            // heard the end — a clean of it stands.
+            work.journal.change_item(
                 id,
                 &Change {
                     action: Action::Rewrite.as_str(),

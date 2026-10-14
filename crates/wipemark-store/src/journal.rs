@@ -181,15 +181,17 @@ impl<'store> Journal<'store> {
         update(&self.store.lock(), id, change)
     }
 
-    /// Change a row only if it has not ended — what a start or an
-    /// interruption heard late must never undo: an end another thread wrote
-    /// first stands. `false` when there is no such open row.
+    /// Change a row only if it has not ended and still names `change.item`
+    /// — what a start or an interruption heard late must never undo: an end
+    /// another thread wrote first stands, and so does the row's next action
+    /// (see [`Journal::update_item`]). `false` when there is no such open
+    /// row.
     pub fn update_open(&self, id: i64, change: &Change) -> Result<bool> {
         self.store
             .lock()
             .execute(
                 "UPDATE journal SET action = ?2, state = ?3, item = ?4, ended = ?5, entry = ?6
-                 WHERE id = ?1 AND ended IS NULL",
+                 WHERE id = ?1 AND ended IS NULL AND item IS ?4",
                 params![
                     id,
                     change.action,
@@ -201,6 +203,31 @@ impl<'store> Journal<'store> {
             )
             .map(|changed| changed > 0)
             .map_err(failed("update open"))
+    }
+
+    /// Change a row only while it still names `change.item` — what the end
+    /// of a batch queue item must never write over. The end is written by a
+    /// thread of its own, after it read the row; the person may have moved
+    /// the row on between the two — a clean, which names no item, or a
+    /// rewrite again, which names another — and that action stands. `false`
+    /// when there is no such row.
+    pub fn update_item(&self, id: i64, change: &Change) -> Result<bool> {
+        self.store
+            .lock()
+            .execute(
+                "UPDATE journal SET action = ?2, state = ?3, item = ?4, ended = ?5, entry = ?6
+                 WHERE id = ?1 AND item IS ?4",
+                params![
+                    id,
+                    change.action,
+                    change.state,
+                    change.item,
+                    change.ended,
+                    change.entry
+                ],
+            )
+            .map(|changed| changed > 0)
+            .map_err(failed("update item"))
     }
 
     /// Say in row `id`'s entry that its result was saved edited at `at`
@@ -586,6 +613,36 @@ mod tests {
             .expect("update open"));
         assert_eq!(
             journal.row(first).expect("row").expect("there").state,
+            "done"
+        );
+        // An item's start or end written late never lands on a row that
+        // names another item, or none: its next action stands.
+        let late = |state| Change {
+            action: "rewrite",
+            state,
+            item: Some(3),
+            ended: None,
+            entry: "{}",
+        };
+        assert!(!journal.update_open(second, &late("running")).expect("open"));
+        assert!(!journal.update_item(second, &late("done")).expect("item"));
+        assert!(!journal.update_item(first, &late("done")).expect("item"));
+        assert_eq!(journal.row(second).expect("row"), Some(rows[1].clone()));
+        assert_eq!(
+            journal.row(first).expect("row").expect("there").action,
+            "clean"
+        );
+        assert!(journal
+            .update_item(
+                second,
+                &Change {
+                    item: Some(4),
+                    ..late("done")
+                },
+            )
+            .expect("item"));
+        assert_eq!(
+            journal.row(second).expect("row").expect("there").state,
             "done"
         );
         assert!(journal.remove(first).expect("remove"));
