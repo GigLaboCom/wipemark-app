@@ -609,6 +609,18 @@ own number stays the element id (two id spaces). A row says who asked
   journal id), the bookkeeper writes its end, and a launch leaves it for
   the queue. The table, the bookkeeper and the launch's settling read the
   one rule. Remove still waits for a caller by the row's origin (D355).
+* **Every road, one menu** (D732). One file down every road that ends as
+  a row — a drop on the main window, a drop on the panel, the command line
+  through the application, an agent naming `wipemark/path` — and, once the
+  table has looked at each row's file, rows in the same status offer the
+  same Actions items with the same reasons: a rewrite done into a file, a
+  clean done here (the command line's and the agent's rows after the
+  person's Clean again), a result handed back to whoever asked. An agent's
+  call with no path is the one row whose document-needing items — Clean,
+  Rewrite, Open, Compare — are greyed, each saying why
+  (`where_a_thing_came_from_never_changes_what_its_row_can_do`, in
+  `queue/origin_tests.rs`; the intake parity test of the "Every way in"
+  rule is still to be built, README §7 E7).
 * **The command line**, with no application, writes its own row through
   `JournalWriter`, which never creates or migrates a database (D314, В5);
   the window notices it by `PRAGMA data_version`, read once a second, and

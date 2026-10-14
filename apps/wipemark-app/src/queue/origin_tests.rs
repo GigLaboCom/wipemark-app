@@ -542,3 +542,333 @@ fn a_greyed_compare_says_why_in_the_menu(cx: &mut TestAppContext) {
         );
     }
 }
+
+/// A note with one zero-width space: what a clean removes.
+const MARKED: &str = "# Notes\n\nA zero\u{200B}width space.\n";
+
+/// `tools/call` of `tool` over `text`, with `_meta` when there is one, to
+/// the application's own MCP server; the answer's result.
+fn call(
+    services: &crate::mcp::protocol::Services,
+    tool: &str,
+    text: &str,
+    meta: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut params = serde_json::json!({ "name": tool, "arguments": { "text": text } });
+    if let Some(meta) = meta {
+        params["_meta"] = meta;
+    }
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/call",
+        "params": params,
+    });
+    let answer = crate::mcp::protocol::respond_with(&body.to_string(), services, &|| false)
+        .expect("an answer");
+    let answer: serde_json::Value = serde_json::from_str(&answer).expect("JSON");
+    answer["result"].clone()
+}
+
+/// The journal row an answer made.
+fn journal_id(result: &serde_json::Value) -> i64 {
+    result["_meta"]["wipemark/journal"]
+        .as_i64()
+        .unwrap_or_else(|| panic!("the answer names no row: {result}"))
+}
+
+/// The table's row for journal row `entry`, once it is listed.
+fn row_of(queue: &Entity<Queue>, entry: i64, cx: &mut VisualTestContext) -> u64 {
+    until(cx, "the row, listed", |cx| {
+        queue.read_with(cx, |queue, _| {
+            queue.rows.iter().any(|row| row.entry == Some(entry))
+        })
+    });
+    queue.read_with(cx, |queue, _| {
+        queue
+            .rows
+            .iter()
+            .find(|row| row.entry == Some(entry))
+            .map(|row| row.id)
+            .expect("listed")
+    })
+}
+
+/// Whether row `id` says `word` — `cleaned` for a clean of this session,
+/// `rewritten` for a rewrite that ended done.
+fn says(queue: &Entity<Queue>, id: u64, word: &str, cx: &mut VisualTestContext) -> bool {
+    cx.update(|_, cx| match queue.read(cx).status_of(id) {
+        Some(Status::Done(outcome)) => outcome.verdict.id() == word,
+        Some(Status::Recorded(said)) => {
+            word == "rewritten" && said.action == Action::Rewrite && said.phase == Phase::Done
+        }
+        _ => false,
+    })
+}
+
+/// D732, the owner's sentence (2026-10-14): "the behaviour must not break
+/// the UI depending on where a thing came from". One file goes down every
+/// road that ends as a row of the one list — a drop on the main window
+/// (`take_as`, origin window), a drop on the panel (`take_from_panel`), the
+/// command line through the application (`_meta` `wipemark/origin=cli`,
+/// `wipemark/path`), and an agent naming `wipemark/path` — and once the
+/// table has looked at each row's file, rows in the same status offer the
+/// same actions, greyed with the same reasons. A note is cleaned down each
+/// road and a story rewritten.
+///
+/// * Rewrite done, its result in a file — the window's, the panel's, and
+///   the command line's once it has written its file and told the row, as
+///   `wipemark-cli` does: one menu.
+/// * Clean done here — the window's and the panel's, then the command
+///   line's and the agent's rows after the person's Clean again from the
+///   table: one menu.
+/// * Done, the result handed back to whoever asked — the command line's
+///   clean and the agent's, with a path: one menu. An agent's call with no
+///   path is the one row whose document-needing actions — Clean, Rewrite,
+///   Open, Compare — are greyed, each with its reason; the rest of its menu
+///   is the agent-with-a-path's.
+///
+/// With D729 undone, the command line's and the agent's rows have nothing
+/// behind them, and every comparison but the last is red.
+#[gpui::test]
+fn where_a_thing_came_from_never_changes_what_its_row_can_do(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("every-road");
+    let story = scratch.file("story.md", PARAGRAPH.as_bytes());
+    let note = scratch.file("note.md", MARKED.as_bytes());
+    let work = work_over(
+        Arc::new(Store::in_memory().expect("memory")),
+        Some(swapping()),
+    );
+    let services = crate::mcp::protocol::Services {
+        rewriter: Some(
+            crate::mcp::rewrite::Rewriter::new(work.engine.clone(), None)
+                .with_work(Some(work.clone())),
+        ),
+        work: Some(work.clone()),
+    };
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+
+    // The window's road and the panel's, each with both files.
+    queue.update(cx, |queue, cx| {
+        queue.hand(vec![story.clone(), note.clone()], cx)
+    });
+    cx.run_until_parked();
+    let window = cx.update(|_, cx| queue.read(cx).ids());
+    let arrival = |path: &Path| Arrival {
+        handed: Handed::Path(path.to_path_buf()),
+        intake: wipemark_intake::of_path(path),
+    };
+    let panel = queue.update(cx, |queue, cx| {
+        queue.take_from_panel(Arc::from(vec![arrival(&story), arrival(&note)]), cx)
+    });
+    let ((w_story, w_note), (p_story, p_note)) = ((window[0], window[1]), (panel[0], panel[1]));
+    until(cx, "the journal ids", |cx| {
+        queue.read_with(cx, |queue, _| {
+            queue.rows.iter().all(|row| row.entry.is_some())
+        })
+    });
+    queue.update(cx, |queue, cx| {
+        queue.clean(&[w_note, p_note], cx);
+        queue.rewrite(&[w_story, p_story], cx);
+    });
+    until(cx, "the window's and the panel's own", |cx| {
+        says(&queue, w_note, "cleaned", cx)
+            && says(&queue, p_note, "cleaned", cx)
+            && says(&queue, w_story, "rewritten", cx)
+            && says(&queue, p_story, "rewritten", cx)
+    });
+
+    // The command line's road through the application, and two agents'.
+    let named = |path: &Path, cli: bool| {
+        let mut meta = serde_json::json!({ "wipemark/path": path.to_string_lossy() });
+        if cli {
+            meta["wipemark/origin"] = serde_json::json!("cli");
+            meta["wipemark/name"] = serde_json::json!(path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned()));
+        }
+        Some(meta)
+    };
+    let roads = [
+        (named(&story, true), named(&note, true)),
+        (named(&story, false), named(&note, false)),
+        (None, None),
+    ];
+    let (answer, answers) = std::sync::mpsc::channel();
+    let calling = services.clone();
+    std::thread::spawn(move || {
+        for (rewrite_meta, clean_meta) in roads {
+            let rewritten = call(&calling, "rewrite", PARAGRAPH, rewrite_meta);
+            let cleaned = call(&calling, "clean", MARKED, clean_meta);
+            let _ = answer.send((rewritten, cleaned));
+        }
+    });
+    let heard: Rc<RefCell<Vec<(serde_json::Value, serde_json::Value)>>> = Rc::default();
+    until(cx, "the three callers", |_| {
+        heard.borrow_mut().extend(answers.try_iter());
+        heard.borrow().len() == 3
+    });
+    let heard = heard.borrow().clone();
+    for (rewritten, cleaned) in &heard {
+        assert_ne!(rewritten["isError"], serde_json::json!(true), "{rewritten}");
+        assert_ne!(cleaned["isError"], serde_json::json!(true), "{cleaned}");
+    }
+
+    // `wipemark-cli` writes the text it was handed back, then tells the
+    // application's row where the file went (`delivered_to_app_row`).
+    let cli_out = scratch.0.join("story.from-cli.md");
+    let cli_text = heard[0].0["structuredContent"]["text"]
+        .as_str()
+        .expect("the rewritten text");
+    std::fs::write(&cli_out, cli_text).expect("the command line writes");
+    let cli_entry = journal_id(&heard[0].0);
+    let row = work
+        .journal
+        .rows()
+        .into_iter()
+        .find(|row| row.id == cli_entry)
+        .expect("the command line's row");
+    let mut told = Entry::from_json(&row.entry);
+    told.result = Some(Delivered::File {
+        path: cli_out.to_string_lossy().into_owned(),
+        original: None,
+        replaced: false,
+    });
+    work.journal.change(
+        cli_entry,
+        &wipemark_store::Change {
+            action: &row.action,
+            state: &row.state,
+            item: row.item,
+            ended: row.ended,
+            entry: &told.to_json(),
+        },
+    );
+
+    let [(c_story, c_note), (a_story, a_note), (n_story, n_note)] = [0, 1, 2].map(|at| {
+        (
+            row_of(&queue, journal_id(&heard[at].0), cx),
+            row_of(&queue, journal_id(&heard[at].1), cx),
+        )
+    });
+    looked_at(&queue, 10, cx);
+    until(cx, "the command line's file, told", |cx| {
+        cx.update(|_, cx| {
+            let queue = queue.read(cx);
+            queue
+                .rows
+                .iter()
+                .find(|row| row.id == c_story)
+                .and_then(super::Row::written)
+                == Some(cli_out.clone())
+        })
+    });
+
+    let menu = |id: u64, cx: &mut VisualTestContext| {
+        cx.update(|_, cx| queue.read(cx).menu_of(id, cx))
+            .expect("a menu")
+    };
+    let live = |menu: &super::Menu, keys: &[&str]| {
+        for key in keys {
+            assert!(
+                menu.1.contains(&(*key, Item::Live)),
+                "the window's own row greys {key}: {menu:?}"
+            );
+        }
+    };
+
+    // Rewrite done, its result in a file.
+    let window_story = menu(w_story, cx);
+    live(
+        &window_story,
+        &[
+            "rewrite",
+            "open",
+            "compare",
+            "open-result",
+            "reveal-result",
+            "copy-result",
+            "remove",
+        ],
+    );
+    assert_eq!(menu(p_story, cx), window_story, "the panel's rewrite");
+    assert_eq!(
+        menu(c_story, cx),
+        window_story,
+        "the command line's rewrite"
+    );
+
+    // Done, the result back with whoever asked: the command line's clean
+    // and the agent's, with a path; the agent's call with none differs in
+    // the document-needing items alone, each greyed saying why.
+    let agent_clean = menu(a_note, cx);
+    assert_eq!(menu(c_note, cx), agent_clean, "the command line's clean");
+    let needs_the_document = ["clean", "rewrite", "open", "compare"];
+    for (with, without) in [
+        (menu(a_story, cx), menu(n_story, cx)),
+        (agent_clean.clone(), menu(n_note, cx)),
+    ] {
+        assert_eq!(with.0, without.0, "the labels");
+        for ((key, with), (same, without)) in with.1.iter().zip(&without.1) {
+            assert_eq!(key, same);
+            if needs_the_document.contains(key) {
+                assert_eq!(*with, Item::Live, "{key}, with a path");
+                let why = match *key {
+                    "clean" | "rewrite" => Message::QueueActionNotKept,
+                    _ => Message::QueueActionWhyNotKept,
+                };
+                assert_eq!(*without, Item::Greyed(Some(t(why))), "{key}, no path");
+            } else {
+                assert_eq!(with, without, "{key}");
+            }
+        }
+    }
+    // An agent's rewrite with a path: what needs the document is the
+    // window's; what needs a result on disk says the result went back.
+    let agent_story = menu(a_story, cx);
+    for key in ["rewrite", "cancel", "open", "compare", "report", "remove"] {
+        let item = |menu: &super::Menu| {
+            menu.1
+                .iter()
+                .find(|(named, _)| named == &key)
+                .map(|(_, item)| item.clone())
+        };
+        assert_eq!(item(&agent_story), item(&window_story), "{key}");
+    }
+
+    // Clean done here: the window's and the panel's; then the command
+    // line's and the agent's rows, cleaned again by the person.
+    let window_note = menu(w_note, cx);
+    live(
+        &window_note,
+        &[
+            "clean",
+            "rewrite",
+            "open",
+            "compare",
+            "open-result",
+            "reveal-result",
+            "report",
+            "remove",
+        ],
+    );
+    assert_eq!(menu(p_note, cx), window_note, "the panel's clean");
+    queue.update(cx, |queue, cx| {
+        queue.clean_again(c_note, cx);
+        queue.clean_again(a_note, cx);
+    });
+    until(cx, "the person's Clean again", |cx| {
+        says(&queue, c_note, "cleaned", cx) && says(&queue, a_note, "cleaned", cx)
+    });
+    assert_eq!(
+        menu(c_note, cx),
+        window_note,
+        "the command line's row, cleaned here"
+    );
+    assert_eq!(
+        menu(a_note, cx),
+        window_note,
+        "the agent's row, cleaned here"
+    );
+}
