@@ -235,7 +235,8 @@ impl Queue {
                 .unwrap_or_else(chrono::Local::now);
             // A file recorded, or one its caller named (D729): either is
             // looked at, and becomes what the row has behind it.
-            if entry.path.is_some() || entry.said_path.is_some() {
+            let named = journal::named_file(&entry);
+            if named.is_some() {
                 added.push((id, entry.clone()));
             }
             self.rows.push(Row {
@@ -250,16 +251,7 @@ impl Queue {
                 keyword: None,
                 // Filled in by the look below, once the file answers.
                 arrival: None,
-                named: entry
-                    .path
-                    .clone()
-                    .or_else(|| {
-                        entry
-                            .said_path
-                            .clone()
-                            .filter(|named| Path::new(named).is_absolute())
-                    })
-                    .map(PathBuf::from),
+                named,
                 preview: Preview::None,
                 arrived_at,
                 status: status_of(action, phase, &entry),

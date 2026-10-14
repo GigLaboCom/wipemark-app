@@ -152,9 +152,10 @@ pub struct Entry {
     /// the command line's own file when the application runs its rewrite —
     /// rather than one this machine's own surfaces recorded. Shown beside
     /// the row, and looked at like `path` when the row is read back
-    /// (D729): an absolute path to a regular file (or a folder) is the file
-    /// behind the row, its head read off the GPUI thread and nothing ever
-    /// opened that is not one — a FIFO, a terminal, a device (D356). The
+    /// (D729): an absolute path to a regular file (or a folder), not under
+    /// `/dev` or `/proc`, is the file behind the row, its head read off the
+    /// GPUI thread and nothing ever opened that is not one — a FIFO, a
+    /// terminal, a device (D356). The
     /// file is opened, cleaned or rewritten again only when the person asks
     /// from the row, and nothing read from it goes back to whoever named it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

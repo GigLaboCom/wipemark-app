@@ -657,8 +657,11 @@ own number stays the element id (two id spaces). A row says who asked
   `_meta` — the command line's own file, when the application runs its
   rewrite — is the row's `said_path`, and `journal::arrival_of` takes it
   when the row recorded no `path`, under D356's rule exactly: `metadata`
-  first, a regular file or a folder only, an absolute path only, its head
-  read in the look-up's own task. So a row of the command line or of an
+  first, a regular file or a folder only, its head read in the look-up's
+  own task — and, for a name another process gave, the command line's own
+  rule for its rows: an absolute path only, and nothing under `/dev` or
+  `/proc`, whose `/dev/fd/N` and `/proc/self/…` would be this
+  application's own descriptors here (`journal::named_file`). So a row of the command line or of an
   agent has its file behind it whenever the file is on disk, and is a
   window's row from there on. It is safe because nothing goes the other
   way: the head is read on this side and sent to nobody; Open, Compare,

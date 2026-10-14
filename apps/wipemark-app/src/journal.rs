@@ -877,6 +877,21 @@ pub fn entry_of(arrival: &Arrival) -> Entry {
     }
 }
 
+/// The file a journal row names — what [`arrival_of`] looks at: its
+/// recorded `path`, else its caller's `said_path` when that can name a file
+/// on this side at all (D729): absolute, and not under `/dev` or `/proc`
+/// (D356). Whether it is still there, and a file, is not asked here: this
+/// reads nothing.
+pub fn named_file(entry: &Entry) -> Option<PathBuf> {
+    match (&entry.path, &entry.said_path) {
+        (Some(recorded), _) => Some(PathBuf::from(recorded)),
+        (None, Some(named)) => Some(PathBuf::from(named)).filter(|path| {
+            path.is_absolute() && !path.starts_with("/dev") && !path.starts_with("/proc")
+        }),
+        (None, None) => None,
+    }
+}
+
 /// The thing a row names, read again from its file — what a row from an
 /// earlier session or another surface can still be opened, compared,
 /// cleaned or rewritten from.
@@ -886,7 +901,10 @@ pub fn entry_of(arrival: &Arrival) -> Entry {
 /// named path is looked at like any other, so a row the command line or an
 /// agent made behaves as a window's row whenever the same file is on disk.
 /// A named path that is not absolute names nothing here — it was the
-/// caller's, relative to a directory this side never knew.
+/// caller's, relative to a directory this side never knew — and neither
+/// does a name under `/dev` or `/proc`, the command line's own rule for its
+/// rows (D356): `/dev/fd/N` and `/proc/self/…` named by another process
+/// would be read here as this application's own descriptors and files.
 ///
 /// `None` when the row names no file, and when its path is not a regular
 /// file (or a folder) any more: a FIFO with no writer, a terminal's
@@ -896,11 +914,7 @@ pub fn entry_of(arrival: &Arrival) -> Entry {
 /// else is ever opened. Blocking: it reads the head of the file, and is
 /// called in a look-up task of its own, off the GPUI thread.
 pub fn arrival_of(entry: &Entry) -> Option<Arrival> {
-    let path = match (&entry.path, &entry.said_path) {
-        (Some(recorded), _) => PathBuf::from(recorded),
-        (None, Some(named)) => Some(PathBuf::from(named)).filter(|path| path.is_absolute())?,
-        (None, None) => return None,
-    };
+    let path = named_file(entry)?;
     // `metadata` follows a link: a link to a regular file is the file.
     let meta = std::fs::metadata(&path).ok()?;
     if !(meta.is_file() || meta.is_dir()) {
@@ -1392,6 +1406,22 @@ mod tests {
                     nothing.display()
                 );
             }
+            // A caller's `/dev/fd/N` names its own descriptor; here it is
+            // this process's — a regular file this test holds open, which
+            // must not become the caller's document.
+            use std::os::fd::AsRawFd as _;
+            let held = std::fs::File::open(&recorded).expect("open");
+            let own = std::path::PathBuf::from(format!("/dev/fd/{}", held.as_raw_fd()));
+            assert!(
+                std::fs::metadata(&own).is_ok_and(|meta| meta.is_file()),
+                "the test cannot name a descriptor of its own as a file"
+            );
+            assert_eq!(
+                arrival_in_time(said(&own)),
+                Some(None),
+                "a caller's /dev/fd name was read as this process's own file"
+            );
+            drop(held);
         }
         std::fs::remove_dir_all(&scratch).ok();
     }
