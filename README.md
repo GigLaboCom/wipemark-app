@@ -17,6 +17,27 @@ Two layers, kept apart on purpose:
 Phase 2 adds container-level metadata for images (C2PA, EXIF, XMP, IPTC,
 generator parameters) without ever re-encoding pixels.
 
+## Install
+
+Version 0.1.0 is built for two platforms:
+
+| platform | download |
+|---|---|
+| macOS on Apple Silicon | `Wipemark-0.1.0-arm64.dmg` |
+| Linux x86_64 (glibc 2.39 or newer: Ubuntu 24.04, Debian 13, Fedora 40) | `Wipemark-0.1.0-x86_64.AppImage`, or `wipemark_0.1.0_amd64.deb` for Ubuntu and Debian |
+
+There is no Windows build yet.
+
+[docs/release/0.1.0.md](docs/release/0.1.0.md) has the rest:
+- how to install on each platform, including the first open of the
+  macOS build, which is not notarized;
+- where your data and models live;
+- how to uninstall;
+- the known limitations.
+
+<!-- TODO: link the downloads once the owner decides where 0.1.0 is
+published (GitHub Releases or the release service). -->
+
 ## What this build is
 
 **Layer A is real; Layer B is not in this version.** Layer A — the
