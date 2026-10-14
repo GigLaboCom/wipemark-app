@@ -39,16 +39,26 @@
 //! foreground thread like every other `cx.displays()` call. It is an
 //! enumeration of two or three displays and a name lookup per display;
 //! it is not a disk, a network or a hash. Nothing else about a display
-//! change is done here at all — the window that is open stays where the
-//! user put it, and [`screen::contained`](crate::screen::contained)
-//! catches a rectangle that no longer fits the next time one opens.
+//! change is done here at all: what the holder does with a reading is
+//! the holder's, and [`screen::contained`](crate::screen::contained)
+//! catches a rectangle that no longer fits the next time a window opens.
+//!
+//! # The one window that follows its display
+//!
+//! The panel is placed by an anchor on an edge, and an edge is still an
+//! edge after the display it is on turns to portrait or changes
+//! resolution. So when the reading says the display the open panel is on
+//! has changed shape ([`reshaped`]), the holder puts the panel at the
+//! same anchor in the new shape — or pulls a hand's rectangle back onto
+//! it — through `panel::follow` (D725). Every other open window stays
+//! where it is.
 
 use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::Context;
 
-use crate::screen::{self, Connected};
+use crate::screen::{self, Connected, Screen};
 
 /// How long the burst of reconfiguration callbacks is left to settle
 /// before the displays are read.
@@ -74,6 +84,38 @@ const POLL: Duration = Duration::from_secs(3);
 /// woken on a projector is exactly that change.
 pub fn moved(known: &[Connected], now: &[Connected]) -> bool {
     known != now
+}
+
+/// The display `on` as `now` has it, when `known` had it too and its
+/// visible area is not what it was: turned to portrait or back, a new
+/// resolution, the Dock moved (D725). `None` for a display that is new,
+/// gone or unchanged — a display that went is the platform's to deal
+/// with while a window is open on it.
+///
+/// One display by [`Screen::same_display`]: by its key, so under X11,
+/// where every monitor has one id, a turn of one monitor is not read as a
+/// turn of another.
+pub fn reshaped(known: &[Connected], now: &[Connected], on: &Screen) -> Option<Screen> {
+    let before = known
+        .iter()
+        .find(|display| display.screen.same_display(on))?;
+    let after = now.iter().find(|display| display.screen.same_display(on))?;
+    (before.screen.visible != after.screen.visible).then(|| after.screen.clone())
+}
+
+/// Whether the last reading is behind a display as it was just measured:
+/// `known` holds the display `measured` is, with a visible area other
+/// than the one it has now (D725).
+///
+/// The moment between a display changing shape and the next reading —
+/// half a second after the platform says so, three at most — is the
+/// moment the platform may move a window to keep it on that display. A
+/// move the panel reports then is the display's doing, not a person's,
+/// and the reading that follows puts the panel at its anchor.
+pub fn behind(known: &[Connected], measured: &Screen) -> bool {
+    known.iter().any(|display| {
+        display.screen.same_display(measured) && display.screen.visible != measured.visible
+    })
 }
 
 /// Watch the displays, and hand every reading to `changed`.
@@ -221,7 +263,6 @@ mod tests {
     use gpui::{point, px, size, Bounds, DisplayId};
 
     use super::*;
-    use crate::screen::Screen;
 
     fn display(key: &str, width: f32, height: f32) -> Connected {
         Connected {
@@ -270,5 +311,89 @@ mod tests {
         after[0].primary = false;
 
         assert!(moved(&before, &after));
+    }
+
+    /// D725: the display the panel is on, turned — the same uuid, its
+    /// width and height swapped — is reshaped, and the screen handed back
+    /// is the new shape. A turn of another display, the same reading
+    /// again, and a display that went or came are not.
+    #[test]
+    fn a_turned_display_under_the_panel_is_reshaped() {
+        let landscape = display("uuid-laptop", 1512.0, 957.0);
+        let portrait = display("uuid-laptop", 957.0, 1512.0);
+        let external = display("uuid-external", 2560.0, 1415.0);
+        let on = landscape.screen.clone();
+
+        assert_eq!(
+            reshaped(
+                &[landscape.clone(), external.clone()],
+                &[portrait.clone(), external.clone()],
+                &on
+            ),
+            Some(portrait.screen.clone())
+        );
+        // The panel's display as the panel last saw it, already turned:
+        // still the same display, by its key.
+        assert_eq!(
+            reshaped(
+                std::slice::from_ref(&landscape),
+                std::slice::from_ref(&portrait),
+                &portrait.screen
+            ),
+            Some(portrait.screen.clone())
+        );
+
+        let turned = display("uuid-external", 1415.0, 2560.0);
+        assert_eq!(
+            reshaped(
+                &[landscape.clone(), external.clone()],
+                &[landscape.clone(), turned],
+                &on
+            ),
+            None,
+            "another display's turn moved the panel"
+        );
+        assert_eq!(
+            reshaped(
+                std::slice::from_ref(&landscape),
+                std::slice::from_ref(&landscape),
+                &on
+            ),
+            None
+        );
+        assert_eq!(
+            reshaped(
+                std::slice::from_ref(&landscape),
+                std::slice::from_ref(&external),
+                &on
+            ),
+            None
+        );
+        assert_eq!(
+            reshaped(&[], std::slice::from_ref(&portrait), &on),
+            None,
+            "the first reading moved the panel"
+        );
+    }
+
+    /// D725: the reading is behind a display measured in another shape
+    /// than it holds, and not behind one it holds as it is — or one it
+    /// does not hold at all.
+    #[test]
+    fn a_reading_is_behind_a_display_measured_in_another_shape() {
+        let landscape = display("uuid-laptop", 1512.0, 957.0);
+        let portrait = display("uuid-laptop", 957.0, 1512.0);
+        let external = display("uuid-external", 2560.0, 1415.0);
+
+        assert!(behind(
+            &[landscape.clone(), external.clone()],
+            &portrait.screen
+        ));
+        assert!(!behind(
+            &[portrait.clone(), external.clone()],
+            &portrait.screen
+        ));
+        assert!(!behind(std::slice::from_ref(&external), &portrait.screen));
+        assert!(!behind(&[], &portrait.screen));
     }
 }

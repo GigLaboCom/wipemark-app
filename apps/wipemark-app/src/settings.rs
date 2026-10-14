@@ -2146,7 +2146,7 @@ impl Preferences {
     /// hand over a reading on a timer without knowing whether anything
     /// has moved — and so a repaint is a repaint rather than a wake-up
     /// for every view in the application three times a second.
-    fn screens_changed(&mut self, screens: Vec<Connected>, cx: &mut Context<Self>) {
+    pub(crate) fn screens_changed(&mut self, screens: Vec<Connected>, cx: &mut Context<Self>) {
         // The first reading is always news, even when it is the empty
         // list it started as: what changed is that somebody looked.
         let first = !std::mem::replace(&mut self.screens_read, true);
@@ -2154,9 +2154,40 @@ impl Preferences {
             return;
         }
         tracing::debug!(displays = screens.len(), "the displays changed");
-        self.screens = screens;
+        let known = std::mem::replace(&mut self.screens, screens);
         self.adopt_nil(cx);
+        self.follow_the_panel(&known, cx);
         cx.notify();
+    }
+
+    /// The display the open panel is on has changed shape since `known`
+    /// — turned to portrait, a new resolution, the Dock moved — so the
+    /// panel goes to the same anchor in the new shape, or a hand's
+    /// rectangle is pulled back onto it (D725).
+    ///
+    /// Deferred: the move is an update of the panel's window, made from
+    /// outside this entity's, the way the Placement page's move is
+    /// (`SettingsView::put_back`).
+    fn follow_the_panel(&self, known: &[Connected], cx: &mut Context<Self>) {
+        let Some(on) = self.panel.and(self.panel_screen.as_ref()) else {
+            return;
+        };
+        let Some(now) = display_watch::reshaped(known, &self.screens, on) else {
+            return;
+        };
+        tracing::info!(
+            visible = ?now.visible,
+            "the panel's display changed shape; the panel follows its answer"
+        );
+        let preferences = cx.entity();
+        cx.defer(move |cx| panel::follow(&preferences, &now, cx));
+    }
+
+    /// Whether the last reading of the displays is behind `measured` —
+    /// a display that has changed shape since it was read
+    /// ([`display_watch::behind`], D725).
+    pub fn reading_behind(&self, measured: &Screen) -> bool {
+        display_watch::behind(&self.screens, measured)
     }
 
     /// The rows filed under the nil uuid — every screen's key under X11
@@ -12625,6 +12656,87 @@ mod tests {
             .expect("the bottom-centre cell");
         drag(page, chip.center(), target.center());
         assert_eq!(zone_held(&preferences, page), Some(Zone::BottomCentre));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D725, the road: the display the open panel is on turns to portrait
+    /// — the same uuid, its width and height swapped — and the reading the
+    /// display watcher hands over (`screens_changed`) puts the panel at the
+    /// same anchor in the new shape; turned back with the panel put there
+    /// by hand, the hand's rectangle is pulled back onto the screen and
+    /// not rescaled. What was asked is read through `heard`, after the
+    /// grace: the asked rectangle is ours, any other a person's. Take the
+    /// re-placement out of `screens_changed` and nothing is asked: red.
+    #[gpui::test]
+    fn a_rotated_display_puts_the_open_panel_at_the_same_anchor(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("placement-rotated");
+        cx.update(gpui_component::init);
+        cx.update(crate::dialog::init);
+        let (preferences, vcx) = added_bench(cx, &root);
+        let display = |width: f32, height: f32| Connected {
+            screen: Screen {
+                id: gpui::DisplayId::new(1),
+                key: Some("display-turned".to_owned()),
+                visible: Bounds::new(point(px(0.0), px(25.0)), size(px(width), px(height))),
+            },
+            name: Some("Test".to_owned()),
+            primary: true,
+        };
+        let landscape = display(1512.0, 957.0);
+        let portrait = display(957.0, 1512.0);
+        let rect = |x: f32, y: f32| Bounds::new(point(px(x), px(y)), size(px(420.0), px(260.0)));
+        let asked = |preferences: &Entity<Preferences>, vcx: &mut gpui::VisualTestContext, at| {
+            let later = std::time::Instant::now() + placement::GRACE * 2;
+            preferences.update(vcx, |preferences, _| preferences.heard(at, later))
+        };
+
+        preferences.update(vcx, |preferences, cx| {
+            preferences.screens_changed(vec![landscape.clone()], cx);
+        });
+        // The panel, open at the bottom right of the landscape shape.
+        let opened_at = placement::at(Zone::BottomRight, panel::SIZE, landscape.screen.visible);
+        assert_eq!(opened_at, rect(1092.0, 722.0));
+        let window = vcx
+            .update(|_, cx| {
+                cx.open_window(panel::window_options(opened_at, None), |_, cx| {
+                    cx.new(|_| gpui::EmptyView)
+                })
+            })
+            .expect("the panel's window");
+        preferences.update(vcx, |preferences, cx| {
+            preferences.panel_opened(window.into(), cx);
+            preferences.panel_moved(Some(landscape.screen.clone()), cx);
+        });
+
+        preferences.update(vcx, |preferences, cx| {
+            preferences.screens_changed(vec![portrait.clone()], cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            asked(&preferences, vcx, rect(537.0, 1277.0)),
+            placement::Heard::Ours,
+            "the panel was not put at the bottom right of the portrait shape"
+        );
+        assert_eq!(
+            asked(&preferences, vcx, opened_at),
+            placement::Heard::Person,
+            "the landscape rectangle is still what was asked"
+        );
+
+        // By hand, low on the portrait screen; turned back, the rectangle
+        // is pulled up onto the landscape one at the size it has.
+        preferences.update(vcx, |preferences, cx| {
+            preferences.put_by_hand(&portrait.screen, rect(300.0, 1200.0), cx);
+        });
+        preferences.update(vcx, |preferences, cx| {
+            preferences.screens_changed(vec![landscape.clone()], cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            asked(&preferences, vcx, rect(300.0, 722.0)),
+            placement::Heard::Ours,
+            "a hand's rectangle was not contained, or was rescaled"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 

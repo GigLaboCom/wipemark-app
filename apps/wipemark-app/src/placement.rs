@@ -83,8 +83,8 @@
 //! landscape, so a stored `bottom-right` needs no translation and nothing
 //! about a rotation can make it name a different place (D725). An open
 //! panel follows: the display watcher re-places it at the same anchor in
-//! the new shape, and a rectangle put by hand is pulled back onto the
-//! rotated screen, never rescaled. The
+//! the new shape ([`placed_again`], `panel::follow`), and a rectangle put
+//! by hand is pulled back onto the rotated screen, never rescaled. The
 //! Placement page draws each display's card in its current shape, so a
 //! portrait monitor's card is portrait and the window on it sits where it
 //! will.
@@ -605,6 +605,23 @@ pub fn where_it_goes(spot: Spot, wanted: Size<Pixels>, visible: Bounds<Pixels>) 
     screen::contained(frame_for(zone, rect, wanted, None, visible), visible)
 }
 
+/// Where an open window of `size` goes when the display it is on has
+/// changed shape and its visible area is now `visible` (D725).
+///
+/// At the same anchor, at the size the window has — a cell says where a
+/// window goes and never how big it is, the same reason the Placement
+/// page moves the panel without its rectangle (`SettingsView::apply_here`).
+/// Put there by hand, the hand's rectangle is pulled back onto the
+/// screen and never rescaled: what a person put somewhere is kept as
+/// they put it, as far as the screen allows — and it is where the window
+/// opens next time, so the two agree.
+pub fn placed_again(spot: Spot, size: Size<Pixels>, visible: Bounds<Pixels>) -> Bounds<Pixels> {
+    match spot.at {
+        Answer::Zone(zone) => at(zone, size, visible),
+        Answer::Manual => where_it_goes(spot, size, visible),
+    }
+}
+
 /// Remember what this screen was told.
 ///
 /// A screen the platform will not name stably is never written, and
@@ -1055,6 +1072,44 @@ mod tests {
                 "bottom right is not the corner of {visible:?}"
             );
         }
+    }
+
+    /// D725: an open window whose display turned goes to the same anchor
+    /// in the new shape at the size it has — not the size a hand gave it
+    /// once, which a cell never carries — and a hand's rectangle is
+    /// pulled back onto the turned screen at its own size, not rescaled.
+    #[test]
+    fn a_turned_display_keeps_the_anchor_and_contains_a_hand() {
+        let portrait = bounds(0.0, 25.0, 957.0, 1512.0);
+        let once = bounds(40.0, 60.0, 640.0, 480.0);
+
+        let zone = Spot {
+            at: Answer::Zone(Zone::BottomRight),
+            rect: Some(once),
+        };
+        assert_eq!(
+            placed_again(zone, panel(), portrait),
+            bounds(537.0, 1277.0, 420.0, 260.0)
+        );
+        assert_eq!(
+            placed_again(ticked(Zone::MiddleLeft), panel(), portrait),
+            bounds(0.0, 651.0, 420.0, 260.0)
+        );
+
+        // Put at the landscape bottom right by hand, then turned: pulled
+        // in from the right, the same size, the same height.
+        let put = bounds(1092.0, 722.0, 420.0, 260.0);
+        assert_eq!(
+            placed_again(by_hand(put), panel(), portrait),
+            bounds(537.0, 722.0, 420.0, 260.0)
+        );
+        // Put where it still fits after the turn: left exactly there.
+        let put = bounds(100.0, 300.0, 420.0, 260.0);
+        assert_eq!(
+            placed_again(by_hand(put), panel(), portrait),
+            put,
+            "a hand's rectangle was rescaled"
+        );
     }
 
     /// The precedence the whole page rests on. A zone is the user
