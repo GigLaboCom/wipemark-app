@@ -210,9 +210,10 @@
   one per display.** `apps/wipemark-app/src/placement.rs`. `Onto` is a
   row (`ui.window.screen`) and two radio buttons — the primary display,
   or the one the pointer is on when the window opens, which for a window
-  you summon is where you are looking. `Zone` is the other half: the
-  screen's *visible* area divided into six equal rectangles, three
-  across and two down, filed under the display's **uuid**
+  you summon is where you are looking. `Zone` is the other half: one of
+  nine anchors on the edges of the screen's *visible* area — the four
+  corners, the middle of each edge, the centre (D723) — filed under the
+  display's **uuid**
   (`window.zone.<uuid>`) beside the rectangle `window_state` remembers —
   because a laptop panel and the 32-inch display next to it are not the
   same question. Three states, not two: no row is the **default**, which
@@ -220,8 +221,8 @@
   absence, so the grid has a cell ticked on the first visit; `at` may be
   a cell; and `at` may be **`manual`**, the rectangle the window was
   last dragged or resized to, which **beats a cell** — dragging a window
-  somewhere is a more specific instruction than pointing at a sixth of a
-  screen, and clicking a cell afterwards beats the hand for the same
+  somewhere is a more specific instruction than pointing at an anchor,
+  and clicking a cell afterwards beats the hand for the same
   reason in the other direction. `rect` is kept beside all three because
   it carries the *size*, which a cell never does; "Restore default" is
   the one control that throws it away, and it deletes the row rather
@@ -250,12 +251,15 @@
   machine has, which is not known when the binary is built.
   `a_zone_is_never_filed_beside_a_preference` stands in for that test,
   and the page — one card per attached display — is what keeps a display
-  from having no way to answer. A window is **centred on its cell** and
-  then contained, which is one rule that reads as "flush in the corner"
-  for a window bigger than a sixth of the screen and "in the middle of
-  that sixth" for one smaller; the grid stays three by two on a portrait
-  display, because rotating a monitor must not change what a *stored*
-  value means. A zone says where and never how big. Choosing a zone
+  from having no way to answer. A window is put **flush** against the
+  edges its anchor names and then contained (`placement::at`, D724), and
+  the page draws it there, to scale (D726); an edge is an edge in either
+  orientation, so a stored value means the same place on a turned
+  display, and the display watcher puts an open panel at its anchor in
+  the new shape — a hand's rectangle contained, never rescaled (D725).
+  The six ids stored before there were nine keep their meaning, and an
+  older build reads a new one as the default and leaves the row (D727).
+  A zone says where and never how big. Choosing a zone
   applies **while you watch** only on the display the panel is already
   on: GPUI has no API for moving a window at all, `screen::translate` is
   AppKit and takes a *translation* rather than a destination (the

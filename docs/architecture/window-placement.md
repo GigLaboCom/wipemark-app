@@ -94,34 +94,52 @@ uuid, exactly the way `window_state` files a remembered rectangle, and
 for the same reason — see the note at the top of `screen.rs` on why a
 rectangle only means anything beside the display it was measured on.
 
-## Six rectangles, three across, and one of them is the default
+## Nine anchors on the edges, and one of them is the default
 
-`Zone` is the screen's *visible* area — menu bar and Dock already taken
-out — divided into three columns and two rows. The window is **centred
-on the chosen cell** and then pulled back onto the screen by
-`screen::contained`.
+`Zone` names an **edge** of the screen's *visible* area — menu bar and
+Dock already taken out — not a part of it (the owner, 2026-10-14; D723,
+D724): the four corners, the middle of each edge (top, bottom, left,
+right), and the centre, three by three. The window is put **flush**:
+`placement::at` puts the left column's left edge on the visible area's
+left edge, the right column's right edge on its right edge and centres
+the middle column across it, and the same down the rows — so "bottom
+right" is the window's bottom-right corner on the visible area's
+bottom-right corner, with no gap, whatever size either is. Then
+`screen::contained`, so a window larger than the screen still lands on
+it.
 
-Centred rather than flush into a corner, and that is one rule doing two
-jobs. A window bigger than its cell, centred on it and contained, ends
-up exactly flush in the corner — which is what a person means by "top
-left" — while a window smaller than its cell sits in the middle of it,
-which is what they mean by "top centre". Neither case needs a special
-case.
+Until D724 a zone was one of six equal rectangles (three across, two
+down) and the window was centred on it, which put a small window in the
+middle of a sixth of the screen rather than against its edge. The six
+ids stored then — `top-left`, `top-centre`, `top-right`, `bottom-left`,
+`bottom-centre`, `bottom-right` — keep their meaning; the three new ones
+are `middle-left`, `centre` and `middle-right`. A build from before reads
+a new id as no answer, takes the default and leaves the row as it is
+(D727): its `Zone::parse` finds nothing among its six and `placement::all`
+drops the row from the map and not from the database — the rule its own
+`an_answer_this_build_does_not_know_is_left_alone` held, with
+`middle-left` as its example.
 
 Every display starts at **bottom right** (`Zone::default`). A default
-that is a *place* rather than an absence is what makes the six cells
+that is a *place* rather than an absence is what makes the nine anchors
 mean something on the first visit: the page opens with one cell ticked,
-the window is already in it, and dragging it to another is one gesture
+the window is already at it, and dragging it to another is one gesture
 that visibly does what it says. Bottom right in particular is furthest
 from the menu bar and from the top-left corner every other application
 opens into.
 
-The grid is three across and two down on **every** screen, including a
-portrait one, where the cells come out tall and narrow. Flipping to two
-across and three down for a tall display was rejected: it changes what a
-*stored* value means. `bottom-right` would name a different sixth of the
-same display after the user rotated it, and a preference that moves on
-its own is one nobody can trust.
+**A turned display keeps its anchor** (D725). An edge is an edge in
+either orientation: "bottom right" is the bottom-right corner of the
+screen as it stands now, so a stored value means the same place on a
+display turned to portrait as it did in landscape, and nothing needs
+translating. (The six rectangles could not say that: a sixth of a
+landscape screen is not a sixth of the portrait one in any sense a
+person would recognise, which is why the grid used to stay three by two
+even on a portrait display.) The page draws each display's card in its
+current shape — the height is fixed (`GRID_HEIGHT`), the width follows
+the aspect ratio — so a portrait monitor's card is portrait, and the
+window drawn on it sits where it will open. See "Watching the displays"
+for what an open panel does when its display turns.
 
 ## Precedence, when a window opens
 
@@ -130,7 +148,7 @@ its own is one nobody can trust.
 1. **A hand.** `Answer::Manual` — the rectangle the panel was last
    dragged or resized to on that display. It wins over everything,
    because dragging a window somewhere is a more specific instruction
-   than pointing at a sixth of a screen.
+   than pointing at an anchor.
 2. **A zone**, at the size a hand last gave the window, or the default
    size on a display where none ever has.
 3. **The default**, which is a zone: bottom right, at the panel's own
@@ -171,17 +189,26 @@ cell. The panel floats above this window either way — that is what
 something a person checks against the *screen*, not against the
 preferences window they were reading a moment ago.
 
-**The window is picked up by the whole lit cell** (D648). The chip in a
-chosen cell is 26×18 points; a press anywhere else in the cell — the
-rectangle that reads as "the window" — used to start nothing and log
-nothing, which is what acceptance F12 saw ("dragging the window chip onto
-a zone does nothing", under XWayland). The chosen cell now carries the
-same `on_drag(DraggedWindow)` as the chip (the chip, inside, still hears
-its own press first; a press with no movement is still the cell's click),
-and a window put somewhere by hand is drawn no smaller than 24×16 points
-(`MANUAL_CHIP`). Reproduced and checked on an Xvfb of our own with XTest
-(`scripts/verify/linux-placement/xtest.py`, `placement-drag.sh`); not under
-a window manager.
+**The window is drawn where it will open** (D726). The card's nine cells
+are where a click or a drop lands, three by three, and the one in force
+is lit; the window is drawn over them at its anchor, to scale and flush
+against the card's edges as the panel will be against the screen's
+(`settings::drawn_at`, the same `placement::at` applied to the card) —
+not in the middle of a cell. A window put somewhere by hand is drawn
+where it was put, to scale. Either way it is never smaller than 24×16
+points (`SMALLEST_CHIP`), and it is grown before it is anchored, so a
+grown window is still flush.
+
+**The window is picked up by the whole lit cell** (D648). Before D726 the
+chip in a chosen cell was 26×18 points in its middle; a press anywhere
+else in the cell — the rectangle that reads as "the window" — used to
+start nothing and log nothing, which is what acceptance F12 saw
+("dragging the window chip onto a zone does nothing", under XWayland).
+The chosen cell carries the same `on_drag(DraggedWindow)` as the chip
+(the chip, drawn over the cells, still hears its own press first; a press
+with no movement is still the cell's click). Reproduced and checked on an
+Xvfb of our own with XTest (`scripts/verify/linux-placement/xtest.py`,
+`placement-drag.sh`); not under a window manager.
 
 Only a drop. The cells are also a row of buttons, because a preference
 that can only be changed by dragging is a preference somebody cannot
@@ -319,6 +346,16 @@ once the manager has the window, the frame is read; the zone's rectangle
 is computed for the **frame** — the panel's size with the title bar
 around it, so the bar stays inside the work area — asked for with
 north-west gravity, and handed to `we_placed_it`; then above and sticky.
+So under X11 "flush" (D724) is the **frame's** edge on the work area's
+edge, the window manager's title bar and borders included — what a
+person sees as the window — and not the client's: `where_it_goes` is
+handed `chrome.grow(SIZE)` (`panel::placed_by_the_window_manager`), and
+a move of an open panel (`screen::put`, a zone chosen while you watch or
+a turned display) sizes the frame off `screen::frame_of`, the client
+with `_NET_FRAME_EXTENTS` around it. The hint written before the window
+manager has the window is the client-sized rectangle's corner (best
+effort, as above); the move after it is the exact one. Read in the code,
+not checked live under a window manager here.
 A rectangle the panel is put at by hand is the frame's too: the settle
 reads the frame off the X server once the window is still, rather than
 GPUI's report, which is the client's alone and, after a reparent, can be
@@ -398,10 +435,32 @@ about stays down to a channel send.
 comparison — deliberately the whole reading and not the number of
 displays, because the change that breaks a placement hardest keeps the
 count: a display that changed resolution has a different visible area,
-and every zone on it now names a different rectangle.
+and every anchor on it now lands somewhere else.
 
-What a display change deliberately does **not** do is move any window
-that is already open. The user put it there. A window whose display has
+**The panel follows its display** (D725). When a reading says the display
+the open panel is on has changed shape — the same display by its key,
+its visible area different: turned to portrait or back, a new
+resolution, the Dock moved — `Preferences::follow_the_panel`
+(`display_watch::reshaped`) defers `panel::follow`, which puts the panel
+at the same anchor in the new shape at the size it has, or, when it was
+put there by hand, pulls the hand's rectangle back onto the screen and
+does not rescale it (`placement::placed_again`). The rectangle is told to
+`we_placed_it` first, like every move this application makes; the move is
+`screen::put`, as for a zone chosen on the page — a translation on macOS,
+the window manager's `_NET_MOVERESIZE_WINDOW` of the frame under X11.
+Before D725 nothing was re-placed: `screens_changed` stored the reading
+and adopted the nil rows, and the panel stayed where the turn left it.
+
+One guard goes with it. Between a display changing shape and the next
+reading — half a second after the platform says so, three at most — the
+platform may move the panel itself to keep it on the turned screen, and
+that move reports like a person's drag. A report settled while the last
+reading is behind the display the panel is on (`display_watch::behind`,
+`Preferences::reading_behind`) is therefore not an answer (`PanelView::settle`):
+the reading that follows puts the panel at its anchor instead of a hand's
+rectangle the turn made.
+
+Every other open window stays where it is: a window whose display has
 gone is the platform's problem to solve while it is open, and
 `screen::contained` catches a rectangle that no longer fits the next time
 one opens.
@@ -447,7 +506,8 @@ database**. The monitor is coming back; the alternative is a train
 journey silently throwing the setting away. A zone this build does not
 recognise is left alone too, the same bargain `theme = "solarized"`
 makes: read as no answer, warned about once, and still there for the
-build that grows a seventh cell.
+build that knows it — which is how a row holding `middle-left`, `centre`
+or `middle-right` reads in a build from before D723 (D727).
 
 ## What this does not do yet
 
@@ -470,7 +530,8 @@ build that grows a seventh cell.
   is GPUI's and the compositor's (`docs/plan/README.md` §7 E10).
 * **Know a monitor by its EDID.** XWayland gives none; a display is its
   connector's name (D614).
-* **Portrait grids.** Three by two everywhere, on purpose.
+* **Follow a display it cannot read.** Under native Wayland nothing is
+  placed, so nothing follows a turn either; the poll still notices it.
 
 ## Gates
 
@@ -479,8 +540,14 @@ build that grows a seventh cell.
 | `placement::the_default_is_what_the_application_already_did` | `Onto` cannot change which screen a window opens on for somebody who never visits the page |
 | `placement::the_primary_choice_ignores_where_the_request_came_from` | the other choice is a promise, not a hint |
 | `placement::a_preference_that_cannot_be_honoured_still_opens_the_window` | no display, no primary, no refusal to open |
-| `placement::the_six_cells_tile_the_visible_area` | no gaps, no overlaps, outer edges are the screen's own |
-| `placement::a_window_larger_than_its_cell_lands_in_the_corner` | the rule that made "centred" enough |
+| `placement::each_anchor_puts_the_window_flush_against_its_edges` | the nine anchors, flush on the visible area's edges, and a window wider than the screen still on it (D724) |
+| `placement::a_rotated_display_keeps_every_anchor_on_its_edges` | the same nine on the display turned to portrait (D725) |
+| `placement::a_turned_display_keeps_the_anchor_and_contains_a_hand` | an open panel's anchor at the size it has, a hand's rectangle contained and not rescaled (D725) |
+| `placement::the_six_old_ids_keep_their_meaning_and_an_unknown_one_reads_as_the_default`, `placement::the_stored_names_are_the_ones_that_were_written` | the nine ids round-trip, the six old ones mean what they meant, an unknown one is the default and stays in its row (D723, D727) |
+| `display_watch::a_turned_display_under_the_panel_is_reshaped`, `display_watch::a_reading_is_behind_a_display_measured_in_another_shape` | which reading moves the panel, and when a move is the display's (D725) |
+| `settings::a_rotated_display_puts_the_open_panel_at_the_same_anchor` | the road: a turn handed over by the watcher puts the open panel at its anchor (D725) |
+| `panel::a_move_while_the_display_turns_is_not_a_persons` | a move before the turn is read is not filed as a hand (D725) |
+| `settings::the_grid_is_nine_cells_and_the_window_is_drawn_at_its_anchor` | nine cells in reading order, and the window drawn flush and to scale where it will open (D726) |
 | `placement::a_chosen_zone_beats_a_remembered_position_and_keeps_its_size` | the precedence, and that a zone is not a size |
 | `placement::a_hand_beats_a_cell_and_a_cell_beats_a_hand_afterwards` | last word wins, in both directions |
 | `placement::a_cell_keeps_the_size_a_hand_gave_it` | a cell says where and never how big |
@@ -498,7 +565,7 @@ build that grows a seventh cell.
 | `display_watch::a_display_that_only_changed_resolution_is_a_change` | the comparison a display count would miss |
 | `session::a_wayland_session_with_xwayland_draws_through_xwayland` and the four beside it | XWayland by default, the opt-out, no `DISPLAY`, an X11 session, an X server that does not answer (D611) |
 | `x11::a_move_names_its_gravity_its_fields_and_an_application_as_its_source` | the zone's corner is the frame's, sent as `_NET_MOVERESIZE_WINDOW` wants it (D613) |
-| `x11::the_work_area_is_the_monitors_own`, `x11::the_work_area_falls_back_to_the_desktops_then_the_monitor` | a zone is a sixth of the monitor's work area, not the desktop's |
+| `x11::the_work_area_is_the_monitors_own`, `x11::the_work_area_falls_back_to_the_desktops_then_the_monitor` | a zone's edges are the monitor's work area's, not the desktop's |
 | `x11::a_point_is_on_the_monitor_that_holds_it_or_the_nearest` | the pointer's monitor (D612) |
 | `x11::a_display_is_keyed_by_its_output_name_as_wayland_keys_it` | the key is Wayland's uuid for the output, and never the nil one (D614) |
 | `screen::two_monitors_of_one_x_screen_are_two_displays` | one X screen, one id, two displays |

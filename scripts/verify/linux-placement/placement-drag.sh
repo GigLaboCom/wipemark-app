@@ -16,6 +16,13 @@
 #   window", started nothing and logged nothing. The fix makes the whole lit
 #   cell the handle; this script holds both presses.
 #
+#   Since D726 (2026-10-14) the grid is three by three and the window is
+#   drawn flush at its anchor, to scale — about 37×23 points here, in the
+#   lit cell's corner rather than its middle. The points below were
+#   computed for three rows from the grid measured for two (its inside at
+#   217,487 from the window's corner, 168.5×94), not measured again: the
+#   first run under D726 is the check of them.
+#
 # What it does, step by step
 #   1. Refuses to start if the display (default :95) is taken; starts
 #      `Xvfb :95 -screen 0 1920x1080x24`, core dumps off.
@@ -141,11 +148,13 @@ stop() {
 
 xt() { DISPLAY=$XD python3 -I "$XT" "$@"; }
 # A point on the page, from the Settings window's own corner. The grid's
-# cells are 56 points wide and 45 high; their centres, and the chip in the
-# middle of a lit cell, measured off this layout (1920×1080, scale 1).
+# cells are 56 points wide and 31 high (three rows since D726); their
+# centres, from the layout measured at 1920×1080, scale 1, for two rows of
+# 47 (see the header). The window drawn at an anchor in a cell's corner
+# covers the cell's centre too.
 at() { echo "$((OX + $1)) $((OY + $2))"; }
 COL=(245 302 358)
-ROW=(510 556)
+ROW=(502 534 565)
 shot() { xt shot "$SCRATCH/$1.png" 2>/dev/null || true; }
 
 WINDOW="window.settings.$KEY={\"x\":550.0,\"y\":100.0,\"width\":820.0,\"height\":800.0}"
@@ -157,14 +166,15 @@ if [ -z "$OX" ]; then
     say "the Settings window opened" "FAIL (log $A.log)"
 else
     shot a0
-    # a. beside the chip, in the lit cell: its corner, clear of the chip.
-    xt drag $(at 336 540) $(at "${COL[0]}" "${ROW[0]}") --steps 25; sleep 1
+    # a. beside the chip, in the lit cell: its top-left corner, clear of the
+    #    chip drawn flush in its bottom-right one.
+    xt drag $(at 335 554) $(at "${COL[0]}" "${ROW[0]}") --steps 25; sleep 1
     shot a1
     got=$(zone "$A/wipemark.db")
     [ "$got" = top-left ] && say "a. a press beside the chip, in the lit cell, picks the window up" ok \
         || say "a. a press beside the chip, in the lit cell, picks the window up" "FAIL (zone $got)"
     # b. the chip itself, now in the top-left cell.
-    xt drag $(at "${COL[0]}" "${ROW[0]}") $(at "${COL[1]}" "${ROW[1]}") --steps 25; sleep 1
+    xt drag $(at "${COL[0]}" "${ROW[0]}") $(at "${COL[1]}" "${ROW[2]}") --steps 25; sleep 1
     shot b
     got=$(zone "$A/wipemark.db")
     [ "$got" = bottom-centre ] && say "b. the chip itself drags as before" ok \
@@ -184,11 +194,11 @@ start "$D"
 if [ -z "$OX" ]; then
     say "the Settings window opened (round 2)" "FAIL (log $D.log)"
 else
-    xt click $(at "${COL[0]}" "${ROW[1]}"); sleep 1
+    xt click $(at "${COL[0]}" "${ROW[2]}"); sleep 1
     got=$(zone "$D/wipemark.db")
     [ "$got" = bottom-left ] && [ -n "$(settings_origin)" ] && say "d. with Close after a drop on, a click leaves Settings open" ok \
         || say "d. with Close after a drop on, a click leaves Settings open" "FAIL (zone $got)"
-    xt drag $(at "${COL[0]}" "${ROW[1]}") $(at "${COL[2]}" "${ROW[0]}") --steps 25; sleep 1.5
+    xt drag $(at "${COL[0]}" "${ROW[2]}") $(at "${COL[2]}" "${ROW[0]}") --steps 25; sleep 1.5
     got=$(zone "$D/wipemark.db")
     [ "$got" = top-right ] && [ -z "$(settings_origin)" ] && say "d. a drop chooses the cell and closes Settings" ok \
         || say "d. a drop chooses the cell and closes Settings" "FAIL (zone $got, Settings $(settings_origin))"

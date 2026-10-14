@@ -250,7 +250,7 @@ that still ships in the binary and still has to be licence-audited.
 | `display` / `sun` / `moon` | the appearance selector's three choices (E6) |
 | `copy` | copy the MCP snippet (E6); `gpui_component::Clipboard`, which the queue's ID and Keyword cells are (E6); the result's toolbar, `input::Copy` (E7) |
 | `hard-drive` | Settings sidebar: Models (E6); the model shelf's banner |
-| `table-cells-large` | Settings sidebar: Placement (E6); the banner over the per-display grids. A grid of cells, which is the control that page is — a screen divided into sixths, one of them ticked. Deliberately not the plain `display` above — two rows of the window wearing one glyph is a sidebar that has stopped being scannable — and not FA's `display-arrow-down`, a window arriving on a screen, which is the one glyph the set had that Free Solid does not carry |
+| `table-cells-large` | Settings sidebar: Placement (E6); the banner over the per-display grids. A grid of cells, which is the control that page is — a screen's nine anchors, three by three, one of them ticked. Deliberately not the plain `display` above — two rows of the window wearing one glyph is a sidebar that has stopped being scannable — and not FA's `display-arrow-down`, a window arriving on a screen, which is the one glyph the set had that Free Solid does not carry |
 | `download` | fetch a catalogue entry — the Models page's button (E6) |
 | `trash` | remove downloaded weights (E6) |
 | `circle-check` | the model chosen for a role, on its card (E6) |
