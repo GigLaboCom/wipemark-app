@@ -30,14 +30,14 @@
 //!
 //! Every display starts at [`Zone::default`] — the bottom right — and
 //! not at "wherever it lands". A default that is a *place* is what
-//! makes the six cells mean something on the first visit: the page
-//! opens with one ticked, the window is already in it, and dragging it
+//! makes the nine anchors mean something on the first visit: the page
+//! opens with one ticked, the window is already at it, and dragging it
 //! to another is one gesture that visibly does what it says.
 //!
 //! # A hand beats a cell, and the last word wins
 //!
 //! The window can also be moved and resized by hand, and that is an
-//! instruction too — a more specific one than a sixth of a screen. So
+//! instruction too — a more specific one than an anchor. So
 //! [`Answer::Manual`] is the second answer a display can hold, it wins
 //! over any cell, and the rectangle it names is kept beside it. Click a
 //! cell afterwards and the cell wins again; the rectangle stays, for
@@ -54,25 +54,40 @@
 //! grid on the page, which draws one card per connected display and so
 //! cannot leave a display unreachable.
 //!
-//! # Six rectangles, three across
+//! # Nine anchors, on the edges
 //!
-//! A screen's visible area divided into [`Zone::COLUMNS`] × [`Zone::ROWS`]
-//! equal rectangles, and the window is centred on the one that was
-//! chosen. Centred rather than flush into a corner, because a window is
-//! very often *bigger* than a sixth of a screen — Settings is 820 points
-//! wide and a third of a laptop panel is 504 — and centring degrades
-//! into exactly the corner behaviour once
-//! [`screen::contained`](crate::screen::contained) pulls it back onto
-//! the screen. One rule, two useful behaviours, and no special case for
-//! "the window does not fit in its cell".
+//! A [`Zone`] names an **edge**, not a part of the screen (D723, D724):
+//! the four corners, the middle of each of the four edges, and the
+//! centre — [`Zone::COLUMNS`] × [`Zone::ROWS`], three by three. The
+//! window is put **flush** against the edges its anchor names, on the
+//! screen's *visible* area (the menu bar and the Dock already taken out):
+//! the left column's left edge on the visible area's left edge, the right
+//! column's right edge on its right edge, the middle column centred
+//! across it — and the same down the rows. No gap: "bottom right" is the
+//! window's bottom-right corner on the visible area's bottom-right
+//! corner, whatever size either is. [`at`] is the whole rule, and
+//! [`screen::contained`](crate::screen::contained) afterwards keeps a
+//! window larger than the screen on it.
 //!
-//! The grid is three across and two down on **every** screen, including
-//! a portrait one, where the cells come out tall and narrow. The
-//! alternative — flipping to two across and three down when a display is
-//! taller than it is wide — was rejected because it changes what a
-//! *stored* value means: `bottom-right` would name a different sixth of
-//! the same display after the user rotated it, and a preference that
-//! moves on its own is one nobody can trust.
+//! The six ids written before there were nine (`top-left` … `bottom-right`)
+//! keep their meaning; the three new ones are `middle-left`, `centre` and
+//! `middle-right`. A build that predates them reads them as no answer and
+//! leaves the row alone (D727), the rule [`all`] keeps for every value it
+//! cannot use.
+//!
+//! # A rotated display keeps its anchor
+//!
+//! Because an anchor names edges and not a fraction of the screen, it
+//! means the same thing in every shape the screen can take. A display
+//! rotated to portrait has a bottom-right corner exactly as it had in
+//! landscape, so a stored `bottom-right` needs no translation and nothing
+//! about a rotation can make it name a different place (D725). An open
+//! panel follows: the display watcher re-places it at the same anchor in
+//! the new shape, and a rectangle put by hand is pulled back onto the
+//! rotated screen, never rescaled. The
+//! Placement page draws each display's card in its current shape, so a
+//! portrait monitor's card is portrait and the window on it sits where it
+//! will.
 
 use std::collections::BTreeMap;
 
@@ -158,15 +173,19 @@ impl Onto {
     }
 }
 
-/// One of the six rectangles a screen's visible area is divided into.
+/// One of the nine places on a screen's visible area a window is
+/// anchored to: a corner, the middle of an edge, or the centre (D723).
 ///
-/// The names are the picture: three columns across, two rows down, read
-/// the way the page draws them.
+/// The names are the picture: three columns across, three rows down,
+/// read the way the page draws them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Zone {
     TopLeft,
     TopCentre,
     TopRight,
+    MiddleLeft,
+    Centre,
+    MiddleRight,
     BottomLeft,
     BottomCentre,
     /// The default for every display that has not been given an
@@ -178,18 +197,21 @@ pub enum Zone {
 }
 
 impl Zone {
-    /// How many cells across the screen is divided into.
+    /// How many anchors across: the left edge, the middle, the right
+    /// edge.
     pub const COLUMNS: usize = 3;
-    /// And how many down. Three by two is six, which is the number a
-    /// person can point at without counting.
-    pub const ROWS: usize = 2;
+    /// And how many down: the top edge, the middle, the bottom edge.
+    pub const ROWS: usize = 3;
 
     /// Every zone, in reading order — which is also the order the grid
     /// lays them out, so the page can zip the two without a table.
-    pub const ALL: [Zone; 6] = [
+    pub const ALL: [Zone; 9] = [
         Self::TopLeft,
         Self::TopCentre,
         Self::TopRight,
+        Self::MiddleLeft,
+        Self::Centre,
+        Self::MiddleRight,
         Self::BottomLeft,
         Self::BottomCentre,
         Self::BottomRight,
@@ -212,9 +234,9 @@ impl Zone {
     /// under another cell's name.
     pub fn column(self) -> usize {
         match self {
-            Self::TopLeft | Self::BottomLeft => 0,
-            Self::TopCentre | Self::BottomCentre => 1,
-            Self::TopRight | Self::BottomRight => 2,
+            Self::TopLeft | Self::MiddleLeft | Self::BottomLeft => 0,
+            Self::TopCentre | Self::Centre | Self::BottomCentre => 1,
+            Self::TopRight | Self::MiddleRight | Self::BottomRight => 2,
         }
     }
 
@@ -222,18 +244,23 @@ impl Zone {
     pub fn row(self) -> usize {
         match self {
             Self::TopLeft | Self::TopCentre | Self::TopRight => 0,
-            Self::BottomLeft | Self::BottomCentre | Self::BottomRight => 1,
+            Self::MiddleLeft | Self::Centre | Self::MiddleRight => 1,
+            Self::BottomLeft | Self::BottomCentre | Self::BottomRight => 2,
         }
     }
 
     /// The value written to the row, and a **format**: a zone saved by
     /// this build is read by the next one, so these words are not
-    /// spelling and not translation.
+    /// spelling and not translation. The first six are the ones written
+    /// before there were nine, and mean what they meant (D723).
     pub fn id(self) -> &'static str {
         match self {
             Self::TopLeft => "top-left",
             Self::TopCentre => "top-centre",
             Self::TopRight => "top-right",
+            Self::MiddleLeft => "middle-left",
+            Self::Centre => "centre",
+            Self::MiddleRight => "middle-right",
             Self::BottomLeft => "bottom-left",
             Self::BottomCentre => "bottom-centre",
             Self::BottomRight => "bottom-right",
@@ -241,18 +268,22 @@ impl Zone {
     }
 
     /// The stored value back, or `None` for a name this build does not
-    /// know.
+    /// know — which the caller reads as no answer, the default, and
+    /// leaves in the row (D727).
     pub fn parse(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|zone| zone.id() == value)
     }
 
-    /// What the cell is called on screen — a tooltip on the cell, and
+    /// What the anchor is called on screen — a tooltip on the cell, and
     /// the sentence under the grid once one is chosen.
     pub fn label(self) -> Message {
         match self {
             Self::TopLeft => Message::SettingsPlacementZoneTopLeft,
             Self::TopCentre => Message::SettingsPlacementZoneTopCentre,
             Self::TopRight => Message::SettingsPlacementZoneTopRight,
+            Self::MiddleLeft => Message::SettingsPlacementZoneMiddleLeft,
+            Self::Centre => Message::SettingsPlacementZoneCentre,
+            Self::MiddleRight => Message::SettingsPlacementZoneMiddleRight,
             Self::BottomLeft => Message::SettingsPlacementZoneBottomLeft,
             Self::BottomCentre => Message::SettingsPlacementZoneBottomCentre,
             Self::BottomRight => Message::SettingsPlacementZoneBottomRight,
@@ -351,36 +382,41 @@ pub fn opening(
     (Some(screen.clone()), content_of(frame, chrome))
 }
 
-/// The rectangle `zone` names inside a screen's visible area.
+/// Where a window of `wanted` goes on a screen whose zone is `zone`:
+/// flush against the edges the anchor names (D724).
 ///
-/// Computed from the far edge rather than by multiplying a cell width,
-/// so the right-hand column ends exactly at the right-hand edge however
-/// the division rounds. A grid with a one-pixel gutter down the last
-/// column is the kind of thing nobody reports and everybody sees.
-pub fn cell(zone: Zone, within: Bounds<Pixels>) -> Bounds<Pixels> {
-    let left = within.origin.x.as_f32();
-    let top = within.origin.y.as_f32();
-    let width = within.size.width.as_f32();
-    let height = within.size.height.as_f32();
-
-    let edge =
-        |start: usize, of: usize, from: f32, span: f32| from + span * start as f32 / of as f32;
-
-    let x0 = edge(zone.column(), Zone::COLUMNS, left, width);
-    let x1 = edge(zone.column() + 1, Zone::COLUMNS, left, width);
-    let y0 = edge(zone.row(), Zone::ROWS, top, height);
-    let y1 = edge(zone.row() + 1, Zone::ROWS, top, height);
-
-    Bounds::new(point(px(x0), px(y0)), size(px(x1 - x0), px(y1 - y0)))
-}
-
-/// Where a window of `wanted` goes on a screen whose zone is `zone`.
-///
-/// Centred on the cell and then pulled back onto the screen, which is
-/// the whole rule — see the note at the top of this module on why that
-/// is one rule and not two.
+/// Across, the left column puts the window's left edge on the visible
+/// area's left edge, the right column its right edge on the right edge,
+/// and the middle column centres it; down, the same with the top, the
+/// middle and the bottom. Then [`screen::contained`], so a window larger
+/// than the screen still lands on it. The whole rule — see the note at
+/// the top of this module on why an edge and not a part of the screen.
 pub fn at(zone: Zone, wanted: Size<Pixels>, visible: Bounds<Pixels>) -> Bounds<Pixels> {
-    screen::contained(screen::centred(wanted, cell(zone, visible)), visible)
+    // The window's near edge along one axis: on the start, centred, or
+    // on the end of the span the visible area covers.
+    let along = |index: usize, from: Pixels, span: Pixels, length: Pixels| {
+        let (from, span, length) = (from.as_f32(), span.as_f32(), length.as_f32());
+        px(match index {
+            0 => from,
+            1 => from + (span - length) / 2.0,
+            _ => from + span - length,
+        })
+    };
+    let origin = point(
+        along(
+            zone.column(),
+            visible.origin.x,
+            visible.size.width,
+            wanted.width,
+        ),
+        along(
+            zone.row(),
+            visible.origin.y,
+            visible.size.height,
+            wanted.height,
+        ),
+    );
+    screen::contained(Bounds::new(origin, wanted), visible)
 }
 
 /// What one display was told, and the rectangle behind it.
@@ -418,7 +454,7 @@ impl Default for Spot {
 /// predict from the outside.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Answer {
-    /// One of the six cells.
+    /// One of the nine anchors.
     Zone(Zone),
     /// Exactly where it was put, at the size it was given.
     Manual,
@@ -488,7 +524,7 @@ struct Row {
 ///
 /// A row this build cannot read is dropped from the map and **left in
 /// the database**, the rule `config` keeps for every unusable value: a
-/// build that grows a seventh cell makes it come true without the user
+/// build that grows a tenth anchor makes it come true without the user
 /// touching anything.
 pub fn all(store: &Store) -> BTreeMap<String, Spot> {
     let rows = match store.settings().all() {
@@ -912,67 +948,113 @@ mod tests {
         );
     }
 
-    /// Six cells, no overlaps, no gaps, and the outer edges are the
-    /// screen's own.
-    #[test]
-    fn the_six_cells_tile_the_visible_area() {
-        let visible = bounds(0.0, 25.0, 1200.0, 600.0);
-        let cells: Vec<Bounds<Pixels>> = Zone::ALL
-            .into_iter()
-            .map(|zone| cell(zone, visible))
-            .collect();
-
-        let area: f32 = cells
-            .iter()
-            .map(|cell| cell.size.width.as_f32() * cell.size.height.as_f32())
-            .sum();
-        assert_eq!(area, 1200.0 * 600.0, "the cells do not cover the screen");
-
-        assert_eq!(cells[0], bounds(0.0, 25.0, 400.0, 300.0));
-        assert_eq!(
-            cells[2].origin.x.as_f32() + cells[2].size.width.as_f32(),
-            1200.0
-        );
-        assert_eq!(
-            cells[5].origin.y.as_f32() + cells[5].size.height.as_f32(),
-            625.0
-        );
+    /// The panel's own size, which is what the anchors are tested with.
+    fn panel() -> Size<Pixels> {
+        size(px(420.0), px(260.0))
     }
 
-    /// The menu bar is above the visible area, so a top zone starts
-    /// under it rather than at the top of the display.
-    #[test]
-    fn a_top_zone_starts_below_the_menu_bar() {
-        let visible = bounds(0.0, 25.0, 1200.0, 600.0);
-        assert_eq!(cell(Zone::TopLeft, visible).origin.y.as_f32(), 25.0);
+    /// Every anchor's rectangle on `visible`, exactly — and the rule
+    /// said a second way, edge by edge: a column or row that names an
+    /// edge touches it, and the middle one is centred (D724).
+    fn assert_anchored(visible: Bounds<Pixels>, wanted: Size<Pixels>, origins: [(f32, f32); 9]) {
+        let left = visible.origin.x.as_f32();
+        let top = visible.origin.y.as_f32();
+        let right = left + visible.size.width.as_f32();
+        let bottom = top + visible.size.height.as_f32();
+        for (zone, (x, y)) in Zone::ALL.into_iter().zip(origins) {
+            let placed = at(zone, wanted, visible);
+            assert_eq!(
+                placed,
+                Bounds::new(point(px(x), px(y)), wanted),
+                "{zone:?} on {visible:?}"
+            );
+            let x0 = placed.origin.x.as_f32();
+            let y0 = placed.origin.y.as_f32();
+            let x1 = x0 + placed.size.width.as_f32();
+            let y1 = y0 + placed.size.height.as_f32();
+            match zone.column() {
+                0 => assert_eq!(x0, left, "{zone:?} is off the left edge"),
+                1 => assert_eq!(x0 - left, right - x1, "{zone:?} is not centred across"),
+                _ => assert_eq!(x1, right, "{zone:?} is off the right edge"),
+            }
+            match zone.row() {
+                0 => assert_eq!(y0, top, "{zone:?} is off the top edge"),
+                1 => assert_eq!(y0 - top, bottom - y1, "{zone:?} is not centred down"),
+                _ => assert_eq!(y1, bottom, "{zone:?} is off the bottom edge"),
+            }
+        }
     }
 
-    /// The case the module exists to get right: Settings is wider than
-    /// a third of a laptop panel, so "top left" has to mean *flush into
-    /// the top-left corner* rather than "centred on a cell it does not
-    /// fit in".
+    /// D724: the nine anchors on a laptop panel's visible area — the menu
+    /// bar's 25 points above it — flush, with no gap: the corners on two
+    /// edges, the middles of the edges on one and centred along it, the
+    /// centre centred. Under the old rule the window was centred on a
+    /// sixth of the screen, and every one of these but the corners of a
+    /// window too big for its sixth came out somewhere else.
     #[test]
-    fn a_window_larger_than_its_cell_lands_in_the_corner() {
+    fn each_anchor_puts_the_window_flush_against_its_edges() {
         let visible = bounds(0.0, 25.0, 1512.0, 957.0);
-        let window = size(px(820.0), px(560.0));
-
-        let placed = at(Zone::TopLeft, window, visible);
-        assert_eq!(placed.origin, point(px(0.0), px(25.0)));
-
-        let placed = at(Zone::BottomRight, window, visible);
-        assert_eq!(
-            placed.origin,
-            point(px(1512.0 - 820.0), px(25.0 + 957.0 - 560.0))
+        assert_anchored(
+            visible,
+            panel(),
+            [
+                (0.0, 25.0),
+                (546.0, 25.0),
+                (1092.0, 25.0),
+                (0.0, 373.5),
+                (546.0, 373.5),
+                (1092.0, 373.5),
+                (0.0, 722.0),
+                (546.0, 722.0),
+                (1092.0, 722.0),
+            ],
         );
+
+        // A window wider than the screen still lands on it, as wide as it
+        // can be, at its anchor's row.
+        let wide = size(px(2000.0), px(260.0));
+        for (zone, y) in Zone::ALL
+            .into_iter()
+            .zip([25.0, 25.0, 25.0, 373.5, 373.5, 373.5, 722.0, 722.0, 722.0])
+        {
+            assert_eq!(
+                at(zone, wide, visible),
+                bounds(0.0, y, 1512.0, 260.0),
+                "{zone:?} hangs off the screen"
+            );
+        }
     }
 
-    /// And a window that does fit is centred on its cell rather than
-    /// jammed into a corner of it.
+    /// D725, the arithmetic: the same display turned to portrait — its
+    /// width and height swapped — and every anchor is still on its edges
+    /// in the new shape. Bottom right is the bottom-right corner of the
+    /// screen as it stands now, in either shape.
     #[test]
-    fn a_window_that_fits_is_centred_on_its_cell() {
-        let visible = bounds(0.0, 0.0, 1200.0, 600.0);
-        let placed = at(Zone::BottomCentre, size(px(200.0), px(100.0)), visible);
-        assert_eq!(placed, bounds(500.0, 400.0, 200.0, 100.0));
+    fn a_rotated_display_keeps_every_anchor_on_its_edges() {
+        let landscape = bounds(0.0, 25.0, 1512.0, 957.0);
+        let portrait = bounds(0.0, 25.0, 957.0, 1512.0);
+        assert_anchored(
+            portrait,
+            panel(),
+            [
+                (0.0, 25.0),
+                (268.5, 25.0),
+                (537.0, 25.0),
+                (0.0, 651.0),
+                (268.5, 651.0),
+                (537.0, 651.0),
+                (0.0, 1277.0),
+                (268.5, 1277.0),
+                (537.0, 1277.0),
+            ],
+        );
+        for visible in [landscape, portrait] {
+            assert_eq!(
+                at(Zone::BottomRight, panel(), visible).bottom_right(),
+                visible.bottom_right(),
+                "bottom right is not the corner of {visible:?}"
+            );
+        }
     }
 
     /// The precedence the whole page rests on. A zone is the user
@@ -999,7 +1081,7 @@ mod tests {
         assert_eq!(
             placed.origin,
             point(px(1200.0 - 500.0), px(25.0 + 600.0 - 400.0)),
-            "a window wider than a third of the screen lands flush in the corner"
+            "the window lands flush in the corner, at the size it kept"
         );
 
         // And with nothing remembered, the zone still applies — at the
@@ -1053,6 +1135,9 @@ mod tests {
                 "top-left",
                 "top-centre",
                 "top-right",
+                "middle-left",
+                "centre",
+                "middle-right",
                 "bottom-left",
                 "bottom-centre",
                 "bottom-right"
@@ -1061,11 +1146,67 @@ mod tests {
         for zone in Zone::ALL {
             assert_eq!(Zone::parse(zone.id()), Some(zone));
         }
-        assert_eq!(Zone::parse("middle-left"), None);
+        assert_eq!(Zone::parse("left-of-centre"), None);
         for onto in Onto::ALL {
             assert_eq!(Onto::parse(onto.as_str()), Some(onto));
         }
         assert_eq!(Onto::parse("whichever"), None);
+    }
+
+    /// D723, D727: the six ids written before there were nine name the
+    /// same corner or edge they named then — the top row is still the
+    /// top, the bottom row the bottom — and the nine round-trip through a
+    /// row. A word no build wrote is no answer: the display takes the
+    /// default and the row is left as it was.
+    #[test]
+    fn the_six_old_ids_keep_their_meaning_and_an_unknown_one_reads_as_the_default() {
+        // (id, the zone, its column, and the row: top 0, bottom the last)
+        let old = [
+            ("top-left", Zone::TopLeft, 0, 0),
+            ("top-centre", Zone::TopCentre, 1, 0),
+            ("top-right", Zone::TopRight, 2, 0),
+            ("bottom-left", Zone::BottomLeft, 0, Zone::ROWS - 1),
+            ("bottom-centre", Zone::BottomCentre, 1, Zone::ROWS - 1),
+            ("bottom-right", Zone::BottomRight, 2, Zone::ROWS - 1),
+        ];
+        for (id, zone, column, row) in old {
+            assert_eq!(Zone::parse(id), Some(zone), "{id} changed meaning");
+            assert_eq!((zone.column(), zone.row()), (column, row), "{id} moved");
+        }
+
+        let store = Store::in_memory().expect("open");
+        for zone in Zone::ALL {
+            let display = screen(&format!("uuid-{}", zone.id()));
+            save(&store, &display, ticked(zone)).expect("write");
+            assert_eq!(
+                spot_for(&all(&store), &display).at,
+                Answer::Zone(zone),
+                "{zone:?} did not come back from its row"
+            );
+        }
+
+        let unknown = serde_json::json!({ "at": "left-of-centre" });
+        store
+            .settings()
+            .set("window.zone.uuid-unknown", &unknown)
+            .expect("write");
+        assert!(
+            !all(&store).contains_key("uuid-unknown"),
+            "an unknown word was read as an answer"
+        );
+        assert_eq!(
+            spot_for(&all(&store), &screen("uuid-unknown")),
+            Spot::default(),
+            "an unknown word is not the default"
+        );
+        assert_eq!(
+            store
+                .settings()
+                .get::<serde_json::Value>("window.zone.uuid-unknown")
+                .expect("read"),
+            Some(unknown),
+            "an unknown word was not left in its row"
+        );
     }
     /// The rule the per-display rows exist for: two screens, two
     /// answers, and answering on one does not touch the other.
@@ -1115,7 +1256,7 @@ mod tests {
     /// The rule the whole page rests on, and the one a person predicts
     /// from outside: the last word wins. A hand beats a cell, because
     /// dragging a window somewhere is a more specific instruction than
-    /// pointing at a sixth of a screen — and clicking a cell afterwards
+    /// pointing at an anchor on a screen — and clicking a cell afterwards
     /// beats the hand, for the same reason in the other direction.
     #[test]
     fn a_hand_beats_a_cell_and_a_cell_beats_a_hand_afterwards() {
@@ -1258,7 +1399,8 @@ mod tests {
 
     /// A value this build cannot use is read as "no answer" and left
     /// exactly where it is — the rule every other preference keeps, and
-    /// the one that makes a downgrade survivable.
+    /// the one that makes a downgrade survivable. (Before D723 this test
+    /// held `middle-left`, which a build of six read exactly this way.)
     #[test]
     fn an_answer_this_build_does_not_know_is_left_alone() {
         let store = Store::in_memory().expect("open");
@@ -1266,7 +1408,7 @@ mod tests {
             .settings()
             .set(
                 "window.zone.uuid-a",
-                &serde_json::json!({ "at": "middle-left" }),
+                &serde_json::json!({ "at": "left-of-centre" }),
             )
             .expect("write");
 
@@ -1276,7 +1418,7 @@ mod tests {
                 .settings()
                 .get::<serde_json::Value>("window.zone.uuid-a")
                 .expect("read"),
-            Some(serde_json::json!({ "at": "middle-left" })),
+            Some(serde_json::json!({ "at": "left-of-centre" })),
             "the row was corrected rather than left for a later build"
         );
     }
