@@ -339,8 +339,17 @@ impl Queue {
             BatchEvent::Ended { item, end } => {
                 self.chunks.remove(&item);
                 self.rewrites_done += 1;
+                // Pushed with a window's consent: the person's action, on
+                // any row, whoever made the row (D730).
+                let consented = self
+                    .work
+                    .as_ref()
+                    .is_some_and(|work| journal::consented(&work.queue, item));
                 if let Some(row) = self.rows.iter_mut().find(|row| row.item == Some(item)) {
-                    let caller = matches!(row.origin, Origin::Agent | Origin::Cli);
+                    // A caller's text went back to whoever asked; the
+                    // person's went where a window's goes — over the row's
+                    // own result, never "to the caller", who is gone.
+                    let caller = journal::callers_call(Some(row.origin), consented);
                     let (outcome, result) = journal::rewrite_end(&end, caller);
                     let phase = match &end {
                         End::Done(_) | End::Delivered { .. } => Phase::Done,

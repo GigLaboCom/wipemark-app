@@ -575,10 +575,21 @@ own number stays the element id (two id spaces). A row says who asked
   never on the GPUI thread; MCP's connection threads directly, handing the
   id back as `result._meta["wipemark/journal"]`; the **bookkeeper**, a
   thread on the queue's first channel, writes every rewrite's start and a
-  window rewrite's end, while an agent's or the command line's end is
-  written by the call that waits for it, so the command line's own update
-  (the file it wrote) comes last (D313, D321). A start heard late never
-  reopens an ended row (`Journal::update_open`).
+  window rewrite's end, while a caller's end is written by the call that
+  waits for it, so the command line's own update (the file it wrote) comes
+  last (D313, D321). A start heard late never reopens an ended row
+  (`Journal::update_open`).
+* **A caller's call is the action's, not the row's** (D730). Which rewrite
+  is a caller's — its text back to whoever asked, its end written by the
+  waiting call, abandoned at a launch — is read off its batch-queue item,
+  never off the row's origin: a window's push always records the person's
+  consent (D361, D393) and a caller's carries none
+  (`journal::callers_call`, `journal::consented`). So Rewrite again pressed
+  in the table on a command line's or an agent's row (D703) is the
+  person's: its result goes over the row's own (`Row::written()`, by
+  journal id), the bookkeeper writes its end, and a launch leaves it for
+  the queue. The table, the bookkeeper and the launch's settling read the
+  one rule. Remove still waits for a caller by the row's origin (D355).
 * **The command line**, with no application, writes its own row through
   `JournalWriter`, which never creates or migrates a database (D314, В5);
   the window notices it by `PRAGMA data_version`, read once a second, and
@@ -625,9 +636,10 @@ own number stays the element id (two id spaces). A row says who asked
   its drop.
 * **It survives a restart** (В3). At launch (D317) a window clean left
   mid-way waits again — or, with no file behind it, goes, its text never
-  having been kept — an agent's or the command line's rewrite still queued
-  is cancelled and its queue row removed (whoever asked is gone), and a
-  window's rewrite is left for the queue to take up. **Remove** on a row,
+  having been kept — a caller's rewrite still queued is cancelled and its
+  queue row removed (whoever asked is gone), and a window's rewrite — a
+  redo the person asked for on a caller's row included (D730) — is left
+  for the queue to take up. **Remove** on a row,
   **Clear finished** on the toolbar, and **Keep finished rows** on the
   Retention page (`journal.keep_days`, a week by default) take rows away —
   with the queue row of a result whose only home was the row. The Arrived

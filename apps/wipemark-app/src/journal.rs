@@ -607,21 +607,52 @@ pub fn installed() -> Option<Work> {
     WORK.get().cloned()
 }
 
+/// Whether a rewrite is a **caller's call** (D730): an agent's or the
+/// command line's, whose caller waits for its item, takes the text back
+/// and writes the row's end itself — rather than an action somebody started
+/// in a window, whose result goes where the Retention page says and whose
+/// end the bookkeeper writes.
+///
+/// A row's origin says who handed the document over, never who asked for
+/// this run of it: Rewrite again pressed in the table on a row the command
+/// line made (D703) is the person's, and its result goes over the row's own
+/// (`Row::written`), never "to the caller", who is gone. What tells the two
+/// apart is the batch-queue item: every window push records where the
+/// person agreed the document may go (D361, D393), and a caller's item
+/// carries no such consent. `consented` is whether the item does.
+pub fn callers_call(origin: Option<Origin>, consented: bool) -> bool {
+    matches!(origin, Some(Origin::Agent | Origin::Cli)) && !consented
+}
+
+/// Whether batch-queue item `item` was pushed with a window's consent
+/// (D361) — the person's action — as the queue lists it now. An item the
+/// queue no longer lists carries none that can be read: a caller's item is
+/// removed the moment its answer goes back (D313), while a window's stays
+/// until its row goes. Blocking only as long as the queue's list is locked.
+pub fn consented(queue: &Queue, item: ItemId) -> bool {
+    queue
+        .items()
+        .iter()
+        .any(|view| view.id == item && view.consent.is_some())
+}
+
 /// Start the bookkeeper: every queued rewrite's start written into its row,
-/// whichever surface pushed it, and a window's rewrite's end. Reads the
-/// queue's own first channel, which has buffered every event since the
+/// whichever surface pushed it, and the end of every rewrite a window asked
+/// for — on any row, a command line's or an agent's included (D730). Reads
+/// the queue's own first channel, which has buffered every event since the
 /// queue opened — so an item that ended before any window was there is
-/// still written down. An agent's or the command line's end is written by
-/// the call that waits for it, before it answers, so that the command
-/// line's own change to the row (the file it wrote) comes after it.
+/// still written down. A caller's end ([`callers_call`]) is written by the
+/// call that waits for it, before it answers, so that the command line's
+/// own change to the row (the file it wrote) comes after it.
 pub fn keep_books(work: &Work) {
     let events = work.queue.events();
     let journal = Arc::clone(&work.journal);
+    let queue = Arc::clone(&work.queue);
     let spawned = std::thread::Builder::new()
         .name("wipemark-bookkeeper".to_owned())
         .spawn(move || {
             for event in events.iter() {
-                book(&journal, &event);
+                book(&journal, &event, &|item| consented(&queue, item));
             }
         });
     if let Err(error) = spawned {
@@ -629,8 +660,10 @@ pub fn keep_books(work: &Work) {
     }
 }
 
-/// One queue event, into the row of the item it is about.
-pub fn book(journal: &Journal, event: &QueueEvent) {
+/// One queue event, into the row of the item it is about. `consented` says
+/// whether an item was pushed with a window's consent ([`consented`]), which
+/// is what makes its end this function's to write ([`callers_call`]).
+pub fn book(journal: &Journal, event: &QueueEvent, consented: &dyn Fn(ItemId) -> bool) {
     let (item, phase, end) = match event {
         QueueEvent::Started { item } => (*item, Phase::Running, None),
         QueueEvent::Interrupted { item } => (*item, Phase::Queued, None),
@@ -653,11 +686,6 @@ pub fn book(journal: &Journal, event: &QueueEvent) {
         return;
     };
     let mut entry = Entry::from_json(&row.entry);
-    let caller = Origin::parse(&row.origin).is_some_and(|origin| {
-        // An agent's or the command line's text went back to whoever
-        // asked; a window's went where the Retention page said.
-        matches!(origin, Origin::Agent | Origin::Cli)
-    });
     let Some(end) = end else {
         // A start or an interruption heard after the end was written — by
         // the waiting call, a thread of its own — must not reopen the row.
@@ -673,7 +701,10 @@ pub fn book(journal: &Journal, event: &QueueEvent) {
         );
         return;
     };
-    if caller {
+    // A caller's text went back to whoever asked, and the waiting call
+    // writes its end; a window's went where the Retention page said — on a
+    // command line's or an agent's row too, when the person asked (D730).
+    if callers_call(Origin::parse(&row.origin), consented(item)) {
         return;
     }
     let (outcome, delivered) = rewrite_end(end, false);
@@ -692,7 +723,7 @@ pub fn book(journal: &Journal, event: &QueueEvent) {
 }
 
 /// What a rewrite's end comes to, for its row: the outcome, and where the
-/// result went — the caller, for an agent's or the command line's.
+/// result went — the caller, for a caller's call (`caller`, [`callers_call`]).
 ///
 /// A job that rewrote nothing — every chunk kept its source — is
 /// `not-rewritten` (D711), never `partly`, with the rejection most of its
@@ -966,14 +997,16 @@ fn failure_id(failure: &clean::Failure) -> &'static str {
 /// * a window's clean that was queued or running is waiting again — or,
 ///   with no file behind it, gone, because its text was never kept;
 /// * a waiting row with no file behind it is gone for the same reason;
-/// * an agent's or the command line's rewrite still in the queue is
-///   cancelled and its queue row removed — whoever asked is gone, and its
-///   text is not kept for nobody (В4);
-/// * a window's rewrite stays: the queue takes it up again, and a row whose
-///   item the queue no longer has failed.
+/// * a caller's rewrite still in the queue — an agent's or the command
+///   line's own call ([`callers_call`]) — is cancelled and its queue row
+///   removed: whoever asked is gone, and its text is not kept for nobody
+///   (В4);
+/// * a window's rewrite stays: the queue takes it up again — a Rewrite
+///   again the person pressed on a command line's or an agent's row too
+///   (D730) — and a row whose item the queue no longer has failed.
 ///
-/// Pure over the rows and the queue's item ids, so the rule is checked
-/// without a database.
+/// Pure over the rows and the queue's items — each with whether a window's
+/// consent came with it (D361) — so the rule is checked without a database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Settle {
     Waiting(i64),
@@ -987,7 +1020,7 @@ pub enum Settle {
     Lost(i64),
 }
 
-pub fn settle(rows: &[JournalRow], items: &[ItemId]) -> Vec<Settle> {
+pub fn settle(rows: &[JournalRow], items: &[(ItemId, bool)]) -> Vec<Settle> {
     let mut settled = Vec::new();
     for row in rows {
         let Some(phase) = Phase::parse(&row.state) else {
@@ -1002,8 +1035,9 @@ pub fn settle(rows: &[JournalRow], items: &[ItemId]) -> Vec<Settle> {
         let origin = Origin::parse(&row.origin);
         match (action, row.item) {
             (Some(Action::Rewrite), Some(item)) => {
-                let caller = matches!(origin, Some(Origin::Agent | Origin::Cli));
-                let known = items.iter().any(|id| id.0 == item);
+                let held = items.iter().find(|(id, _)| id.0 == item);
+                let known = held.is_some();
+                let caller = callers_call(origin, held.is_some_and(|(_, consented)| *consented));
                 if caller && known {
                     settled.push(Settle::Abandon { row: row.id, item });
                 } else if !known {
@@ -1025,7 +1059,12 @@ pub fn settle(rows: &[JournalRow], items: &[ItemId]) -> Vec<Settle> {
 /// Carry out [`settle`]'s answer. Blocking.
 pub fn settle_at_launch(work: &Work) {
     let rows = work.journal.rows();
-    let items: Vec<ItemId> = work.queue.items().iter().map(|view| view.id).collect();
+    let items: Vec<(ItemId, bool)> = work
+        .queue
+        .items()
+        .iter()
+        .map(|view| (view.id, view.consent.is_some()))
+        .collect();
     for settled in settle(&rows, &items) {
         let row = |id: i64| rows.iter().find(|row| row.id == id);
         match settled {
@@ -1197,7 +1236,8 @@ mod tests {
             row(6, Origin::Cli, Action::Clean, Phase::Done, None, true),
             row(7, Origin::Window, Action::Clean, Phase::Waiting, None, true),
         ];
-        let items = [ItemId(7), ItemId(8)];
+        // The agent's own item carries no window's consent; the window's does.
+        let items = [(ItemId(7), false), (ItemId(8), true)];
         assert_eq!(
             settle(&rows, &items),
             vec![
@@ -1206,6 +1246,50 @@ mod tests {
                 Settle::Abandon { row: 3, item: 7 },
                 Settle::Lost(5),
             ]
+        );
+    }
+
+    /// D730: what a launch abandons is a caller's rewrite — its item pushed
+    /// with no window's consent — never a rewrite because of its row's
+    /// origin. Rewrite again pressed in the table on a command line's or an
+    /// agent's row and still in the queue at quit is the person's: left for
+    /// the queue, as a window row's is. The caller's own item on the same
+    /// kind of row is abandoned as before. Read "a caller's" off the origin,
+    /// as before, and the person's redo is cancelled at the next launch:
+    /// red.
+    #[test]
+    fn a_launch_leaves_a_redo_from_the_window_to_the_queue() {
+        let rows = vec![
+            row(
+                1,
+                Origin::Cli,
+                Action::Rewrite,
+                Phase::Queued,
+                Some(7),
+                true,
+            ),
+            row(
+                2,
+                Origin::Agent,
+                Action::Rewrite,
+                Phase::Running,
+                Some(8),
+                true,
+            ),
+            row(
+                3,
+                Origin::Cli,
+                Action::Rewrite,
+                Phase::Queued,
+                Some(9),
+                false,
+            ),
+        ];
+        let items = [(ItemId(7), true), (ItemId(8), true), (ItemId(9), false)];
+        assert_eq!(
+            settle(&rows, &items),
+            vec![Settle::Abandon { row: 3, item: 9 }],
+            "a redo the person asked for on a caller's row was abandoned"
         );
     }
 

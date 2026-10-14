@@ -908,7 +908,13 @@ fn the_bookkeeper_writes_a_window_rewrites_end() {
             entry: "{}",
         })
         .expect("a row");
-    journal::book(&journal, &BatchEvent::Started { item: ItemId(3) });
+    // A window's item, pushed with the person's consent (D361, D730).
+    let consented = |_: ItemId| true;
+    journal::book(
+        &journal,
+        &BatchEvent::Started { item: ItemId(3) },
+        &consented,
+    );
     assert_eq!(journal.rows()[0].state, "running");
     journal::book(
         &journal,
@@ -916,6 +922,7 @@ fn the_bookkeeper_writes_a_window_rewrites_end() {
             item: ItemId(3),
             end: wipemark_queue::End::Cancelled,
         },
+        &consented,
     );
     let row = journal
         .rows()
@@ -925,7 +932,11 @@ fn the_bookkeeper_writes_a_window_rewrites_end() {
     assert_eq!(row.state, "cancelled");
     assert!(row.ended.is_some());
     // A start heard late does not reopen it.
-    journal::book(&journal, &BatchEvent::Started { item: ItemId(3) });
+    journal::book(
+        &journal,
+        &BatchEvent::Started { item: ItemId(3) },
+        &consented,
+    );
     assert_eq!(journal.rows()[0].state, "cancelled");
     let _ = Source::Text(String::new());
 }
