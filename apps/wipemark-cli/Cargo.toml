@@ -64,6 +64,14 @@ clap.workspace = true
 # not std.
 ctrlc.workspace = true
 
+# `_exit`, for `rewrite`'s second Ctrl-C (D744): the run ends at once, as
+# the application's second signal does (D717), without the exit handlers
+# that tear llama.cpp's Metal device down under a model still loaded.
+# Already in the lock through the application, so the lock gains an edge
+# and no crate.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # `tests/image.rs` borrows `wipemark-image`'s own fixture builders
 # (`crates/wipemark-image/tests/support`, by `#[path]`) and the gate's

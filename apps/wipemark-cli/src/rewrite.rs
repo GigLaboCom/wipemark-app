@@ -151,16 +151,32 @@ pub(crate) struct Roads<'a> {
     pub own: Own<'a>,
 }
 
+/// End the process at once with `code` — a second Ctrl-C (D744). Not
+/// `std::process::exit`: its exit handlers free llama.cpp's Metal device,
+/// which asserts that no model is left (F31) — and a model is still loaded
+/// while the first Ctrl-C's cancel is under way. The application's second
+/// signal ends the same way (D717).
+fn end_now(code: i32) -> ! {
+    #[cfg(unix)]
+    // SAFETY: `_exit` takes any status and has no precondition; it runs
+    // nothing of this process on the way out.
+    unsafe {
+        libc::_exit(code)
+    }
+    #[cfg(not(unix))]
+    std::process::exit(code)
+}
+
 /// `rewrite <path|->` with the process's own roads.
 pub(crate) fn rewrite(flags: &Flags, io: &mut Io) -> Exit {
     let interrupted = Arc::new(AtomicBool::new(false));
     let pressed = Arc::clone(&interrupted);
     // The first Ctrl-C cancels — the job here, or the call to the
     // application, which then cancels it there — and the run says so; a
-    // second one leaves at once.
+    // second one leaves at once (D744).
     if let Err(error) = ctrlc::set_handler(move || {
         if pressed.swap(true, Ordering::SeqCst) {
-            std::process::exit(i32::from(Exit::Usage as u8));
+            end_now(i32::from(Exit::Usage as u8));
         }
     }) {
         tracing::warn!(%error, "no Ctrl-C handler; an interrupt ends the run without a word");
