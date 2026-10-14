@@ -607,8 +607,12 @@ own number stays the element id (two id spaces). A row says who asked
   in the table on a command line's or an agent's row (D703) is the
   person's: its result goes over the row's own (`Row::written()`, by
   journal id), the bookkeeper writes its end, and a launch leaves it for
-  the queue. The table, the bookkeeper and the launch's settling read the
-  one rule. Remove still waits for a caller by the row's origin (D355).
+  the queue. The table, the bookkeeper, the launch's settling and Remove
+  read the one rule: Remove is greyed (D355) only while a caller's call
+  waits, and a redo the person pressed on a caller's row is removed as a
+  window row's rewrite is (`Row::consented`, set at the push and read off
+  the queue's list for a row read back;
+  `remove_waits_for_a_caller_and_never_for_the_persons_redo`).
 * **Every road, one menu** (D732). One file down every road that ends as
   a row — a drop on the main window, a drop on the panel, the command line
   through the application, an agent naming `wipemark/path` — and, once the

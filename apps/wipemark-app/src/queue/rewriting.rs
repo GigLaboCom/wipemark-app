@@ -199,6 +199,10 @@ impl Queue {
             .retain(|row| row.entry.is_none_or(|id| present.contains(&id)));
         let mut added = Vec::new();
         let mut listed: Vec<&'static str> = Vec::new();
+        // The items pushed with a window's consent (D361), read off the
+        // queue's list once a read, and only when a new row names an item:
+        // whether a caller waits for a row read back (D730, D355).
+        let mut consented: Option<HashSet<ItemId>> = None;
         for record in rows {
             let entry = Entry::from_json(&record.entry);
             let phase = Phase::parse(&record.state).unwrap_or(Phase::Done);
@@ -239,12 +243,28 @@ impl Queue {
             if named.is_some() {
                 added.push((id, entry.clone()));
             }
+            let item = record.item.map(ItemId);
+            let pushed_here = item.is_some_and(|item| {
+                consented
+                    .get_or_insert_with(|| {
+                        self.work.as_ref().map_or_else(HashSet::new, |work| {
+                            work.queue
+                                .items()
+                                .iter()
+                                .filter(|view| view.consent.is_some())
+                                .map(|view| view.id)
+                                .collect()
+                        })
+                    })
+                    .contains(&item)
+            });
             self.rows.push(Row {
                 id,
                 entry: Some(record.id),
                 origin,
                 look: Look::of_entry(&entry),
-                item: record.item.map(ItemId),
+                item,
+                consented: pushed_here,
                 price: None,
                 edited: None,
                 edited_at: None,
@@ -749,6 +769,9 @@ impl Queue {
                 // A new result: an edit saved over the earlier one is not
                 // this one's (D707).
                 row.status = Status::RewriteQueued;
+                // The person's push, with the consent they gave: nobody
+                // waits for it, whoever made the row (D730).
+                row.consented = true;
                 row.edited = None;
                 row.edited_at = None;
             }
@@ -898,7 +921,7 @@ impl Queue {
             return;
         };
         let row = &self.rows[at];
-        if super::why_not_remove(&row.status, row.origin).is_some() {
+        if super::why_not_remove(&row.status, row.origin, row.consented).is_some() {
             return;
         }
         let row = self.rows.remove(at);

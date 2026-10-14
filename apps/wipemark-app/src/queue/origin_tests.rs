@@ -872,3 +872,105 @@ fn where_a_thing_came_from_never_changes_what_its_row_can_do(cx: &mut TestAppCon
         "the agent's row, cleaned here"
     );
 }
+
+/// What row `id`'s Actions menu says of `key`.
+fn item_of(queue: &Entity<Queue>, id: u64, key: &str, cx: &mut VisualTestContext) -> Item {
+    cx.update(|_, cx| queue.read(cx).menu_of(id, cx))
+        .expect("a menu")
+        .1
+        .into_iter()
+        .find(|(named, _)| *named == key)
+        .map(|(_, item)| item)
+        .expect("the item")
+}
+
+/// D730 with D355: Remove waits for a caller, never for the person. The
+/// command line's call through the application, its item queued with no
+/// consent of the window's — as the MCP server queues it — keeps Remove
+/// greyed with D355's reason, and a removal is refused. Rewrite again the
+/// person presses on row 36, a command line's row too, is queued with the
+/// person's consent: Remove is live on it from the press, as on a window
+/// row's own rewrite, and removes it with its item. Read "a caller waits"
+/// off the bare origin in `why_not_remove`, as before, and row 36's Remove
+/// is greyed saying an agent or the command line is waiting: red.
+#[gpui::test]
+fn remove_waits_for_a_caller_and_never_for_the_persons_redo(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("remove-waits");
+    let source = scratch.file("a10-rewrite.md", PARAGRAPH.as_bytes());
+    let result = scratch.file("a10-rewrite.rewritten.md", b"The first rewrite.\n");
+    let other = scratch.file("b.md", PARAGRAPH.as_bytes());
+    let (store, row36) = recorded(Origin::Cli, &row_36(&source, &result));
+    let work = work_over(store, Some(swapping()));
+    work.queue.pause();
+    // A caller's call, queued as `mcp::rewrite` queues it: the row names the
+    // item before the push, and the item carries no window's consent.
+    let request = wipemark_queue::Request {
+        source: wipemark_queue::Source::Text(PARAGRAPH.to_owned()),
+        format: wipemark_pipeline::prepare::TextFormat::Plain,
+        destination: Destination::Row,
+        options: wipemark_pipeline::Options::for_executor(
+            wipemark_pipeline::cost::Executor::LocalCpu,
+        ),
+    };
+    let item = work.queue.reserve(&request).expect("reserved");
+    let caller = work
+        .journal
+        .record(&NewRow {
+            origin: Origin::Cli.as_str(),
+            action: Action::Rewrite.as_str(),
+            state: Phase::Queued.as_str(),
+            item: Some(item.0),
+            arrived: 1,
+            ended: None,
+            entry: &Entry {
+                said_path: Some(other.to_string_lossy().into_owned()),
+                kind: Some("text".to_owned()),
+                ..Entry::default()
+            }
+            .to_json(),
+        })
+        .expect("the caller's row");
+    work.queue
+        .push_reserved(item, request, None)
+        .expect("pushed");
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    looked_at(&queue, 2, cx);
+    let (waited, ours) = (row_of(&queue, caller, cx), row_of(&queue, row36, cx));
+
+    // D355 stands for the caller's own call.
+    assert_eq!(
+        item_of(&queue, waited, "remove", cx),
+        Item::Greyed(Some(t(Message::QueueActionRemoveWaited))),
+        "a caller's waiting call can be removed"
+    );
+    queue.update(cx, |queue, cx| queue.remove(waited, cx));
+    assert!(
+        cx.update(|_, cx| queue.read(cx).status_of(waited).is_some()),
+        "a caller's waiting call was removed"
+    );
+
+    // The person's redo on a command line's row: nobody waits.
+    queue.update(cx, |queue, cx| queue.rewrite_again(ours, cx));
+    assert!(matches!(
+        cx.update(|_, cx| queue.read(cx).status_of(ours).cloned()),
+        Some(Status::RewriteQueued)
+    ));
+    assert_eq!(
+        item_of(&queue, ours, "remove", cx),
+        Item::Live,
+        "Remove on the person's redo waits for a caller, at the press"
+    );
+    until(cx, "the push", |_| work.queue.items().len() == 2);
+    assert_eq!(
+        item_of(&queue, ours, "remove", cx),
+        Item::Live,
+        "Remove on the person's redo waits for a caller, once pushed"
+    );
+    queue.update(cx, |queue, cx| queue.remove(ours, cx));
+    assert!(
+        cx.update(|_, cx| queue.read(cx).status_of(ours).is_none()),
+        "the person's redo was not removed"
+    );
+    until(cx, "its item, gone", |_| work.queue.items().len() == 1);
+}

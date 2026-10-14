@@ -697,21 +697,21 @@ pub fn why_not_rewrite(
 }
 
 /// Why a row's Remove is greyed, or `None` when it is not: a clean holds
-/// the row while it is queued or running, and an agent's or the command
-/// line's rewrite in flight has a caller waiting for it (D355) — Cancel
-/// ends that one and tells the caller; a removal would take the item from
-/// under a call that is still waiting. Pure.
-pub fn why_not_remove(status: &Status, origin: Origin) -> Option<String> {
+/// the row while it is queued or running, and a caller's rewrite in flight
+/// has the caller waiting for it (D355) — Cancel ends that one and tells
+/// the caller; a removal would take the item from under a call that is
+/// still waiting. A caller's call is the action's, not the row's (D730):
+/// an agent's or the command line's row whose item the person pushed from
+/// the table (`consented`, Rewrite again) has nobody waiting, and is
+/// removed as a window row is. Pure.
+pub fn why_not_remove(status: &Status, origin: Origin, consented: bool) -> Option<String> {
+    let waited = journal::callers_call(Some(origin), consented);
     match status {
         Status::Queued | Status::Cleaning => Some(t(Message::QueueActionCleanBusy)),
-        Status::RewriteQueued | Status::Rewriting(_)
-            if matches!(origin, Origin::Agent | Origin::Cli) =>
-        {
+        Status::RewriteQueued | Status::Rewriting(_) if waited => {
             Some(t(Message::QueueActionRemoveWaited))
         }
-        Status::Recorded(said)
-            if !said.phase.is_end() && matches!(origin, Origin::Agent | Origin::Cli) =>
-        {
+        Status::Recorded(said) if !said.phase.is_end() && waited => {
             Some(t(Message::QueueActionRemoveWaited))
         }
         _ => None,
@@ -929,6 +929,11 @@ struct Row {
     look: Look,
     /// The batch queue's item, once a rewrite was pushed.
     item: Option<ItemId>,
+    /// Whether that item was pushed with a window's consent (D361) — the
+    /// person's action — rather than by a caller who waits for it (D730):
+    /// set when this table pushes, read off the queue's list for a row read
+    /// back. What Remove asks (D355): only a caller's call waits.
+    consented: bool,
     /// A single row's Rewrite says its price in its tooltip.
     price: Option<Price>,
     /// A cleaned paste's result as last saved in the Compare window (E7-9,
@@ -1501,6 +1506,7 @@ impl Queue {
                 origin,
                 look: Look::of(&arrival.intake),
                 item: None,
+                consented: false,
                 price: None,
                 edited: None,
                 edited_at: None,
@@ -3282,7 +3288,7 @@ impl Queue {
             rewrite,
             cancel: matches!(row.status, Status::RewriteQueued | Status::Rewriting(_))
                 && row.item.is_some(),
-            remove: why_not_remove(&row.status, row.origin),
+            remove: why_not_remove(&row.status, row.origin, row.consented),
             written: row.written().ok_or_else(|| why_no_result_file(&row.status)),
             copy: (!copyable).then(|| why_not_copy(&row.status)),
             report: row.outcome().is_some() && row.arrival.is_some(),
@@ -3639,21 +3645,21 @@ pub(crate) mod tests {
                 })),
             ] {
                 assert_eq!(
-                    why_not_remove(&status, origin),
+                    why_not_remove(&status, origin, false),
                     Some(t(Message::QueueActionRemoveWaited)),
                     "{origin:?} {status:?}"
                 );
             }
         }
-        assert!(why_not_remove(&Status::RewriteQueued, Origin::Window).is_none());
-        assert!(why_not_remove(&Status::Cleaning, Origin::Window).is_some());
+        assert!(why_not_remove(&Status::RewriteQueued, Origin::Window, true).is_none());
+        assert!(why_not_remove(&Status::Cleaning, Origin::Window, true).is_some());
         let ended = Status::Recorded(Box::new(Said {
             action: Action::Rewrite,
             phase: Phase::Done,
             outcome: None,
             result: None,
         }));
-        assert!(why_not_remove(&ended, Origin::Agent).is_none());
+        assert!(why_not_remove(&ended, Origin::Agent, false).is_none());
     }
 
     /// D363: today's rows say the time; any other day's say the date too.
