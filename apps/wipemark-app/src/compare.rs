@@ -7714,6 +7714,155 @@ mod tests {
         }
     }
 
+    /// A selector made at run time, for `debug_bounds`, which takes only
+    /// `'static` ones.
+    fn selector(selector: String) -> &'static str {
+        Box::leak(selector.into_boxed_str())
+    }
+
+    /// Drag the handle between the two panes to `x` — a person's drag:
+    /// pressed on the handle, moved a little so the drag starts, then to
+    /// `x`, and let go.
+    fn drag_split(x: Pixels, cx: &mut gpui::VisualTestContext) {
+        use gpui::{point, Modifiers, MouseButton};
+        let pane = cx
+            .debug_bounds(result::STRIP)
+            .expect("the result's strip was painted");
+        let y = pane.bottom() + px(100.0);
+        let handle = pane.left() - px(2.0);
+        cx.simulate_mouse_down(point(handle, y), MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_move(
+            point(handle + px(10.0), y),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        cx.simulate_mouse_move(point(x, y), MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_up(point(x, y), MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+    }
+
+    /// D758 on the result's strip, as drawn now in a window `width` wide:
+    /// every control painted ends inside the result's pane, every control
+    /// not painted is a line of the more menu — opened with a click, and
+    /// inside the window — and nothing is both. The more button is there
+    /// exactly when something was left off. The controls left off.
+    fn strip_misses(
+        here: &str,
+        width: Pixels,
+        controls: &[result::Control],
+        misses: &mut Misses,
+        cx: &mut gpui::VisualTestContext,
+    ) -> Vec<result::Control> {
+        let pane = cx
+            .debug_bounds(result::STRIP)
+            .expect("the result's strip was painted");
+        misses.unless(pane.right() <= width, || {
+            format!(
+                "{here}: the result's pane ends at {:?}, past the window's edge",
+                pane.right()
+            )
+        });
+        let mut hidden = Vec::new();
+        for &control in controls {
+            match cx.debug_bounds(control.id()) {
+                Some(button) => misses.unless(
+                    button.left() >= pane.left() && button.right() <= pane.right(),
+                    || {
+                        format!(
+                            "{here}: {control:?} runs from {:?} to {:?}, outside the pane's {:?} to {:?}",
+                            button.left(),
+                            button.right(),
+                            pane.left(),
+                            pane.right()
+                        )
+                    },
+                ),
+                None => hidden.push(control),
+            }
+        }
+        let more = cx.debug_bounds(result::MORE);
+        misses.unless(hidden.is_empty() == more.is_none(), || {
+            format!("{here}: the more button is {more:?} with {hidden:?} left off the strip")
+        });
+        let Some(more) = more else {
+            return hidden;
+        };
+        misses.unless(
+            more.left() >= pane.left() && more.right() <= pane.right(),
+            || format!("{here}: the more button is {more:?}, outside the pane {pane:?}"),
+        );
+
+        cx.simulate_click(more.center(), gpui::Modifiers::default());
+        cx.run_until_parked();
+        for &control in controls {
+            let line = cx.debug_bounds(selector(result::line_selector(control)));
+            if hidden.contains(&control) {
+                misses.unless(
+                    line.is_some_and(|line| line.left() >= px(0.0) && line.right() <= width),
+                    || format!("{here}: {control:?} is off the strip, and its line in the menu is {line:?}"),
+                );
+            } else {
+                misses.unless(line.is_none(), || {
+                    format!("{here}: {control:?} is both a button and a line of the menu")
+                });
+            }
+        }
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        if let Some(&first) = hidden.first() {
+            misses.unless(
+                cx.debug_bounds(selector(result::line_selector(first)))
+                    .is_none(),
+                || format!("{here}: Escape left the more menu open"),
+            );
+        }
+        hidden
+    }
+
+    /// D758: the result's strip at a roomy width, at the window's least,
+    /// and with the split dragged narrow at its default. Roomy, every
+    /// control is a button and there is no more button; narrower, what
+    /// does not fit is a line of the more menu, the rest stays inside the
+    /// pane. Before, at 640 pt Show whitespace ended at 660 px.
+    fn toolbar_misses(language: &str, misses: &mut Misses, cx: &mut TestAppContext) {
+        let scratch = Scratch::new(&format!("toolbar-{language}"));
+        let (_, subject) = banner_subjects(&scratch).swap_remove(1);
+        let (view, _, cx) = saving_window(cx, &scratch, subject, Comparison::default(), None, None);
+        let controls = cx.update(|_, cx| view.read(cx).result.read(cx).controls());
+        misses.unless(controls.first() == Some(&result::Control::Offer), || {
+            format!("{language}: the strip does not start with Save: {controls:?}")
+        });
+
+        let (width, _) = parts_at(ROOMY, [result::STRIP], cx);
+        let here = format!("{language}, {} pt wide", f32::from(width));
+        let hidden = strip_misses(&here, width, &controls, misses, cx);
+        misses.unless(hidden.is_empty(), || {
+            format!("{here}: {hidden:?} left off a strip with room for all")
+        });
+
+        let (width, _) = parts_at(MIN_SIZE, [result::STRIP], cx);
+        let here = format!("{language}, {} pt wide", f32::from(width));
+        strip_misses(&here, width, &controls, misses, cx);
+
+        let (width, _) = parts_at(DEFAULT_SIZE, [result::STRIP], cx);
+        drag_split(width - px(150.0), cx);
+        let pane = cx
+            .debug_bounds(result::STRIP)
+            .expect("the result's strip was painted");
+        let here = format!(
+            "{language}, {} pt wide, the result's pane dragged to {} pt",
+            f32::from(width),
+            f32::from(pane.size.width)
+        );
+        misses.unless(pane.size.width < px(200.0), || {
+            format!("{here}: the split did not move")
+        });
+        let hidden = strip_misses(&here, width, &controls, misses, cx);
+        misses.unless(!hidden.is_empty(), || {
+            format!("{here}: nothing was left off a narrow strip")
+        });
+    }
+
     /// Set by the test below for the child process it starts.
     const WORDS_ISOLATED: &str = "WIPEMARK_TEST_COMPARE_WORDS_ISOLATED";
 
@@ -7725,7 +7874,11 @@ mod tests {
     /// says why). Take `min_w_0` off the banner's explanation and Back to …
     /// ends past the window's right edge at 1120 pt, in every language and
     /// for every kind of result; off the status or the refusal and their
-    /// sentences run off the window: red.
+    /// sentences run off the window: red. D758 on the result's strip, too:
+    /// let its row paint every button and Show whitespace ends at 660 px at
+    /// 640 pt, nine buttons past the pane dragged to 150 pt; let the more
+    /// menu list every control and each kept one is a button and a line at
+    /// once: red.
     #[test]
     fn compare_s_words_fit_its_window_in_every_language() {
         const BODY: &str = "compare::tests::compare_s_words_fit_its_window_in_a_process_of_its_own";
@@ -7762,6 +7915,7 @@ mod tests {
             banner_misses(&tag, &mut misses, cx);
             status_misses(&tag, &mut misses, cx);
             refusal_misses(&tag, &mut misses, cx);
+            toolbar_misses(&tag, &mut misses, cx);
         }
         wipemark_i18n::select(&LanguagePreference::System);
         assert!(misses.0.is_empty(), "\n{}", misses.0.join("\n"));

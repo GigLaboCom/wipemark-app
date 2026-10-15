@@ -293,6 +293,7 @@ compare-close-nowhere-title = Schließen und die Änderungen verwerfen?
 compare-close-nowhere-body = { $reason } „Kopieren und schließen“ legt den bearbeiteten Text vorher in die Zwischenablage.
 compare-close-copy = Kopieren und schließen
 
+result-more = Mehr
 result-undo = Rückgängig
 result-redo = Wiederholen
 result-cut = Ausschneiden

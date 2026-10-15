@@ -496,6 +496,10 @@ compare-close-copy = Copy and close
 # The result's toolbar: one label per editor operation, shown as a
 # tooltip beside the shortcut the editor already binds to it, and two
 # ways of showing the text that are toggles rather than operations.
+# While the pane is too narrow for every button, the ones that do not fit
+# are lines of a menu behind the last button, whose tooltip is
+# result-more; each line is the button's own label.
+result-more = More
 result-undo = Undo
 result-redo = Redo
 result-cut = Cut

@@ -303,6 +303,7 @@ compare-close-nowhere-title = Закрыть и отказаться от пра
 compare-close-nowhere-body = { $reason } «Скопировать и закрыть» сначала помещает исправленный текст в буфер обмена.
 compare-close-copy = Скопировать и закрыть
 
+result-more = Ещё
 result-undo = Отменить
 result-redo = Повторить
 result-cut = Вырезать
