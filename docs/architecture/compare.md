@@ -1032,6 +1032,58 @@ reason as the tooltip, and its action leaves the clipboard alone (D633,
 (`file-lines.svg`), not Copy's two pages, so the two buttons side by
 side can be told apart (D634).
 
+## Words that fit the window (F27, D748–D749)
+
+The banner over the panes is one row: the info glyph, the explanation,
+**Back to the cleaned text** (or **Back to the rewritten text**) and the
+help button. The explanation is one to three sentences: what the result
+is, how many paragraphs kept their cleaned original, and where an edit
+goes and when. It takes what the two controls leave and wraps in it
+(`flex_1` with `min_w_0`, D748). A flex item is never narrower than its
+content unless it is told so, and the content of a line of text is the
+line unwrapped. Before, the sentences kept their length and pushed both
+controls past the window's right edge. At the default 1120 pt, on a
+rewrite's row (row 36 of the owner's run, acceptance F27), the button
+read "Back to the rewr" and the help button was gone. The controls keep
+their width: gpui-component's button is never narrower than its label,
+and the explanation, which starts from nothing, is the part that gives.
+
+The same holds for the window's other words that sit beside something
+(D749):
+
+* **Under the panes**, *Not saved:* and its reason is a whole sentence;
+  the longest is the one about a document being cleaned or rewritten.
+  It wraps rather than running off the right edge, and the count of
+  lines beside it keeps its words (`flex_none`).
+* **A refusal's sentence**, in the middle of the window, wraps inside it
+  with a margin. Before, it was centred past both edges.
+
+`compare_s_words_fit_its_window_in_every_language` is the gate. It
+measures the painted parts by `debug_bounds` at 1120 and 640 pt, against
+a 4000 pt window where nothing presses on them, in every language the
+binary ships. It covers:
+
+* the banner of five kinds of window: a clean not written yet, a
+  rewrite, a rewrite that kept one paragraph of three, one that kept them
+  all, and a clean that is the original itself;
+* the line under the panes, with each reason a save gives;
+* each refusal.
+
+The language belongs to the process, so the body runs in a process of
+its own, as `language::tests` does. With `min_w_0` taken off the
+explanation the gate finds 45 misses: in English at 1120 pt on row 36,
+the help button ends at 1487 px. Taken off the status and the refusal,
+it finds 33. A button allowed to shrink below its label is caught by the
+width check. The test text system gives every character 0.6 em, wider
+than a real font, so the test is stricter than the screen.
+
+What this does not cover yet: the result's strip is thirteen buttons,
+344 pt, in a single row of fixed height (it stands level with the blank
+strip on the left). At the least width the result pane is 320 pt, so
+**Show whitespace** sits past the window's edge (its right edge at
+660 px). The strip fits from 680 pt, and the split can be dragged
+narrower at any width.
+
 ## What it is not
 
 * **Not placed.** It opens centred over the main window and is
