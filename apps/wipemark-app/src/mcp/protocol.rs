@@ -79,6 +79,10 @@
 //! `inspect_image`, which change nothing, only with `"record": true` (В6,
 //! В7). A row says who asked — an agent, or the command line when the
 //! call's `params._meta["wipemark/origin"]` is `cli` — and carries no text.
+//! What the document is — its kind, format, encoding and size — is what a
+//! window's row of the same thing says: the file `_meta["wipemark/path"]`
+//! names, looked at here when it is a regular file, else the characters or
+//! the bytes the call handed over (D750, D751; `journal::caller_entry`).
 //! An answer that made a row says which, as `result._meta["wipemark/journal"]`.
 //! A `rewrite` is an item of the application's batch queue: see
 //! [`super::rewrite`].
@@ -1525,9 +1529,13 @@ fn call(params: &Value, services: &Services, gone: &dyn Fn() -> bool) -> Answer 
             Ok(call) => {
                 let (answer, outcome) = tool.run(&call);
                 let row = match (call.record, outcome) {
-                    (true, Some(outcome)) => {
-                        record(services, &asker, tool, asker.entry(&call.text), outcome)
-                    }
+                    (true, Some(outcome)) => record(
+                        services,
+                        &asker,
+                        tool,
+                        asker.entry(journal::Called::Text(&call.text)),
+                        outcome,
+                    ),
                     _ => None,
                 };
                 with_row(answer, row)
@@ -1538,13 +1546,7 @@ fn call(params: &Value, services: &Services, gone: &dyn Fn() -> bool) -> Answer 
             Ok(call) => {
                 let (answer, outcome) = image_answer(tool, &call);
                 let row = call.record.then(|| {
-                    let entry = Entry {
-                        name: asker.name.clone(),
-                        said_path: asker.path.clone(),
-                        kind: Some("image".to_owned()),
-                        size: asker.size.or(Some(call.bytes.len() as u64)),
-                        ..Entry::default()
-                    };
+                    let entry = asker.entry(journal::Called::Bytes(&call.bytes));
                     record(services, &asker, tool, entry, outcome)
                 });
                 with_row(answer, row.flatten())

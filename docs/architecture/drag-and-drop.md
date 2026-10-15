@@ -362,6 +362,14 @@ instead.
 may want to say so, and because "you dropped a file" about a line of
 characters is a small lie.
 
+The rule is for a person's drop or paste, where a path in characters is
+how a desktop hands a file over. A text that is the document whatever it
+says — an MCP caller's `text`, which the tool cleans or rewrites as the
+characters it is — is `intake::of_characters`: what `of_text` says of a
+text that names no file, with no path looked for. A path in a caller's
+text names a file in the caller's world, and its `/dev/fd/3` would be this
+process's own descriptor here (D751).
+
 ### What is deliberately not claimed
 
 * **No format is guessed.** Most of the formats in the world are not in

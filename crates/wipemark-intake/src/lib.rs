@@ -308,7 +308,18 @@ pub fn of_text(text: &str) -> Intake {
             };
         }
     }
+    of_characters(text)
+}
 
+/// Characters that are the document whatever they say: what [`of_text`]
+/// answers for a text that names no file — a URL, or what the text looks
+/// like — with **no path looked for**. Reads nothing.
+///
+/// For a text handed over to be cleaned or rewritten as the characters it
+/// is, never as a file a line of it names: an MCP caller's `text`. A path
+/// in it names a file in the caller's world, and its `/dev/fd/3` would be
+/// this process's own descriptor here.
+pub fn of_characters(text: &str) -> Intake {
     let trimmed = text.trim();
     let url = trimmed.lines().count() == 1
         && (trimmed.starts_with("https://") || trimmed.starts_with("http://"));
@@ -409,7 +420,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        identify, of_bytes, of_path, of_text, Arrived, Encoding, Evidence, Format, Handed, Kind,
+        identify, of_bytes, of_characters, of_path, of_text, Arrived, Encoding, Evidence, Format,
+        Handed, Kind,
     };
 
     /// D301: empty text, ASCII white space alone and no bytes are
@@ -584,6 +596,35 @@ mod tests {
         // applications put on the pasteboard instead.
         let url = format!("file://{}", path.to_string_lossy());
         assert_eq!(of_text(&url).format, Some(Format::Png));
+    }
+
+    /// D751: characters that are the document whatever they say — an MCP
+    /// caller's text — are looked at as characters, a line naming a file
+    /// that exists included: plain text of their own length, with no path
+    /// and nothing read. Everything else `of_text` says of a text that
+    /// names no file, `of_characters` says too. Make `of_characters` look
+    /// for a path, as `of_text` does, and the line is the PNG: red.
+    #[test]
+    fn characters_are_characters_even_when_they_name_a_file() {
+        let scratch = Scratch::new("characters");
+        let path = scratch.file("holiday.png", PNG);
+        let line = path.to_string_lossy().into_owned();
+
+        let intake = of_characters(&line);
+        assert_eq!(intake.kind, Kind::Text);
+        assert_eq!(intake.format, Some(Format::PlainText));
+        assert_eq!(intake.encoding, Some(Encoding::Utf8));
+        assert_eq!(intake.path, None, "a caller's line was read as a file");
+        assert_eq!(intake.size, Some(line.len() as u64));
+        assert_eq!(intake.arrived, Arrived::AsText);
+        for text in [
+            "/Users/nobody/not-here.txt",
+            "https://example.com/a/page",
+            "<!DOCTYPE html>\n<html><body>hi</body></html>",
+            "# Notes\n\nA zero\u{200B}width space.\n",
+        ] {
+            assert_eq!(of_characters(text), of_text(text), "{text:?}");
+        }
     }
 
     /// And the guard on it: a line that *looks* like a path but names

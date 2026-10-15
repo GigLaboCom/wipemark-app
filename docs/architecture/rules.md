@@ -509,7 +509,12 @@
   recorded one, under that rule and the command line's own — absolute,
   nothing under `/dev` or `/proc` — so a command line's or an agent's row
   has its file behind it whenever the file is on disk (D729,
-  `a_named_path_is_looked_at_like_a_recorded_one`). A caller's call is the
+  `a_named_path_is_looked_at_like_a_recorded_one`). A caller's row says
+  what its document is as a window's row of the same thing does, written
+  with the row: the named regular file looked at as an import of it is,
+  else the characters handed over (never a path inside them) or the bytes
+  (D750, D751; `where_a_thing_came_from_never_changes_how_its_row_looks`).
+  A caller's call is the
   action's, not the row's: a rewrite is a caller's when its item carries
   no window consent, and a redo from the table is the person's (D730). A
   row's actions depend only on what is there, and every greyed one says
