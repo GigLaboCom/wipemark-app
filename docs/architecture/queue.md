@@ -676,6 +676,31 @@ own number stays the element id (two id spaces). A row says who asked
   Clean again and Rewrite again open the file only when the person clicks;
   and a file changed since the call is a window row's file changed since
   its drop.
+* **A caller's row looks as a window's row of the same thing does**
+  (D750; F28, the owner's rows 37 and 38 at the macOS acceptance,
+  2026-10-15: `cli-long.md` imported in the window read "Markdown, UTF-8"
+  under Format, and the same file rewritten by the command line through
+  the application read "—"). An MCP call that is a row — `rewrite`,
+  `clean`, `clean_image`, an `inspect` asked to be one — writes what its
+  document is with the row, by the recogniser every drop goes through
+  (`journal::caller_entry`). When `wipemark/path` names a regular file on
+  this side — D729's rule, `journal::named_file`, `metadata` before any
+  open — that file is the input, looked at as an import of it is
+  (`of_path`): its kind, format, encoding and size are the file's, not the
+  text's the caller sent, which the command line decoded from it — a
+  UTF-16 file reads "UTF-16LE" whoever hands it over. Otherwise what the
+  call handed over is the input: its characters as a paste of them is
+  looked at (D751), its bytes as a picture pasted with no file behind it,
+  under the name the caller gave. The head is read on the caller's own
+  connection thread and goes to nobody. A row written before this build
+  keeps the "—" it had until the keep period takes it.
+* **A caller's text is its characters** (D751). It is looked at by
+  `intake::of_characters` — what `of_text` says of a text that names no
+  file — with no path looked for inside it: the tool cleans or rewrites
+  the characters, never a file a line of them names, and a caller's
+  `/dev/fd/3` would be this process's descriptor here. A window's paste of
+  a path is that file (`of_text`); a caller's text that is a path is a
+  text.
 * **It survives a restart** (В3). At launch (D317) a window clean left
   mid-way waits again — or, with no file behind it, goes, its text never
   having been kept — a caller's rewrite still queued is cancelled and its

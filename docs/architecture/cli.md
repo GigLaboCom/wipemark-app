@@ -635,7 +635,7 @@ schema 3), and the command line's runs are among them.
 | `clean` (text: `clean`, picture: `clean_image`) | unless `--no-record` | this command |
 | `inspect` | only with `--record` (a look changes nothing, В7) | this command |
 | `rewrite`, served by this command | unless `--no-record` | this command |
-| `rewrite`, served by the running application | unless `--no-record` | the application — the call carries `"record"` and, in the params' `_meta`, `wipemark/origin: cli` with the file's name, path and size; when the answer names its row (`result._meta["wipemark/journal"]`) and this command wrote a file, it tells that row where |
+| `rewrite`, served by the running application | unless `--no-record` | the application — the call carries `"record"` and, in the params' `_meta`, `wipemark/origin: cli` with the file's name, path and size; the application's row says what the file is as the window's import of it would — kind, format, encoding and size read from the named file (D750); when the answer names its row (`result._meta["wipemark/journal"]`) and this command wrote a file, it tells that row where |
 | `audit`, `models` | never | — |
 
 A row holds metadata only (D312): origin `cli`, the action, done or

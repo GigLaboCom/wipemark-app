@@ -140,18 +140,19 @@ impl Default for Asker {
 }
 
 impl Asker {
-    /// The row an asked-for action starts as.
-    pub fn entry(&self, text: &str) -> Entry {
-        Entry {
-            name: self.name.clone(),
-            // A caller's word, not a file this application recorded: shown
-            // beside the row, and looked at by the table as a recorded file
-            // is (D729) — its head read only if it is a regular file (D356).
-            said_path: self.path.clone(),
-            kind: Some("text".to_owned()),
-            size: self.size.or(Some(text.len() as u64)),
-            ..Entry::default()
-        }
+    /// The row an asked-for action starts as: the caller's name and path —
+    /// a caller's word, not a file this application recorded, shown beside
+    /// the row and looked at by the table as a recorded file is (D729) —
+    /// and what the thing is, as a window's row of the same thing says it
+    /// (D750): the named file's look when it is a regular file here, else
+    /// what `called` handed over. Blocking: see [`journal::caller_entry`].
+    pub fn entry(&self, called: journal::Called) -> Entry {
+        journal::caller_entry(
+            self.name.as_deref(),
+            self.path.as_deref(),
+            self.size,
+            called,
+        )
     }
 }
 
@@ -435,7 +436,13 @@ impl Rewriter {
             return Err(Unrun::Asking);
         }
         let bytes = document.text.len();
-        let entry = asker.entry(&document.text);
+        // What the row says the document is — a named file looked at, a
+        // `stat` and a head (D750) — only for a call that is a row.
+        let entry = if record {
+            asker.entry(journal::Called::Text(&document.text))
+        } else {
+            Entry::default()
+        };
         // Heard from before the push, so the item's own events are never
         // missed.
         let events = work.queue.subscribe();

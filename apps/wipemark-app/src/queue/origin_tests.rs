@@ -554,7 +554,18 @@ fn call(
     text: &str,
     meta: Option<serde_json::Value>,
 ) -> serde_json::Value {
-    let mut params = serde_json::json!({ "name": tool, "arguments": { "text": text } });
+    ask(services, tool, serde_json::json!({ "text": text }), meta)
+}
+
+/// `tools/call` of `tool` with `arguments`, and `_meta` when there is one,
+/// to the application's own MCP server; the answer's result.
+fn ask(
+    services: &crate::mcp::protocol::Services,
+    tool: &str,
+    arguments: serde_json::Value,
+    meta: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut params = serde_json::json!({ "name": tool, "arguments": arguments });
     if let Some(meta) = meta {
         params["_meta"] = meta;
     }
@@ -871,6 +882,201 @@ fn where_a_thing_came_from_never_changes_what_its_row_can_do(cx: &mut TestAppCon
         window_note,
         "the agent's row, cleaned here"
     );
+}
+
+/// A picture: the application's own 32 × 32 icon, a PNG.
+const PNG: &[u8] = include_bytes!("../../assets/icon/32x32.png");
+
+/// D750, F28 (the owner's rows 37 and 38 at the macOS acceptance,
+/// 2026-10-15): `cli-long.md` imported in the window read "Markdown, UTF-8"
+/// under Format, and the same file rewritten by `wipemark-cli` through the
+/// application read "—" — a caller's journal entry had no format and no
+/// encoding. How a row looks depends on what was handed over, never on who
+/// handed it over. Each thing goes down every road that ends as a row:
+///
+/// * a Markdown file in UTF-8 and one in UTF-16 — the window's import, the
+///   panel's drop, the command line's rewrite through the application
+///   (`_meta` `wipemark/origin=cli`, `wipemark/name`, `wipemark/path`,
+///   `wipemark/size`, the decoded text sent as the command line sends it)
+///   and an agent's clean naming `wipemark/path`;
+/// * a PNG — the window's import, the panel's drop and an agent's
+///   `clean_image` naming `wipemark/path`;
+/// * a text and a picture with no file behind them — the window's paste of
+///   each and an agent's call handing each over inline (D751).
+///
+/// Every row of one thing shows one look — the Kind, the Format cell with
+/// its encoding, the Size, the name and the folder — and the callers'
+/// journal entries carry the format and the encoding the window's own
+/// entries do. Record a caller's row with no look at what it was handed, as
+/// before, and every caller's Format cell is "—": red. Look at the text the
+/// caller sent rather than the file it named, and the UTF-16 file reads
+/// "Text, UTF-8" down the callers' roads: red.
+#[gpui::test]
+fn where_a_thing_came_from_never_changes_how_its_row_looks(cx: &mut TestAppContext) {
+    use base64::Engine as _;
+
+    let scratch = Scratch::new("every-look");
+    let md = scratch.file("cli-long.md", PARAGRAPH.as_bytes());
+    let wide_bytes: Vec<u8> = [0xFF_u8, 0xFE]
+        .into_iter()
+        .chain(PARAGRAPH.encode_utf16().flat_map(|unit| unit.to_le_bytes()))
+        .collect();
+    let wide = scratch.file("wide.md", &wide_bytes);
+    let png = scratch.file("shot.png", PNG);
+    let work = work_over(
+        Arc::new(Store::in_memory().expect("memory")),
+        Some(swapping()),
+    );
+    let services = crate::mcp::protocol::Services {
+        rewriter: Some(
+            crate::mcp::rewrite::Rewriter::new(work.engine.clone(), None)
+                .with_work(Some(work.clone())),
+        ),
+        work: Some(work.clone()),
+    };
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+
+    // The window's import of the three files, then its paste of a text and
+    // of a picture; the panel's drop of the three files.
+    queue.update(cx, |queue, cx| {
+        queue.hand(vec![md.clone(), wide.clone(), png.clone()], cx)
+    });
+    cx.run_until_parked();
+    queue.update(cx, |queue, cx| {
+        queue.land(
+            vec![
+                Handed::Text(MARKED.to_owned()),
+                Handed::Bytes {
+                    name: None,
+                    bytes: PNG.to_vec(),
+                },
+            ],
+            cx,
+        )
+    });
+    cx.run_until_parked();
+    let window = cx.update(|_, cx| queue.read(cx).ids());
+    assert_eq!(window.len(), 5, "the window's own rows");
+    let arrival = |path: &Path| Arrival {
+        handed: Handed::Path(path.to_path_buf()),
+        intake: wipemark_intake::of_path(path),
+    };
+    let panel = queue.update(cx, |queue, cx| {
+        queue.take_from_panel(
+            Arc::from(vec![arrival(&md), arrival(&wide), arrival(&png)]),
+            cx,
+        )
+    });
+
+    // The callers, each on the MCP server's road.
+    let cli = |path: &Path, text: &str| {
+        Some(serde_json::json!({
+            "wipemark/origin": "cli",
+            "wipemark/name": path.file_name().map(|name| name.to_string_lossy().into_owned()),
+            "wipemark/path": path.to_string_lossy(),
+            "wipemark/size": text.len(),
+        }))
+    };
+    let agent = |path: &Path| Some(serde_json::json!({ "wipemark/path": path.to_string_lossy() }));
+    let text = |text: &str| serde_json::json!({ "text": text });
+    let data = serde_json::json!({
+        "data": base64::engine::general_purpose::STANDARD.encode(PNG),
+    });
+    let calls = vec![
+        ("rewrite", text(PARAGRAPH), cli(&md, PARAGRAPH)),
+        ("rewrite", text(PARAGRAPH), cli(&wide, PARAGRAPH)),
+        ("clean", text(PARAGRAPH), agent(&md)),
+        ("clean", text(PARAGRAPH), agent(&wide)),
+        ("clean_image", data.clone(), agent(&png)),
+        ("clean", text(MARKED), None),
+        ("clean_image", data, None),
+    ];
+    let expected = calls.len();
+    let (answer, answers) = std::sync::mpsc::channel();
+    let calling = services.clone();
+    std::thread::spawn(move || {
+        for (tool, arguments, meta) in calls {
+            let _ = answer.send(ask(&calling, tool, arguments, meta));
+        }
+    });
+    let heard: Rc<RefCell<Vec<serde_json::Value>>> = Rc::default();
+    until(cx, "the callers", |_| {
+        heard.borrow_mut().extend(answers.try_iter());
+        heard.borrow().len() == expected
+    });
+    let heard = heard.borrow().clone();
+    for (at, result) in heard.iter().enumerate().take(2) {
+        assert_ne!(result["isError"], serde_json::json!(true), "{at}: {result}");
+    }
+    let callers: Vec<u64> = heard
+        .iter()
+        .map(|result| row_of(&queue, journal_id(result), cx))
+        .collect();
+    looked_at(&queue, window.len() + panel.len() + callers.len(), cx);
+    flushed(&queue, cx);
+
+    let look = |id: u64, cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            queue
+                .read(cx)
+                .rows
+                .iter()
+                .find(|row| row.id == id)
+                .map(|row| row.look.clone())
+                .expect("the row")
+        })
+    };
+    // What the journal keeps of a row's look.
+    let kept = |id: u64, cx: &mut VisualTestContext| {
+        let entry = cx
+            .update(|_, cx| {
+                queue
+                    .read(cx)
+                    .rows
+                    .iter()
+                    .find(|row| row.id == id)
+                    .and_then(|row| row.entry)
+            })
+            .expect("a journal row");
+        let entry = entry_of(&work, entry);
+        (entry.kind, entry.format, entry.encoding, entry.size)
+    };
+    let things = [
+        (
+            "the UTF-8 Markdown file",
+            window[0],
+            vec![panel[0], callers[0], callers[2]],
+        ),
+        (
+            "the UTF-16 Markdown file",
+            window[1],
+            vec![panel[1], callers[1], callers[3]],
+        ),
+        ("the PNG file", window[2], vec![panel[2], callers[4]]),
+        ("the pasted text", window[3], vec![callers[5]]),
+        ("the pasted picture", window[4], vec![callers[6]]),
+    ];
+    for (thing, own, others) in &things {
+        let (own_look, own_kept) = (look(*own, cx), kept(*own, cx));
+        for other in others {
+            assert_eq!(look(*other, cx), own_look, "{thing}: the row's look");
+            assert_eq!(kept(*other, cx), own_kept, "{thing}: the journal's entry");
+        }
+    }
+    // What the window says of each, as the owner read row 37.
+    let cell = |id: u64, cx: &mut VisualTestContext| {
+        let look = look(id, cx);
+        (look.format, look.encoding)
+    };
+    let said = |format: &str, encoding: Option<&str>| {
+        (Some(format.to_owned()), encoding.map(str::to_owned))
+    };
+    assert_eq!(cell(callers[0], cx), said("Markdown", Some("UTF-8")));
+    assert_eq!(cell(callers[1], cx), said("Markdown", Some("UTF-16LE")));
+    assert_eq!(cell(callers[4], cx), said("PNG", None));
+    assert_eq!(cell(callers[5], cx), said("Text", Some("UTF-8")));
+    assert_eq!(cell(callers[6], cx), said("PNG", None));
 }
 
 /// D731, for Clean and Rewrite too: on a row with nothing behind it, the

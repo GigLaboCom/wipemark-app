@@ -897,6 +897,77 @@ pub fn entry_of(arrival: &Arrival) -> Entry {
     }
 }
 
+/// What a caller handed over with its call (D750): the characters of a
+/// text tool's `text`, or the bytes of a picture tool's `data`.
+#[derive(Debug, Clone, Copy)]
+pub enum Called<'a> {
+    Text(&'a str),
+    Bytes(&'a [u8]),
+}
+
+/// A caller's row as its call starts it (D750, D751): the name and the path
+/// the caller gave, and what the thing is by the look a window's row of the
+/// same thing has — the same recogniser over the same input — so its Kind,
+/// its Format cell and its Size never depend on who handed it over (F28).
+///
+/// * The path the caller named (`said_path`), when it names a **regular
+///   file** on this side — absolute, nothing under `/dev` or `/proc`
+///   ([`named_file`], D729), `metadata` before any open (D356) — is the
+///   input, looked at as an import of that file is (`of_path`): its kind,
+///   format, encoding and size are the file's. It is the file the row has
+///   behind it from then on (D729); the text the caller sent was decoded
+///   from it, and says nothing of how it is stored. Its head is read here
+///   and goes to nobody.
+/// * Otherwise what the call handed over is the input: characters as a
+///   paste of them is looked at, but as characters only, with no path looked
+///   for inside them (`of_characters`, D751) — the tool cleans or rewrites
+///   the characters, never a file a line of them names; bytes as a picture
+///   pasted with no file behind it is (`of_bytes`), under the caller's
+///   name. The size is the caller's word when it gave one.
+///
+/// Blocking: a `stat`, and at most `HEAD` bytes of a regular file — on the
+/// caller's own connection thread, never the GPUI thread.
+pub fn caller_entry(
+    name: Option<&str>,
+    said_path: Option<&str>,
+    size: Option<u64>,
+    called: Called,
+) -> Entry {
+    let said = Entry {
+        said_path: said_path.map(str::to_owned),
+        ..Entry::default()
+    };
+    // `metadata` follows a link, as a drop's look does: a link to a regular
+    // file is the file. A folder, a FIFO, a device or nothing at all is no
+    // file of this call's.
+    let file = named_file(&said).filter(|path| std::fs::metadata(path).is_ok_and(|m| m.is_file()));
+    let (intake, size) = match (file, called) {
+        (Some(path), _) => {
+            let intake = wipemark_intake::of_path(&path);
+            let size = intake.size.or(size);
+            (intake, size)
+        }
+        (None, Called::Text(text)) => {
+            let intake = wipemark_intake::of_characters(text);
+            let size = size.or(intake.size);
+            (intake, size)
+        }
+        (None, Called::Bytes(bytes)) => {
+            let intake = wipemark_intake::of_bytes(bytes, name);
+            let size = size.or(intake.size);
+            (intake, size)
+        }
+    };
+    Entry {
+        name: name.map(str::to_owned),
+        kind: Some(kind_id(intake.kind).to_owned()),
+        format: intake.format.map(|format| format.name().to_owned()),
+        encoding: intake.encoding.map(|encoding| encoding.name().to_owned()),
+        size,
+        ..said
+    }
+}
+
 /// The file a journal row names — what [`arrival_of`] looks at: its
 /// recorded `path`, else its caller's `said_path` when that can name a file
 /// on this side at all (D729): absolute, and not under `/dev` or `/proc`
@@ -1443,6 +1514,147 @@ mod tests {
             );
             drop(held);
         }
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// What a row says a thing is: its kind, format, encoding and size.
+    type Looked = (Option<String>, Option<String>, Option<String>, Option<u64>);
+
+    /// `caller_entry` on a thread of its own, waited for at most five
+    /// seconds — a look that opened a FIFO would wait for a writer for ever
+    /// on the caller's connection thread.
+    fn caller_in_time(
+        said: Option<std::path::PathBuf>,
+        size: Option<u64>,
+        called: String,
+    ) -> Option<Looked> {
+        let (answer, answered) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let said = said.map(|path| path.to_string_lossy().into_owned());
+            let entry = caller_entry(
+                Some("notes.md"),
+                said.as_deref(),
+                size,
+                Called::Text(&called),
+            );
+            assert_eq!(
+                entry.said_path, said,
+                "the named path is not the row's said_path"
+            );
+            assert_eq!(
+                entry.path, None,
+                "a caller's path was recorded as this side's"
+            );
+            let _ = answer.send((entry.kind, entry.format, entry.encoding, entry.size));
+        });
+        answered
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .ok()
+    }
+
+    /// D750, D751: a caller's row says what its document is as a window's
+    /// row of the same thing does. A regular file the caller named is the
+    /// input — a UTF-16 Markdown file is "Markdown, UTF-16LE" at the file's
+    /// size, whatever text was sent; anything else it names is not, and the
+    /// characters sent are looked at as a paste of them is, at the size the
+    /// caller gave: a relative name, a folder, a file that went, a FIFO with
+    /// no writer and `/dev/null` (answered at once, nothing opened), and a
+    /// caller's `/dev/fd/N`, which here is this process's own regular file.
+    /// A text that is itself a path is characters, never the file (D751); a
+    /// picture's bytes are a PNG. Look at `said_path` without the
+    /// `metadata` check and the folder and the FIFO are looked at as files:
+    /// red. Without `named_file`'s filters the relative name and the
+    /// descriptor are read here: red. With `of_text` for the characters the
+    /// path-text is the file: red.
+    #[test]
+    fn a_callers_row_looks_at_the_file_it_names_and_nothing_else() {
+        let scratch = std::env::temp_dir().join(format!("wipemark-d750-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch");
+        let wide = scratch.join("wide.md");
+        let bytes: Vec<u8> = [0xFF_u8, 0xFE]
+            .into_iter()
+            .chain(
+                "# Notes\n"
+                    .encode_utf16()
+                    .flat_map(|unit| unit.to_le_bytes()),
+            )
+            .collect();
+        std::fs::write(&wide, &bytes).expect("a file");
+        let owned = |text: &str| Some(text.to_owned());
+        let characters = Some((owned("text"), owned("Text"), owned("UTF-8"), Some(7)));
+
+        let decoded = || "decoded".to_owned();
+        assert_eq!(
+            caller_in_time(Some(wide.clone()), Some(7), decoded()),
+            Some((
+                owned("text"),
+                owned("Markdown"),
+                owned("UTF-16LE"),
+                Some(bytes.len() as u64)
+            )),
+            "the file the caller named is not what its row says"
+        );
+        #[cfg(unix)]
+        let (unix, held) = {
+            let fifo = scratch.join("pipe");
+            let made = std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .expect("mkfifo runs");
+            assert!(made.success());
+            use std::os::fd::AsRawFd as _;
+            let held = std::fs::File::open(&wide).expect("open");
+            let own = std::path::PathBuf::from(format!("/dev/fd/{}", held.as_raw_fd()));
+            assert!(
+                std::fs::metadata(&own).is_ok_and(|meta| meta.is_file()),
+                "the test cannot name a descriptor of its own as a file"
+            );
+            (vec![fifo, std::path::PathBuf::from("/dev/null"), own], held)
+        };
+        #[cfg(not(unix))]
+        let unix: Vec<std::path::PathBuf> = Vec::new();
+        let not_files = [
+            std::path::PathBuf::from("Cargo.toml"),
+            scratch.clone(),
+            scratch.join("gone.md"),
+        ]
+        .into_iter()
+        .chain(unix);
+        for named in not_files {
+            assert_eq!(
+                caller_in_time(Some(named.clone()), Some(7), decoded()),
+                characters,
+                "{} was looked at as the caller's file, or never answered",
+                named.display()
+            );
+        }
+        #[cfg(unix)]
+        drop(held);
+
+        // No path at all: the characters, at their own length.
+        let line = wide.to_string_lossy().into_owned();
+        assert_eq!(
+            caller_in_time(None, None, line.clone()),
+            Some((
+                owned("text"),
+                owned("Text"),
+                owned("UTF-8"),
+                Some(line.len() as u64)
+            )),
+            "a caller's text that is a path was read as the file"
+        );
+        let png = caller_entry(
+            None,
+            None,
+            None,
+            Called::Bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"),
+        );
+        assert_eq!(
+            (png.kind.as_deref(), png.format.as_deref(), png.encoding),
+            (Some("image"), Some("PNG"), None)
+        );
+        assert_eq!(png.size, Some(20));
         std::fs::remove_dir_all(&scratch).ok();
     }
 
