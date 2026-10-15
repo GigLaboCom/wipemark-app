@@ -228,7 +228,10 @@ result, an edited result asked about first
   after the event that asked, on macOS by AppKit's close — Compare,
   Settings, the panel and the title bar;
 - `fix/f27-compare-header` (D748–D749; F27): Compare's banner, the line
-  under the panes and a refusal wrap inside the window.
+  under the panes and a refusal wrap inside the window;
+- `fix/f26-engine-starting` (D745–D747; F26): until the first look at
+  the models folder lands, every surface says the engine is starting,
+  and the backends load beside the survey.
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
