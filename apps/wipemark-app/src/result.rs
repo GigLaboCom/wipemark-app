@@ -86,25 +86,58 @@
 //! greyed while the text is empty, its tooltip saying so rather than
 //! what it would have done, as Save's does (D633); its action, reached
 //! some other way over an empty text, leaves the clipboard alone.
+//!
+//! # What does not fit (D758–D760)
+//!
+//! The strip is thirteen buttons, about 344 points, and the pane can be
+//! narrower: 320 points at the Compare window's least width, less with the
+//! split dragged. The buttons that do not fit leave the strip from its end
+//! — the toggles first, then Find, and on back towards Save — and become
+//! the lines of a menu behind a more button (the ellipsis) over the strip's
+//! far end; as the pane widens they come back. The strip's row is an
+//! element of its own, `Overflow`: it lays every button out, reads where
+//! the layout of the frame being drawn put each one, and paints only the
+//! run from the start that ends before the more button. Nothing is
+//! remembered from the last frame, so a resize or a dragged split is never
+//! a frame behind (D758).
+//!
+//! A line of the menu is its button (D759): pressed, it is
+//! [`ResultEditor::press`], the button's own press; it is greyed by the same
+//! `Standing`, with the reason the button's tooltip would give on a second
+//! line under the label, as the row's Actions menu says why (D731); it names
+//! the shortcut the tooltip names, and a toggle's line carries a check while
+//! it is on. A shortcut never belonged to a button — the editor's are bound
+//! in its own key context, ⌘S in the window's — so every one works whatever
+//! the strip shows. The menu opens from the more button's right edge towards
+//! the pane, its lines in the strip's order with a line between two
+//! stretches as the strip has (D760); the more button stays while its menu
+//! is open, even once everything fits. `the_more_menu_does_what_the_buttons_do`
+//! and `an_open_menu_outlasts_the_room_that_made_it` here, and
+//! `compare::tests::compare_s_words_fit_its_window_in_every_language`, are
+//! the gates.
 
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, rems, Action, AnyElement, App, ClickEvent, ClipboardItem, Context, Entity,
-    EventEmitter, Pixels, SharedString, Subscription, Window,
+    actions, div, px, rems, Action, Anchor, AnyElement, App, Bounds, ClickEvent, ClipboardItem,
+    Context, Element, ElementId, Entity, EventEmitter, GlobalElementId, InspectorElementId,
+    LayoutId, Pixels, SharedString, Style, StyleRefinement, Subscription, WeakEntity, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{
     self, DocumentColorProvider, Editor, EditorState, InputEvent, LineDecorationCollection,
     LineDecorationProvider,
 };
+use gpui_component::kbd::Kbd;
+use gpui_component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_component::{
     h_flex, v_flex, ActiveTheme, Disableable as _, Selectable as _, Sizable as _,
 };
 use wipemark_i18n::{t, Message};
 
-use crate::icon::IconName;
+use crate::icon::{Icon, IconName};
 
 /// The key context the editor's bindings are scoped to — the one the
 /// tooltips ask about, so that they show the shortcut that would fire
@@ -273,6 +306,78 @@ impl View {
     }
 }
 
+/// One control on the strip, in the strip's order: what a button is, and
+/// what its line in the more menu is while the button does not fit (D758,
+/// D759).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Control {
+    /// The window's command at the head of the strip — Save.
+    Offer,
+    Command(Command),
+    CopyAll,
+    View(View),
+}
+
+impl Control {
+    /// The element id of this control's button, stable across frames —
+    /// and the selector its button answers to in a test.
+    pub fn id(self) -> &'static str {
+        match self {
+            Control::Offer => OFFER_ID,
+            Control::Command(command) => command.id(),
+            Control::CopyAll => COPY_ALL_ID,
+            Control::View(view) => view.id(),
+        }
+    }
+
+    fn icon(self) -> IconName {
+        match self {
+            Control::Offer => IconName::Save,
+            Control::Command(command) => command.icon(),
+            Control::CopyAll => COPY_ALL_ICON,
+            Control::View(view) => view.icon(),
+        }
+    }
+
+    /// Which stretch of the strip it sits in. A line is drawn between two
+    /// stretches of operations, on the strip and in the more menu alike;
+    /// the toggles are pushed to the far end instead.
+    fn stretch(self) -> Stretch {
+        match self {
+            Control::Offer => Stretch::Window,
+            Control::Command(command) => Stretch::Editor(command.group()),
+            Control::CopyAll => Stretch::Editor(Group::Clipboard),
+            Control::View(_) => Stretch::Look,
+        }
+    }
+}
+
+/// See [`Control::stretch`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stretch {
+    Window,
+    Editor(Group),
+    Look,
+}
+
+/// What a control is now — read once per frame by its button, and by its
+/// line in the more menu when the menu opens, so the two cannot disagree
+/// about whether it does anything, why not, or whether a toggle is on
+/// (D759).
+struct Standing {
+    label: SharedString,
+    enabled: bool,
+    /// Why it does nothing, said in place of what it would do — Save's
+    /// reason and Copy all's. Cut, Copy and Paste are greyed without one,
+    /// as the library's own menu greys them.
+    why: Option<SharedString>,
+    /// A toggle's state; `None` for an operation.
+    on: Option<bool>,
+    /// The action its tooltip and its menu line ask the keymap about, and
+    /// the key context it is bound in.
+    action: Option<(Box<dyn Action>, &'static str)>,
+}
+
 /// A command of the window's, offered to the strip — Save. See the
 /// module docs, "One button is the window's".
 pub struct Offer {
@@ -311,6 +416,13 @@ pub struct ResultEditor {
     whitespace: bool,
     /// The window's command at the head of the strip, when it offers one.
     offer: Option<Offer>,
+    /// The controls the last frame left off the strip, in the strip's
+    /// order — written as the strip is laid out, read by the more menu as
+    /// it opens (D758).
+    hidden: Rc<RefCell<Vec<Control>>>,
+    /// Whether the more menu is open, so the strip keeps the button it is
+    /// drawn from for as long as it is.
+    menu_open: Rc<Cell<bool>>,
     /// Dropped with the view: every change to the text is re-announced
     /// as a [`ResultEvent`], so a reader need not know there is an
     /// `EditorState` underneath.
@@ -352,6 +464,8 @@ impl ResultEditor {
             soft_wrap: false,
             whitespace: false,
             offer: None,
+            hidden: Rc::default(),
+            menu_open: Rc::default(),
             _changed: changed,
             _repaint: repaint,
         }
@@ -524,27 +638,114 @@ impl ResultEditor {
         cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
     }
 
-    /// Copy all's button: in the clipboard group, after Copy. Its glyph is
-    /// a page of lines rather than Copy's two pages, so the two can be told
-    /// apart side by side (D634).
-    fn copy_all_button(&self, cx: &Context<Self>) -> Button {
-        let button = Button::new(COPY_ALL_ID)
+    /// Every control on the strip, in the strip's order: the window's
+    /// command when it offers one, the operations with Copy all after Copy,
+    /// and the two toggles.
+    pub fn controls(&self) -> Vec<Control> {
+        let mut controls = Vec::with_capacity(Command::ALL.len() + View::ALL.len() + 2);
+        if self.offer.is_some() {
+            controls.push(Control::Offer);
+        }
+        for command in Command::ALL {
+            controls.push(Control::Command(command));
+            if command == Command::Copy {
+                controls.push(Control::CopyAll);
+            }
+        }
+        controls.extend(View::ALL.map(Control::View));
+        controls
+    }
+
+    /// What `control` is now: its label, whether it does anything and why
+    /// not, and a toggle's state (D759).
+    fn standing(&self, control: Control, cx: &App) -> Standing {
+        match control {
+            Control::Offer => {
+                let offer = self.offer.as_ref();
+                Standing {
+                    label: offer.map(|offer| offer.label.clone()).unwrap_or_default(),
+                    enabled: offer.is_some_and(|offer| offer.unavailable.is_none()),
+                    why: offer.and_then(|offer| offer.unavailable.clone()),
+                    on: None,
+                    action: offer.map(|offer| (offer.action.boxed_clone(), offer.context)),
+                }
+            }
+            Control::Command(command) => Standing {
+                label: SharedString::from(t(command.label())),
+                enabled: self.can(command, cx),
+                why: None,
+                on: None,
+                action: Some((command.action(), INPUT_CONTEXT)),
+            },
+            Control::CopyAll => {
+                let enabled = self.can_copy_all(cx);
+                Standing {
+                    label: SharedString::from(t(Message::ResultCopyAll)),
+                    enabled,
+                    why: (!enabled).then(|| SharedString::from(t(Message::ResultCopyAllEmpty))),
+                    on: None,
+                    action: Some((Box::new(CopyAll), CONTEXT)),
+                }
+            }
+            Control::View(view) => Standing {
+                label: SharedString::from(t(view.label())),
+                enabled: true,
+                why: None,
+                on: Some(self.shows(view)),
+                action: None,
+            },
+        }
+    }
+
+    /// Press `control` — what its button does, and what its line in the
+    /// more menu does: one road for both (D759).
+    fn press(&mut self, control: Control, window: &mut Window, cx: &mut Context<Self>) {
+        match control {
+            Control::Offer => self.press_offer(window, cx),
+            Control::Command(command) => self.perform(command, window, cx),
+            Control::CopyAll => self.press_copy_all(window, cx),
+            Control::View(view) => self.toggle(view, window, cx),
+        }
+    }
+
+    /// The controls the strip left off in the last frame, in its order.
+    #[cfg(test)]
+    pub(crate) fn hidden(&self) -> Vec<Control> {
+        self.hidden.borrow().clone()
+    }
+
+    /// `control`'s button: its glyph, greyed when it would do nothing, a
+    /// toggle shown pressed while it is on, and a tooltip that says what
+    /// it does and what it is bound to — or, greyed with a reason, the
+    /// reason instead.
+    fn button(&self, control: Control, cx: &Context<Self>) -> Button {
+        let Standing {
+            label,
+            enabled,
+            why,
+            on,
+            action,
+        } = self.standing(control, cx);
+        let button = Button::new(control.id())
+            .debug_selector(move || control.id().to_owned())
             .ghost()
             .xsmall()
-            .icon(COPY_ALL_ICON)
-            .disabled(!self.can_copy_all(cx))
-            .on_click(cx.listener(|editor, _: &ClickEvent, window, cx| {
-                editor.press_copy_all(window, cx);
+            .icon(control.icon())
+            .disabled(!enabled)
+            .selected(on.unwrap_or(false))
+            .on_click(cx.listener(move |editor, _: &ClickEvent, window, cx| {
+                editor.press(control, window, cx);
             }));
-        if self.can_copy_all(cx) {
-            button.tooltip_with_action(
-                SharedString::from(t(Message::ResultCopyAll)),
-                &CopyAll,
-                Some(CONTEXT),
-            )
-        } else {
+        match (why, action) {
             // A greyed button says why, not what it would have done.
-            button.tooltip(SharedString::from(t(Message::ResultCopyAllEmpty)))
+            (Some(why), _) => button.tooltip(why),
+            // The label, and beside it whatever the window says the action
+            // is bound to — read from the keymap at hover time, never
+            // written down here.
+            (None, Some((action, context))) => {
+                button.tooltip_with_action(label, action.as_ref(), Some(context))
+            }
+            (None, None) => button.tooltip(label),
         }
     }
 
@@ -583,89 +784,352 @@ impl ResultEditor {
         cx.notify();
     }
 
-    /// The strip: the operations, grouped, and the two toggles at the
-    /// far end.
+    /// The strip: the window's command, the operations, grouped, and the
+    /// two toggles at the far end.
     fn toolbar(&self, cx: &Context<Self>) -> AnyElement {
         let theme = cx.theme();
-        let mut strip = h_flex()
+        let mut items: Vec<(Option<Control>, AnyElement)> = Vec::new();
+        let mut previous: Option<Stretch> = None;
+        for control in self.controls() {
+            let stretch = control.stretch();
+            if previous.is_some_and(|previous| previous != stretch) {
+                items.push((
+                    None,
+                    if stretch == Stretch::Look {
+                        div().flex_1().into_any_element()
+                    } else {
+                        separator(cx)
+                    },
+                ));
+            }
+            previous = Some(stretch);
+            items.push((Some(control), self.button(control, cx).into_any_element()));
+        }
+
+        div()
+            .debug_selector(|| STRIP.to_owned())
             .w_full()
             .h(TOOLBAR_HEIGHT)
             .flex_shrink_0()
-            .items_center()
-            .gap_0p5()
             .px_1()
             .border_b_1()
-            .border_color(theme.border);
+            .border_color(theme.border)
+            .child(
+                Overflow {
+                    style: StyleRefinement::default(),
+                    items,
+                    more: self.more_button(cx),
+                    menu_open: self.menu_open.clone(),
+                    hidden: self.hidden.clone(),
+                }
+                .size_full()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_0p5(),
+            )
+            .into_any_element()
+    }
 
-        // The window's own command first, apart from the editor's.
-        if let Some(offer) = &self.offer {
-            let button = Button::new("result-offer")
-                .ghost()
-                .xsmall()
-                .icon(IconName::Save)
-                .disabled(offer.unavailable.is_some())
-                .on_click(cx.listener(|editor, _: &ClickEvent, window, cx| {
-                    editor.press_offer(window, cx);
-                }));
-            let button = match &offer.unavailable {
-                // A greyed button says why, not what it would have done.
-                Some(why) => button.tooltip(why.clone()),
-                None => button.tooltip_with_action(
-                    offer.label.clone(),
-                    offer.action.as_ref(),
-                    Some(offer.context),
-                ),
-            };
-            strip = strip.child(button).child(separator(cx));
-        }
-
-        let mut previous: Option<Group> = None;
-        for command in Command::ALL {
-            if previous.is_some_and(|group| group != command.group()) {
-                strip = strip.child(separator(cx));
-            }
-            previous = Some(command.group());
-            strip = strip.child(
-                Button::new(command.id())
+    /// The more button, over the strip's far end, painted only while
+    /// something does not fit: the controls left off, as a menu that opens
+    /// from the button's right edge towards the pane (D758, D760). The menu
+    /// is built as it opens, from what the frame the person clicked in left
+    /// off and from each control's standing then.
+    fn more_button(&self, cx: &Context<Self>) -> AnyElement {
+        let editor = cx.entity().downgrade();
+        let hidden = self.hidden.clone();
+        let menu_open = self.menu_open.clone();
+        div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .right_0()
+            .flex()
+            .items_center()
+            // The room between the last control kept and this button.
+            .pl_1()
+            .child(
+                Button::new(MORE)
+                    .debug_selector(|| MORE.to_owned())
                     .ghost()
                     .xsmall()
-                    .icon(command.icon())
-                    // The label, and beside it whatever the window says
-                    // the action is bound to — read from the keymap at
-                    // hover time, never written down here.
-                    .tooltip_with_action(
-                        SharedString::from(t(command.label())),
-                        command.action().as_ref(),
-                        Some(INPUT_CONTEXT),
-                    )
-                    .disabled(!self.can(command, cx))
-                    .on_click(cx.listener(move |editor, _: &ClickEvent, window, cx| {
-                        editor.perform(command, window, cx);
-                    })),
-            );
-            if command == Command::Copy {
-                strip = strip.child(self.copy_all_button(cx));
-            }
-        }
-
-        strip = strip.child(div().flex_1());
-        for view in View::ALL {
-            strip = strip.child(
-                Button::new(view.id())
-                    .ghost()
-                    .xsmall()
-                    .icon(view.icon())
-                    .tooltip(SharedString::from(t(view.label())))
-                    .selected(self.shows(view))
-                    .on_click(cx.listener(move |editor, _: &ClickEvent, window, cx| {
-                        editor.toggle(view, window, cx);
-                    })),
-            );
-        }
-
-        strip.into_any_element()
+                    .icon(IconName::Ellipsis)
+                    .tooltip(SharedString::from(t(Message::ResultMore)))
+                    .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, cx| {
+                        let Some(strip) = editor.upgrade() else {
+                            return menu;
+                        };
+                        let lines = hidden
+                            .borrow()
+                            .iter()
+                            .map(|&control| (control, strip.read(cx).standing(control, cx)))
+                            .collect();
+                        more_menu(menu, lines, &editor)
+                    })
+                    .on_open_change(move |open, _, _| menu_open.set(*open)),
+            )
+            .into_any_element()
     }
 }
+
+/// The more menu: a line for every control the strip left off, in the
+/// strip's order, with a line between two stretches as the strip has one
+/// (D760).
+fn more_menu(
+    mut menu: PopupMenu,
+    lines: Vec<(Control, Standing)>,
+    editor: &WeakEntity<ResultEditor>,
+) -> PopupMenu {
+    let mut previous: Option<Stretch> = None;
+    for (control, standing) in lines {
+        let stretch = control.stretch();
+        if previous.is_some_and(|previous| previous != stretch) {
+            menu = menu.separator();
+        }
+        previous = Some(stretch);
+        menu = menu.item(menu_line(control, standing, editor.clone()));
+    }
+    menu
+}
+
+/// `control`'s line in the more menu (D759): its glyph and its label, the
+/// shortcut its button's tooltip names, and a check while a toggle is on.
+/// Greyed when the button is; where the button's tooltip gives a reason
+/// instead, the reason is a second line under the label in the muted
+/// colour, at most 280 points wide, as the row's Actions menu says why
+/// (D731). Pressed, it is the button pressed.
+fn menu_line(
+    control: Control,
+    standing: Standing,
+    editor: WeakEntity<ResultEditor>,
+) -> PopupMenuItem {
+    let Standing {
+        label,
+        enabled,
+        why,
+        on,
+        action,
+    } = standing;
+    PopupMenuItem::element(move |window, cx| {
+        // As the button's tooltip: the reason in place of the shortcut.
+        let key = action
+            .as_ref()
+            .filter(|_| why.is_none())
+            .and_then(|(action, context)| {
+                Kbd::binding_for_action(action.as_ref(), Some(context), window)
+            });
+        h_flex()
+            .flex_1()
+            .gap_3()
+            .items_center()
+            .child(
+                v_flex()
+                    .flex_1()
+                    .max_w(px(280.0))
+                    .debug_selector(move || line_selector(control))
+                    .child(label.clone())
+                    .children(why.clone().map(|why| {
+                        div()
+                            .debug_selector(move || why_selector(control))
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(why)
+                    })),
+            )
+            .children(key.map(|key| {
+                key.p_0()
+                    .flex_nowrap()
+                    .border_0()
+                    .bg(gpui::transparent_white())
+            }))
+            .children(on.filter(|&on| on).map(|_| {
+                div()
+                    .debug_selector(move || check_selector(control))
+                    .child(Icon::new(IconName::Check).small())
+            }))
+    })
+    .icon(control.icon())
+    .disabled(!enabled)
+    .on_click(move |_, window, cx| {
+        editor
+            .update(cx, |editor, cx| editor.press(control, window, cx))
+            .ok();
+    })
+}
+
+/// The strip's row: every control laid out, and only the run from the
+/// start that fits painted — the rest left to the more button over the
+/// row's end, which is painted only then (D758).
+///
+/// A flex row cannot do this on its own: what it lays out it paints, past
+/// its end if that is where the layout put it. This row reads where the
+/// layout of the frame being drawn put each control — not a width
+/// remembered from the last frame, so a resize or a dragged split is never
+/// a frame behind — and prepaints and paints the controls that end before
+/// the more button. A control left off has no hitbox, no tooltip and no tab
+/// stop in that frame; its shortcut was never the button's, and still
+/// works. A separator, or the spacer before the toggles, is not left at the
+/// end of the run.
+///
+/// While the more menu is open the more button stays, even once the row
+/// has room for everything: the menu is drawn from inside it, and a button
+/// that went would take the open menu, and the keyboard in it, out of the
+/// window without closing it.
+struct Overflow {
+    style: StyleRefinement,
+    /// The row's children in order, each with the control it is — `None`
+    /// for a separator or the spacer.
+    items: Vec<(Option<Control>, AnyElement)>,
+    /// Laid out over the row's right end by its own style, out of the flow.
+    more: AnyElement,
+    /// Whether the more menu is open now.
+    menu_open: Rc<Cell<bool>>,
+    /// Where each frame writes what it left off, for the more menu.
+    hidden: Rc<RefCell<Vec<Control>>>,
+}
+
+/// What [`Overflow`] asked the layout for: each child, and the more button.
+struct Laid {
+    items: Vec<LayoutId>,
+    more: LayoutId,
+}
+
+/// What [`Overflow`] paints: how many children from the start, and whether
+/// the more button.
+struct Kept {
+    items: usize,
+    more: bool,
+}
+
+impl Styled for Overflow {
+    fn style(&mut self) -> &mut StyleRefinement {
+        &mut self.style
+    }
+}
+
+impl IntoElement for Overflow {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for Overflow {
+    type RequestLayoutState = Laid;
+    type PrepaintState = Kept;
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Laid) {
+        let items: Vec<LayoutId> = self
+            .items
+            .iter_mut()
+            .map(|(_, item)| item.request_layout(window, cx))
+            .collect();
+        let more = self.more.request_layout(window, cx);
+        let mut style = Style::default();
+        style.refine(&self.style);
+        let row = window.request_layout(style, items.iter().copied().chain([more]), cx);
+        (row, Laid { items, more })
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        laid: &mut Laid,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Kept {
+        let ends: Vec<Pixels> = laid
+            .items
+            .iter()
+            .map(|&item| window.layout_bounds(item).right())
+            .collect();
+        let whole = !self.menu_open.get() && ends.last().is_none_or(|&end| end <= bounds.right());
+        let kept = if whole {
+            ends.len()
+        } else {
+            let room = window.layout_bounds(laid.more).left();
+            let mut kept = ends.iter().take_while(|&&end| end <= room).count();
+            while kept > 0 && self.items[kept - 1].0.is_none() {
+                kept -= 1;
+            }
+            kept
+        };
+        for (_, item) in &mut self.items[..kept] {
+            item.prepaint(window, cx);
+        }
+        if !whole {
+            self.more.prepaint(window, cx);
+        }
+        *self.hidden.borrow_mut() = self.items[kept..]
+            .iter()
+            .filter_map(|&(control, _)| control)
+            .collect();
+        Kept {
+            items: kept,
+            more: !whole,
+        }
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut Laid,
+        kept: &mut Kept,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        for (_, item) in &mut self.items[..kept.items] {
+            item.paint(window, cx);
+        }
+        if kept.more {
+            self.more.paint(window, cx);
+        }
+    }
+}
+
+/// The strip's selector in a test: the whole width of the result's pane.
+pub const STRIP: &str = "result-strip";
+
+/// The more button's element id, and its selector in a test.
+pub const MORE: &str = "result-more";
+
+/// The selector of `control`'s line in the more menu, in a test.
+pub fn line_selector(control: Control) -> String {
+    format!("{}-line", control.id())
+}
+
+/// The selector of the reason under `control`'s greyed line, in a test.
+pub fn why_selector(control: Control) -> String {
+    format!("{}-why", control.id())
+}
+
+/// The selector of the check on a toggle's line while it is on, in a test.
+pub fn check_selector(control: Control) -> String {
+    format!("{}-on", control.id())
+}
+
+/// The window's command's element id, stable across frames.
+const OFFER_ID: &str = "result-offer";
 
 /// The strip's height, its bottom border included.
 ///
@@ -1037,6 +1501,182 @@ mod tests {
             .iter()
             .all(|command| command.icon() != COPY_ALL_ICON && command.id() != COPY_ALL_ID));
         assert!(View::ALL.iter().all(|view| view.id() != COPY_ALL_ID));
+    }
+
+    /// The result `width` wide at the right of a window, as the Compare
+    /// window holds it with the split dragged: 120 pt is too narrow for the
+    /// strip, with the window's room beside it for the menu to open into.
+    struct Narrow {
+        editor: Entity<ResultEditor>,
+        width: Pixels,
+    }
+
+    impl Render for Narrow {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            h_flex()
+                .size_full()
+                .child(div().flex_1())
+                .child(div().w(self.width).h_full().child(self.editor.clone()))
+        }
+    }
+
+    /// [`window_with`], the result in a [`Narrow`] pane 120 pt wide of a
+    /// window 800 pt by 600.
+    fn narrow_window<'a>(
+        cx: &'a mut TestAppContext,
+        text: &str,
+    ) -> (
+        Entity<ResultEditor>,
+        Entity<Narrow>,
+        &'a mut gpui::VisualTestContext,
+    ) {
+        cx.update(gpui_component::init);
+        type Held = (Entity<ResultEditor>, Entity<Narrow>);
+        let slot: std::rc::Rc<std::cell::RefCell<Option<Held>>> = std::rc::Rc::default();
+        let held = slot.clone();
+        let text = text.to_owned();
+        let (_, cx) = cx.add_window_view(move |window, cx| {
+            let editor = cx.new(|cx| ResultEditor::new(&text, window, cx));
+            let narrow = cx.new(|_| Narrow {
+                editor: editor.clone(),
+                width: px(120.0),
+            });
+            *held.borrow_mut() = Some((editor, narrow.clone()));
+            gpui_component::Root::new(narrow, window, cx)
+        });
+        cx.simulate_resize(gpui::size(px(800.0), px(600.0)));
+        cx.run_until_parked();
+        let (editor, narrow) = slot.take().expect("the window builder ran");
+        (editor, narrow, cx)
+    }
+
+    /// `debug_bounds` of a selector made at run time.
+    fn painted(selector: String, cx: &mut gpui::VisualTestContext) -> Option<Bounds<Pixels>> {
+        cx.debug_bounds(Box::leak(selector.into_boxed_str()))
+    }
+
+    /// Click the more button and let the menu open.
+    fn open_more(cx: &mut gpui::VisualTestContext) {
+        let more = cx.debug_bounds(MORE).expect("the more button was painted");
+        cx.simulate_click(more.center(), gpui::Modifiers::default());
+        cx.run_until_parked();
+    }
+
+    /// Click `control`'s line in the open more menu.
+    fn press_line(control: Control, cx: &mut gpui::VisualTestContext) {
+        let line = painted(line_selector(control), cx)
+            .unwrap_or_else(|| panic!("{control:?} has no line in the menu"));
+        cx.simulate_click(line.center(), gpui::Modifiers::default());
+        cx.run_until_parked();
+    }
+
+    /// D759: a line of the more menu is its button. On a strip 120 pt wide
+    /// the menu, opened with a click, has a line for every control left off
+    /// and for no other. Copy all over an empty text is greyed there with
+    /// the reason its tooltip gives, and not once there is text. Show
+    /// whitespace pressed in the menu turns it on, and its line then carries
+    /// a check; Select all pressed in the menu reaches the editor. Take the
+    /// press out of `menu_line`, the reason or the check out of its line,
+    /// and this goes red.
+    #[gpui::test]
+    fn the_more_menu_does_what_the_buttons_do(cx: &mut TestAppContext) {
+        let (editor, _, cx) = narrow_window(cx, "");
+        let hidden = cx.update(|_, cx| editor.read(cx).hidden());
+        let whitespace = Control::View(View::Whitespace);
+        let select_all = Control::Command(Command::SelectAll);
+        for control in [Control::CopyAll, select_all, whitespace] {
+            assert!(
+                hidden.contains(&control),
+                "{control:?} fit a strip 120 pt wide: {hidden:?}"
+            );
+        }
+
+        open_more(cx);
+        for control in cx.update(|_, cx| editor.read(cx).controls()) {
+            assert_eq!(
+                painted(line_selector(control), cx).is_some(),
+                hidden.contains(&control),
+                "{control:?} is in the menu exactly when it is off the strip"
+            );
+        }
+        assert!(
+            painted(why_selector(Control::CopyAll), cx).is_some(),
+            "Copy all is greyed in the menu and does not say why"
+        );
+        assert!(
+            painted(check_selector(whitespace), cx).is_none(),
+            "Show whitespace is off and its line has a check"
+        );
+        press_line(whitespace, cx);
+        assert!(
+            cx.update(|_, cx| editor.read(cx).shows(View::Whitespace)),
+            "the menu's Show whitespace did not turn it on"
+        );
+        assert!(
+            painted(line_selector(whitespace), cx).is_none(),
+            "the menu stayed open after a press"
+        );
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| editor.set_text("abc", window, cx));
+        });
+        cx.run_until_parked();
+        open_more(cx);
+        assert!(
+            painted(check_selector(whitespace), cx).is_some(),
+            "Show whitespace is on and its line has no check"
+        );
+        assert!(
+            painted(why_selector(Control::CopyAll), cx).is_none(),
+            "Copy all has a text to copy and still says why not"
+        );
+        press_line(select_all, cx);
+        assert_eq!(
+            cx.update(|_, cx| editor.read(cx).state.read(cx).selected_range()),
+            0..3,
+            "the menu's Select all did not reach the editor"
+        );
+    }
+
+    /// D758: the more button stays while its menu is open, even once the
+    /// pane has room for every button — the menu is drawn from inside it.
+    /// Widen the pane under an open menu and the menu is still there; close
+    /// it and the more button goes, every control back on the strip. Let
+    /// the strip forget the open menu and the menu goes with the room,
+    /// still open, the keyboard in it: red.
+    #[gpui::test]
+    fn an_open_menu_outlasts_the_room_that_made_it(cx: &mut TestAppContext) {
+        let (editor, narrow, cx) = narrow_window(cx, "abc");
+        let whitespace = Control::View(View::Whitespace);
+        open_more(cx);
+        assert!(
+            painted(line_selector(whitespace), cx).is_some(),
+            "the menu did not open"
+        );
+
+        cx.update(|_, cx| {
+            narrow.update(cx, |narrow, cx| {
+                narrow.width = px(700.0);
+                cx.notify();
+            });
+        });
+        cx.run_until_parked();
+        assert!(
+            painted(line_selector(whitespace), cx).is_some(),
+            "the open menu went with the room that made it"
+        );
+
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert!(
+            painted(line_selector(whitespace), cx).is_none(),
+            "Escape left the menu open"
+        );
+        assert!(
+            cx.debug_bounds(MORE).is_none(),
+            "the more button stayed on a strip with room for every button"
+        );
+        assert_eq!(cx.update(|_, cx| editor.read(cx).hidden()), Vec::new());
     }
 
     /// Cut and Copy answer to the selection, the way the library's own

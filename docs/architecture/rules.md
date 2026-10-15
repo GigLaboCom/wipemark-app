@@ -754,7 +754,17 @@
   anyway. The tooltip asks the window what the action is bound to
   (`tooltip_with_action`), never a table of ours.
   `the_toolbar_undoes_what_the_keystroke_would` goes red with the
-  dispatch deleted. The original **follows the result's cursor** —
+  dispatch deleted. **What does not fit the pane goes behind a more
+  button** (D758–D760): the strip paints the run of buttons from its
+  start that fits the pane in the frame being drawn, and the rest, from
+  the end, are lines of a menu behind the ellipsis at its far end, each
+  line its button — the same press, greyed the same, the same reason
+  under it, the shortcut its tooltip names, a check on a toggle that is
+  on. No shortcut depends on a button being shown, and the more button
+  stays while its menu is open.
+  `compare_s_words_fit_its_window_in_every_language`,
+  `the_more_menu_does_what_the_buttons_do` and
+  `an_open_menu_outlasts_the_room_that_made_it` are the gates. The original **follows the result's cursor** —
   `Diff::original_row_of` is the map, `set_cursor_position` is the only
   public way to move an editor, and the focus it steals is handed back
   in the same update, before GPUI compares focus paths at the next

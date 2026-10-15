@@ -1076,7 +1076,9 @@ binary ships. It covers:
   rewrite, a rewrite that kept one paragraph of three, one that kept them
   all, and a clean that is the original itself;
 * the line under the panes, with each reason a save gives;
-* each refusal.
+* each refusal;
+* the result's strip (D758, below): at 4000 pt, at 640 pt, and at 1120 pt
+  with the split dragged until the result's pane is 150 pt.
 
 The language belongs to the process, so the body runs in a process of
 its own, as `language::tests` does. With `min_w_0` taken off the
@@ -1086,12 +1088,88 @@ it finds 33. A button allowed to shrink below its label is caught by the
 width check. The test text system gives every character 0.6 em, wider
 than a real font, so the test is stricter than the screen.
 
-What this does not cover yet: the result's strip is thirteen buttons,
-344 pt, in a single row of fixed height (it stands level with the blank
-strip on the left). At the least width the result pane is 320 pt, so
-**Show whitespace** sits past the window's edge (its right edge at
-660 px). The strip fits from 680 pt, and the split can be dragged
-narrower at any width.
+## What does not fit the result's pane (D758–D760)
+
+The result's strip is thirteen buttons, about 344 pt, in one row of fixed
+height that stands level with the blank strip over the original. The pane
+can be narrower: 320 pt at the window's least width, and less at any width
+once the split is dragged. Before, the row ran on past the pane: at 640 pt
+**Show whitespace** ended at 660 px, past the window's edge (found while
+fixing F27). The owner's word (2026-10-15): "Make it scroll, or put them
+into a submenu, as many systems do." It is the submenu.
+
+**The buttons that do not fit go behind a more button, from the end**
+(D758). The strip keeps the run of buttons from its start that fits, and
+the rest are lines of a menu behind a more button over the strip's far end
+— the ellipsis, `ellipsis.svg`, the glyph the row's Actions button already
+uses — painted only while something is left off, or while its menu is
+open: the menu is drawn from inside the button, so a window widened under
+an open menu keeps both until the menu closes. The toggles go first,
+then Find, then on back towards Save: at 640 pt Find, Wrap long lines and
+Show whitespace are in the menu; with the pane dragged to 150 pt,
+everything after Cut. As the pane widens they come back. A separator, or
+the space before the toggles, is never left at the end of the run.
+
+The measuring is the frame's own. The strip's row is an element of its
+own, `result::Overflow`: it lays every button out, the more button too,
+then reads where the layout of the frame being drawn put each one, and
+prepaints and paints only the run that ends before the more button. A
+button left off has no hitbox, no tooltip and no tab stop in that frame.
+Nothing is remembered from the last frame and no second frame is asked
+for, so a window resized or a split dragged is never a frame behind and
+never shows a button half past the edge. Scrolling the strip sideways was
+the fallback had this not been reliable. It was not needed, and a strip
+that scrolls hides its end with nothing to say so.
+
+**A line of the menu is its button** (D759). Both read one `Standing` per
+control — its label, whether it does anything, why not, a toggle's state —
+and both are pressed through one `ResultEditor::press`:
+
+* Undo's line dispatches `input::Undo` from the editor, Save's dispatches
+  the window's `SaveCompare`, and Wrap long lines' wraps both panes, as
+  their buttons do.
+* A line is greyed when its button is. Where the button's tooltip gives a
+  reason instead of a label (Save's, Copy all's over an empty text), the
+  reason is a second line under the label in the muted colour, at most
+  280 pt wide: D731's look, as the row's Actions menu says why. Cut, Copy
+  and Paste have no reason on the strip, and none in the menu.
+* A line names the shortcut its button's tooltip names, read from the
+  keymap in the same key context.
+* A toggle's line carries a check while it is on, where its button shows
+  pressed.
+
+No keyboard shortcut ever depended on a button: the editor's are bound in
+its own key context and ⌘S in the window's, so every one works whatever
+the strip shows.
+
+**Where the menu sits** (D760). It opens from the more button's right
+edge, towards the pane and the window's middle, so it stays inside the
+window at every width the window allows. Its lines keep the strip's
+order, with a separator between two stretches as the strip has one, and
+between Find and the toggles. The original's pane has no controls: its
+strip under the caption is blank, there only to keep the first lines
+level, so nothing on that side can run off.
+
+Three tests are the gates. Each goes red with the protection taken out.
+
+* `compare_s_words_fit_its_window_in_every_language` checks the strip in
+  every language: every button painted ends inside the pane, every button
+  not painted is a painted line of the menu (opened with a click) inside
+  the window, nothing is both, the more button shows exactly when
+  something is left off, and at 4000 pt nothing is. With the row painting
+  every button, it is red in all three languages: Show whitespace from 640
+  to 660 px at 640 pt, and nine buttons past the pane's edge at 150 pt.
+  With the menu listing every control, it is red too.
+* `result::tests::the_more_menu_does_what_the_buttons_do` checks the menu
+  of a result 120 pt wide. Copy all's line over an empty text says why.
+  Show whitespace pressed in the menu turns on, and its line then carries a
+  check. Select all pressed in the menu selects the text. It is red with
+  each of these taken out: the line's press, its reason, its check, and the
+  menu's limit to what was left off.
+* `result::tests::an_open_menu_outlasts_the_room_that_made_it` widens the
+  pane under an open menu. The menu stays, and once closed the more button
+  goes. With the row blind to the open menu, the menu went with its
+  button, still open: red.
 
 ## What it is not
 
