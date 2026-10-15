@@ -8047,7 +8047,7 @@ impl SettingsView {
     /// buttons somebody works along from the keyboard comparing two
     /// corners — and a window that vanished on the first press would
     /// make the second impossible.
-    fn make_way(&self, window: &mut Window, cx: &Context<Self>) {
+    fn make_way(&self, window: &Window, cx: &Context<Self>) {
         if !self.preferences.read(cx).closes_after_drop() {
             return;
         }
@@ -8057,7 +8057,8 @@ impl SettingsView {
         // window that closed itself here would be the one way out that
         // forgets where it was.
         self.remember(cx);
-        window.remove_window();
+        // After the drop has returned, as ⌘W (F23, D752).
+        crate::chrome::close_later(window, cx);
     }
 
     /// Move the panel into `zone`, if there is a panel and it is on
@@ -9641,16 +9642,12 @@ impl Render for SettingsView {
                         // otherwise be the one way out that forgets where the
                         // window was.
                         view.remember(cx);
-                        // One `ERROR gpui::window: window not found` follows
-                        // every use of this, and it is not ours to fix: GPUI's
-                        // frame callback is delivered once more after the
-                        // window has left `App::windows`, and logs the miss.
-                        // `remove_window` is the only programmatic close the
-                        // API has — the platform's own close, which the button
-                        // uses, is not exposed — and deferring the call does
-                        // not move the race. A settings window that ignores ⌘W
-                        // is the worse trade.
-                        window.remove_window();
+                        // Once the key's own dispatch has returned, and on
+                        // macOS through AppKit's close, the button's road:
+                        // removed in here, the window was gone from GPUI
+                        // while AppKit still sent it the key's release, and
+                        // GPUI logged `window not found` (F23, D752).
+                        crate::chrome::close_later(window, cx);
                     }))
                     .size_full()
                     .items_start()
@@ -12602,6 +12599,18 @@ mod tests {
         from: gpui::Point<Pixels>,
         to: gpui::Point<Pixels>,
     ) {
+        carry(page, from, to);
+        page.simulate_mouse_up(to, gpui::MouseButton::Left, gpui::Modifiers::default());
+        page.run_until_parked();
+    }
+
+    /// [`drag`] up to the release: pressed at `from` and moved to `to`,
+    /// still held.
+    fn carry(
+        page: &mut gpui::VisualTestContext,
+        from: gpui::Point<Pixels>,
+        to: gpui::Point<Pixels>,
+    ) {
         let none = gpui::Modifiers::default();
         page.simulate_mouse_move(from, None, none);
         page.simulate_mouse_down(from, gpui::MouseButton::Left, none);
@@ -12613,8 +12622,6 @@ mod tests {
             );
             page.simulate_mouse_move(at, gpui::MouseButton::Left, none);
         }
-        page.simulate_mouse_up(to, gpui::MouseButton::Left, none);
-        page.run_until_parked();
     }
 
     /// F12, D648: the lit cell is the window — a press anywhere in it picks
@@ -12888,11 +12895,59 @@ mod tests {
         let target = page
             .debug_bounds("cell-0-bottom-left")
             .expect("the bottom-left cell");
-        drag(page, lit.center(), target.center());
+        // The release by hand, the way the platform hands it over: what
+        // follows it in the same moment — the pointer's next move — must
+        // still find the window (F23, D752).
+        carry(page, lit.center(), target.center());
+        page.update(|window, cx| {
+            window.dispatch_event(
+                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                    position: target.center(),
+                    button: gpui::MouseButton::Left,
+                    modifiers: gpui::Modifiers::default(),
+                    click_count: 1,
+                }),
+                cx,
+            );
+        });
+        assert!(
+            gpui::TestAppContext::update(page, |cx| cx.windows().contains(&open)),
+            "the drop took the window away inside its own release"
+        );
+        page.run_until_parked();
         assert_eq!(zone_held(&preferences, page), Some(Zone::BottomLeft));
         assert!(
             !gpui::TestAppContext::update(page, |cx| cx.windows().contains(&open)),
             "a drop left the window open"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// F23 (D752): ⌘W and Escape close Settings once the key's own
+    /// dispatch has returned, so the key's release finds the window — on
+    /// macOS it reaches the window before AppKit has closed it. Put
+    /// `window.remove_window()` back in `CloseSettings` and this is red.
+    #[gpui::test]
+    fn the_key_that_closes_settings_finds_it_when_let_go(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("settings-key-close");
+        cx.update(super::init);
+        let (preferences, page) = placement_page(cx, &root, false);
+        let first = page.window_handle();
+        crate::chrome::press_and_let_go(page, "secondary-w");
+        assert!(
+            !gpui::TestAppContext::update(page, |cx| cx.windows().contains(&first)),
+            "⌘W left Settings open"
+        );
+
+        let (_, page) = cx.add_window_view(move |window, cx| {
+            SettingsView::new(preferences, None, Some(Section::Placement), window, cx)
+        });
+        page.run_until_parked();
+        let second = page.window_handle();
+        crate::chrome::press_and_let_go(page, "escape");
+        assert!(
+            !gpui::TestAppContext::update(page, |cx| cx.windows().contains(&second)),
+            "Escape left Settings open"
         );
         std::fs::remove_dir_all(&root).ok();
     }

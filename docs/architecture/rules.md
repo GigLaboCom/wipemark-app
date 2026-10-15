@@ -668,7 +668,8 @@
   component's own names (D591, `every_window_control_glyph_resolves`).
   Its × is the desktop's close: every should-close goes through
   `chrome::on_should_close`, and `chrome::close` asks it before
-  `remove_window` (D592, `the_title_bars_close_is_the_platforms_close`)
+  closing the window (`chrome::close_later`, D592, D752,
+  `the_title_bars_close_is_the_platforms_close`)
   — gpui-component's default, `remove_window` alone, would skip the
   tray's minimise, Settings' rectangle and Compare's save-or-ask. The
   resize band and shadow are `Root`'s `WindowBorder` (D593).
@@ -696,6 +697,40 @@
   dispatch has taken the whole window out of `App::windows`, so a nested
   update comes back `Err("window not found")` — which reads exactly like
   a window that has been closed, and is not.
+* **A window closes itself after the event that asked, the way its close
+  button does — never `remove_window` from inside that event** (F23,
+  D752–D754). ⌘W in Compare and Settings, Escape in Settings and the
+  panel, a drop that makes way, Compare's Discard and Copy and close,
+  Compare's close after a save, and the title bar's × all go through
+  `chrome::close_later`. `remove_window` inside an event has GPUI forget
+  the window when the event returns, while AppKit keeps the `NSWindow` on
+  screen and key until a task GPUI queues for it runs; what reaches the
+  window in between reaches a window GPUI no longer has, and GPUI logs
+  `ERROR main : window not found` (no target: it is GPUI's own
+  `log_err`) and drops it. On the owner's Mac that was the release of
+  the ⌘W that closed Compare, 42 ms after its press (2026-10-13
+  09:37:54; the system log has the press, the release and the ⌘'s
+  release around our line). On macOS `close_later` calls AppKit's
+  `close` from a task once the update has returned (`screen::later`,
+  D728): GPUI's close callback forgets the window inside that call,
+  before AppKit takes it off the screen, as under the close button
+  (D753). Elsewhere, and on a test's window, it is `remove_window` in a
+  task on the foreground executor (D754). AppKit's `close` asks no
+  should-close, so whatever the window asks before it goes — Compare's
+  save-or-ask, Settings' rectangle — is done before the call.
+  `chrome::press_and_let_go` presses a key and hands its release to the
+  window's input callback before anything queued runs, and each of
+  `the_key_that_closes_{compare,settings,the_panel}_finds_it_when_let_go`,
+  `discard_closes_compare_after_the_event_that_chose_it`,
+  `close_after_a_drop_closes_on_a_drop_and_not_on_a_click` and
+  `a_window_that_closes_itself_outlasts_the_event_that_asked` goes red
+  with its `remove_window` put back. No unit test can see AppKit's side:
+  `scripts/verify/f23/compare-close.py` presses ⌘W over Compare windows
+  on a scratch instance and counts the line. Under Linux, E6 (2026-09-14) saw
+  the same line once after every programmatic close, from a frame
+  callback delivered after the window had gone; that was not looked at
+  again here, and no close of the platform's own is reachable there to
+  go through.
 
 * **The Compare window is three things kept apart, and the toolbar
   inherits.** `apps/wipemark-app/src/compare.rs` is the window — the
