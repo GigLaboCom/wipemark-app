@@ -262,6 +262,13 @@ pub struct Roster<'a> {
     pub chosen: &'a BTreeMap<Role, String>,
     /// What the last scan of the models directory found, per entry id.
     pub on_disk: &'a BTreeMap<String, OnDisk>,
+    /// Whether the models directory has been read since the application
+    /// started — the first scan, which loads the ggml backends with it, has
+    /// landed. Until it has, [`on_disk`](Self::on_disk) and
+    /// [`chats`](Self::chats) are empty because nobody has looked, and a
+    /// chosen model missing from them is not missing: the duty is
+    /// [`Vacancy::Starting`] (F26, D745).
+    pub looked: bool,
     /// What this machine can hold. `None` until the probe answers, and
     /// it stays `None` on a machine the probe cannot read.
     pub host: Option<Host>,
@@ -494,6 +501,14 @@ pub enum Vacancy {
     /// refuse it, on every Check and every rewrite — so it is not on duty,
     /// as a changed file is not (D438).
     AddedModelUnsupported { id: String, why: ChatRefusal },
+    /// A model on this machine is chosen, and the models directory has not
+    /// been read yet ([`Roster::looked`]): whether it is here is unknown,
+    /// and unknown is never "no" (F26, D745). The engine is on its way —
+    /// the first scan reads the folder and loads the backends, which on the
+    /// first launch of a new build took 34 s — so this is the one vacancy
+    /// that is not "no engine configured" on the status bar, and it passes
+    /// by itself.
+    Starting,
 }
 
 /// The answer.
@@ -536,6 +551,11 @@ impl Duty {
             Duty::Vacant(vacancy) => Some(vacancy),
             Duty::Assigned { .. } => None,
         }
+    }
+
+    /// Nobody is on duty *yet*: the engine is starting (F26, D745).
+    pub fn starting(&self) -> bool {
+        matches!(self, Duty::Vacant(Vacancy::Starting))
     }
 
     /// The side that was asked first and could not answer, when this
@@ -595,12 +615,21 @@ pub fn on_duty(roster: &Roster, role: Role, pick: Pick) -> Duty {
 /// or "no model is chosen", and neither sentence helps somebody who has
 /// half-configured the other side — reporting it would answer a
 /// question nobody asked and bury the one they did.
+///
+/// A side that has not been read yet ([`Vacancy::Starting`]) is neither
+/// passed over nor reported past: the duty is starting until it has been
+/// (F26, D745).
 fn in_order(
     first: Result<Performer, Vacancy>,
     second: Option<impl FnOnce() -> Result<Performer, Vacancy>>,
 ) -> Duty {
     let passed = match first {
         Ok(performer) => return Duty::assigned(performer),
+        // A side still being read is not passed over (F26, D745): the
+        // other one answering now would be a second choice made on a
+        // guess — under `MachineFirst`, a document sent away for the
+        // seconds a launch takes to look in the models folder.
+        Err(Vacancy::Starting) => return Duty::Vacant(Vacancy::Starting),
         Err(passed) => passed,
     };
     let Some(second) = second else {
@@ -614,6 +643,9 @@ fn in_order(
                 instead_of: announce.then_some(passed),
             }
         }
+        // The second side may still answer once it has been read: that is
+        // what is said, not the first side's refusal (F26, D745).
+        Err(Vacancy::Starting) => Duty::Vacant(Vacancy::Starting),
         // Neither can answer. A side nobody set up has nothing useful
         // to say, so the configured one speaks — unless neither was set
         // up, which is a fresh install, and then the side that was
@@ -663,6 +695,10 @@ fn this_machine(roster: &Roster, role: Role) -> Result<Performer, Vacancy> {
     };
     if !entry.serves(role) {
         return Err(Vacancy::ModelDoesNotServe { id: id.clone() });
+    }
+    // Nobody has looked yet: not here is not known (F26, D745).
+    if !roster.looked {
+        return Err(Vacancy::Starting);
     }
     let found = roster.on_disk.get(id);
     let state = found.map_or(State::Absent, |on_disk| on_disk.state.clone());
@@ -747,6 +783,9 @@ fn added_model(roster: &Roster, role: Role, added: &UserModel) -> Result<Perform
         return Err(Vacancy::ModelDoesNotServe {
             id: added.id.clone(),
         });
+    }
+    if !roster.looked {
+        return Err(Vacancy::Starting);
     }
     let found = roster.on_disk.get(&added.id);
     let state = found.map_or(State::Absent, |on_disk| on_disk.state.clone());
@@ -1173,10 +1212,12 @@ mod tests {
         host: Option<Host>,
         serves: Serves,
         speculative: bool,
+        looked: bool,
     }
 
     impl Bench {
-        /// No engine, no models, no machine read yet — a fresh install.
+        /// No engine, no models, no machine read yet — a fresh install,
+        /// whose models folder has been looked at and holds nothing.
         fn new() -> Self {
             Self {
                 live: EngineSettings::default(),
@@ -1191,7 +1232,18 @@ mod tests {
                 host: None,
                 serves: Serves::default(),
                 speculative: true,
+                looked: true,
             }
+        }
+
+        /// The same, before the first scan has landed: nothing on disk,
+        /// because nobody has looked yet (F26).
+        fn not_looked_yet(mut self) -> Self {
+            self.on_disk.clear();
+            self.chats.clear();
+            self.host = None;
+            self.looked = false;
+            self
         }
 
         /// A downloaded rewriter, chosen for the role.
@@ -1295,6 +1347,7 @@ mod tests {
                 host: self.host,
                 serves: self.serves,
                 speculative: self.speculative,
+                looked: self.looked,
             }
         }
     }
@@ -1587,6 +1640,104 @@ mod tests {
             on_duty(&asked.roster(), Role::Rewrite, Pick::Live),
             Duty::Vacant(Vacancy::NoModelChosen)
         );
+
+        // Before the first scan, too: nothing chosen is nothing coming.
+        let duty = on_duty(
+            &Bench::new().not_looked_yet().roster(),
+            Role::Rewrite,
+            Pick::Live,
+        );
+        assert_eq!(duty, Duty::Vacant(Vacancy::Endpoint(Refusal::NoEngine)));
+    }
+
+    /// F26 (D745): a model on this machine is chosen and the first scan has
+    /// not landed — on the first launch of a new build it took 34 s, the
+    /// backends loaded with it. Whether the model is here is unknown, and the
+    /// duty says the engine is starting rather than that the model is not
+    /// here, under every order that asks the machine. A side still being
+    /// read is never passed over for the other one — `MachineFirst` does not
+    /// send a document away for the moment every launch takes to read the
+    /// folder — and never
+    /// reported past; an endpoint asked first still answers at once. Take
+    /// the `looked` check out of `this_machine` or `added_model` and the
+    /// chosen model reads as not here: red. Take either `Starting` arm out
+    /// of `in_order` and the endpoint answers, or its refusal is what is
+    /// said: red.
+    #[test]
+    fn a_chosen_model_nobody_has_looked_for_yet_is_starting() {
+        let starting = Duty::Vacant(Vacancy::Starting);
+        for serves in Serves::ALL {
+            let bench = Bench::new()
+                .with_a_local_rewriter()
+                .asking(serves)
+                .not_looked_yet();
+            let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+            if serves == Serves::EndpointOnly {
+                assert_eq!(duty, Duty::Vacant(Vacancy::Endpoint(Refusal::NoEngine)));
+            } else {
+                assert_eq!(duty, starting, "{serves:?}");
+                assert!(duty.starting());
+            }
+        }
+
+        // A model the person added, the same.
+        let bench = Bench::new()
+            .asking(Serves::MachineOnly)
+            .with_an_added_rewriter(State::Present { bytes: 1 })
+            .not_looked_yet();
+        assert_eq!(
+            on_duty(&bench.roster(), Role::Rewrite, Pick::Live),
+            starting
+        );
+
+        // The machine asked first, an endpoint ready behind it: nothing is
+        // sent away while the machine's answer is unknown.
+        let bench = Bench::new()
+            .with_a_local_rewriter()
+            .with_engine(Provider::Ollama, "https://ollama.example.com")
+            .asking(Serves::MachineFirst)
+            .not_looked_yet();
+        assert_eq!(
+            on_duty(&bench.roster(), Role::Rewrite, Pick::Live),
+            starting
+        );
+
+        // The endpoint asked first and refusing: the machine may still
+        // answer, so that is what is said.
+        let mut bench = Bench::new()
+            .with_a_local_rewriter()
+            .with_engine(Provider::Ollama, "https://ollama.example.com")
+            .asking(Serves::EndpointFirst)
+            .not_looked_yet();
+        bench.live.allow_remote = false;
+        assert_eq!(
+            on_duty(&bench.roster(), Role::Rewrite, Pick::Live),
+            starting
+        );
+
+        // The endpoint asked first and able: it answers now, scan or none.
+        bench.live.allow_remote = true;
+        let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+        assert_eq!(remote(&duty).origin, "https://ollama.example.com");
+        assert_eq!(duty.instead_of(), None);
+
+        // An id this build's catalogue does not have needs no scan to say.
+        let mut bench = Bench::new().asking(Serves::MachineOnly).not_looked_yet();
+        bench.chosen.insert(Role::Rewrite, "gone".to_owned());
+        assert_eq!(
+            on_duty(&bench.roster(), Role::Rewrite, Pick::Live),
+            Duty::Vacant(Vacancy::ModelGone {
+                id: "gone".to_owned()
+            })
+        );
+
+        // Once looked for and not found, it is not here.
+        let mut bench = Bench::new().asking(Serves::MachineOnly);
+        bench.chosen.insert(Role::Rewrite, REWRITER.to_owned());
+        assert!(matches!(
+            on_duty(&bench.roster(), Role::Rewrite, Pick::Live),
+            Duty::Vacant(Vacancy::ModelNotHere { .. })
+        ));
     }
 
     #[test]

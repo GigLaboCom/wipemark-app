@@ -65,6 +65,12 @@ pub(super) fn work_over(store: Arc<Store>, engine: Option<FakeEngine>) -> Work {
         }
         None => EngineHandle::new().0,
     };
+    work_on(store, handle)
+}
+
+/// A batch queue and a journal over `store`, reaching the engine through
+/// `handle`, and the bookkeeper the application starts.
+pub(super) fn work_on(store: Arc<Store>, handle: EngineHandle) -> Work {
     let queue = wipemark_queue::Queue::with_source(
         Arc::clone(&store),
         Durability::Memory { detail: None },
@@ -1639,6 +1645,70 @@ fn endpoint_on_duty(
         preferences.select_model("m".to_owned(), cx);
     });
     cx.run_until_parked();
+}
+
+// ## While the engine is starting (F26, D745, D746)
+
+/// F26 (D745): a model on this machine is chosen and the first look at the
+/// models folder — the backends load with it, 34 s on the first launch of a
+/// new build — has not landed. The row's Rewrite is greyed and says the
+/// engine is starting, not that nothing is on duty (every greyed item says
+/// why, D731), and Rewrite all takes nothing. Take the `starting` arm out
+/// of `going` and the reason is "Nothing is on duty to answer.": red.
+#[gpui::test]
+fn rewrite_says_the_engine_is_starting_while_it_is(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("starting");
+    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
+    let work = work_on(
+        Arc::new(Store::in_memory().expect("memory")),
+        EngineHandle::starting().0,
+    );
+    work.queue.pause();
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    preferences.update(cx, |preferences, cx| {
+        preferences.select_serves(crate::duty::Serves::MachineOnly, cx);
+        preferences.select_rewrite_model(Some("qwen3-4b-instruct-2507-ud-q4".to_owned()), cx);
+    });
+    cx.run_until_parked();
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+
+    let why = cx.update(|_, cx| queue.read(cx).why_not_rewrite(id, cx));
+    assert_eq!(why, Some(t(Message::EngineRefusalStarting)));
+    assert!(
+        cx.update(|_, cx| queue.read(cx).rewrite_all_takes(cx))
+            .is_empty(),
+        "Rewrite all took a row with the engine still starting"
+    );
+    work.queue.resume();
+}
+
+/// F26 (D746): an endpoint on duty while the application's engine is still
+/// starting — its host builds the endpoint's engine once the first look at
+/// the models folder lands. The row's Rewrite is the duty's, not the slot's
+/// (D430): it is not greyed, and what it pushes waits in the line for the
+/// engine, as it did while the slot said nothing was on duty. Let the slot's
+/// "starting" through as a reason and Rewrite is greyed for as long as the
+/// backends take to load: red.
+#[gpui::test]
+fn an_endpoint_on_duty_is_not_greyed_while_the_engine_starts(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("starting-endpoint");
+    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
+    let work = work_on(
+        Arc::new(Store::in_memory().expect("memory")),
+        EngineHandle::starting().0,
+    );
+    work.queue.pause();
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+
+    let why = cx.update(|_, cx| queue.read(cx).why_not_rewrite(id, cx));
+    assert_eq!(why, None, "the slot's word greyed the duty's Rewrite");
+    work.queue.resume();
 }
 
 // ## One fact for consent, and the question's own destination (D430–D434)

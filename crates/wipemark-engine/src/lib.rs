@@ -280,6 +280,15 @@ pub enum Unavailable {
     /// is the one site that says this.
     #[error("nothing is on duty")]
     NothingOnDuty,
+    /// Nobody can say yet who is on duty: the application is still reading
+    /// what it was configured with — its models folder and, with it, the
+    /// ggml backends, which on the first launch of a new build can take half
+    /// a minute (F26, D746). Not "nothing is on duty", which is a fact about
+    /// the configuration; this one passes by itself. The application's
+    /// `EngineHandle` is the one site that says this, until its host first
+    /// decides.
+    #[error("the engine is still starting")]
+    Starting,
     /// The endpoint answered with a redirect, which is never followed.
     /// `to_origin` is where it pointed — scheme, host and port, never a
     /// path or a query — when it said.

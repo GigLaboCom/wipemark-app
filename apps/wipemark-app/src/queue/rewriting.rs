@@ -497,14 +497,26 @@ impl Queue {
         };
         let duty = self.preferences.read(cx).duty(Role::Rewrite);
         let Some(performer) = duty.performer() else {
-            // The sentence the slot will say once the swap to nobody lands.
-            return Err(engine_host::refusal_line(
-                &wipemark_engine::Unavailable::NothingOnDuty,
-            ));
+            // A chosen model nobody has looked for yet: the engine is on its
+            // way, and the greyed Rewrite says so (F26, D745). Otherwise the
+            // sentence the slot will say once the swap to nobody lands.
+            return Err(engine_host::refusal_line(if duty.starting() {
+                &wipemark_engine::Unavailable::Starting
+            } else {
+                &wipemark_engine::Unavailable::NothingOnDuty
+            }));
         };
         if !work.engine.swap_pending() {
             if let Err(why) = work.engine.described() {
-                if why != wipemark_engine::Unavailable::NothingOnDuty {
+                // Neither is the slot's word about this duty: nothing built
+                // for it yet, or a host that has not decided — an endpoint
+                // on duty while the backends load (F26, D746). A push waits
+                // in the line for its engine.
+                if !matches!(
+                    why,
+                    wipemark_engine::Unavailable::NothingOnDuty
+                        | wipemark_engine::Unavailable::Starting
+                ) {
                     return Err(engine_host::refusal_line(&why));
                 }
             }

@@ -420,6 +420,11 @@ enum Slot {
     /// Nothing is on duty.
     #[default]
     Nothing,
+    /// The host has not decided yet: the application's handle starts here
+    /// ([`EngineHandle::starting`]) and leaves at the host's first swap,
+    /// once the models scan — and the backends with it — has landed (F26,
+    /// D746).
+    Starting,
     Engine(Arc<dyn RewriteEngine>),
     /// An endpoint that sends a key, on duty, whose key has not been read
     /// yet: the first check or job reads it and builds the engine
@@ -535,14 +540,29 @@ impl Drop for Held {
 
 impl EngineHandle {
     /// A handle with nothing on duty, and the receiving end of its events —
-    /// which [`EngineHost::new`] takes.
+    /// which [`EngineHost::new`] takes. For a test; the application builds
+    /// [`EngineHandle::starting`].
+    #[cfg(test)]
     pub fn new() -> (EngineHandle, flume::Receiver<Event>) {
+        Self::holding(Slot::Nothing)
+    }
+
+    /// The handle the application builds at launch: until its host first
+    /// decides — once the models scan and the backends have landed —
+    /// whoever asks is told the engine is starting, not that nothing is on
+    /// duty (F26, D746). The batch queue holds on it and the MCP server
+    /// refuses with it, each in its own words.
+    pub fn starting() -> (EngineHandle, flume::Receiver<Event>) {
+        Self::holding(Slot::Starting)
+    }
+
+    fn holding(slot: Slot) -> (EngineHandle, flume::Receiver<Event>) {
         let (events, inbox) = flume::unbounded();
         let (loads, load_inbox) = flume::unbounded();
         (
             EngineHandle {
                 shared: Arc::new(Shared {
-                    slot: Mutex::new(Slot::Nothing),
+                    slot: Mutex::new(slot),
                     whereto: Mutex::new(None),
                     busy: AtomicUsize::new(0),
                     events,
@@ -591,7 +611,7 @@ impl EngineHandle {
         let whereto = match &slot {
             Slot::Keyed { remote, .. } => Some(Performer::Endpoint(remote.clone()).whereto()),
             Slot::Engine(engine) if engine.info().local => Some(Whereto::Here),
-            Slot::Engine(_) | Slot::Nothing | Slot::Refused(_) => None,
+            Slot::Engine(_) | Slot::Nothing | Slot::Starting | Slot::Refused(_) => None,
         };
         self.set_to(slot, whereto);
     }
@@ -728,6 +748,7 @@ impl EngineHandle {
             Slot::Engine(engine) => engine,
             Slot::Refused(why) => return Err(EngineError::Unavailable(why)),
             Slot::Nothing => return Err(EngineError::Unavailable(Unavailable::NothingOnDuty)),
+            Slot::Starting => return Err(EngineError::Unavailable(Unavailable::Starting)),
             Slot::Keyed {
                 remote,
                 vault,
@@ -767,6 +788,7 @@ impl EngineHandle {
             Slot::Keyed { remote, .. } => Ok(Performer::Endpoint(remote).info()),
             Slot::Refused(why) => Err(why),
             Slot::Nothing => Err(Unavailable::NothingOnDuty),
+            Slot::Starting => Err(Unavailable::Starting),
         }
     }
 
@@ -1258,7 +1280,7 @@ impl EngineHost {
     pub fn refused(&self) -> Option<Unavailable> {
         match self.handle.slot() {
             Slot::Refused(why) => Some(why),
-            Slot::Nothing | Slot::Engine(_) | Slot::Keyed { .. } => None,
+            Slot::Nothing | Slot::Starting | Slot::Engine(_) | Slot::Keyed { .. } => None,
         }
     }
 
@@ -1469,7 +1491,7 @@ impl EngineHost {
                 .detach();
             }
             Slot::Refused(why) => self.loaded = Loaded::Failed(why),
-            Slot::Nothing | Slot::Keyed { .. } => self.loaded = Loaded::No,
+            Slot::Nothing | Slot::Starting | Slot::Keyed { .. } => self.loaded = Loaded::No,
         }
     }
 
@@ -1532,7 +1554,7 @@ impl EngineHost {
                 cx.notify();
                 return;
             }
-            Slot::Nothing => return,
+            Slot::Nothing | Slot::Starting => return,
         }
         let handle = self.handle.clone();
         let was_loaded = matches!(self.loaded, Loaded::Yes { .. });
@@ -1785,6 +1807,7 @@ fn refusal_message(why: &Unavailable) -> Message {
         Unavailable::LoadFailed { .. } => Message::EngineRefusalLoadFailed,
         Unavailable::Stopped => Message::EngineRefusalStopped,
         Unavailable::NothingOnDuty => Message::EngineRefusalNothingOnDuty,
+        Unavailable::Starting => Message::EngineRefusalStarting,
         Unavailable::Redirected {
             to_origin: Some(_), ..
         } => Message::EngineRefusalRedirected,
@@ -2561,6 +2584,67 @@ mod tests {
         assert_eq!(handle.slot_going().1, None);
     }
 
+    /// F26 (D746): the handle the application builds says the engine is
+    /// starting — to a job, which is what the MCP server and the batch
+    /// queue ask, and to a price — until its host first decides, which it
+    /// does once the duty is known; then it says what the duty is, and
+    /// "nothing is on duty" only when that is the duty. Build `starting()`
+    /// over `Slot::Nothing` and the first word is "nothing is on duty": red.
+    #[gpui::test]
+    fn the_applications_handle_says_the_engine_is_starting_until_its_host_decides(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (handle, inbox) = EngineHandle::starting();
+        assert_eq!(handle.described().err(), Some(Unavailable::Starting));
+        assert!(
+            matches!(
+                block_on(handle.for_job()),
+                Err(EngineError::Unavailable(Unavailable::Starting))
+            ),
+            "a job was not told the engine is starting"
+        );
+        assert!(!handle.askable());
+        assert_eq!(handle.busy(), 0, "a refused job is not a job");
+
+        let vault = Arc::new(Vault::in_memory("com.GigLabo.wipemark.test"));
+        let host = cx.new(|cx| EngineHost::listening(handle.clone(), inbox, vault, cx));
+        let nobody = Reading {
+            performer: None,
+            options: LocalOptions::default(),
+            policy: LocalPolicy::default(),
+            known: false,
+            key_saves: 0,
+        };
+        host.update(cx, |host, cx| host.preferences_moved(nobody.clone(), cx));
+        cx.run_until_parked();
+        assert_eq!(
+            handle.described().err(),
+            Some(Unavailable::Starting),
+            "the host decided before the duty was known"
+        );
+        host.update(cx, |host, cx| {
+            host.preferences_moved(
+                Reading {
+                    known: true,
+                    ..nobody
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert_eq!(handle.described().err(), Some(Unavailable::NothingOnDuty));
+
+        // Each in its own words, and never the other's.
+        assert_eq!(
+            refusal_line(&Unavailable::Starting),
+            wipemark_i18n::t(Message::EngineRefusalStarting)
+        );
+        assert_ne!(
+            refusal_line(&Unavailable::Starting),
+            refusal_line(&Unavailable::NothingOnDuty)
+        );
+    }
+
     /// Every refusal, and a match that stops compiling the day a variant
     /// is added without being listed here.
     fn every_refusal() -> Vec<Unavailable> {
@@ -2579,6 +2663,7 @@ mod tests {
             },
             Unavailable::Stopped,
             Unavailable::NothingOnDuty,
+            Unavailable::Starting,
             Unavailable::Redirected {
                 status: 301,
                 to_origin: Some("https://elsewhere.example".to_owned()),
@@ -2621,6 +2706,7 @@ mod tests {
                 | Unavailable::LoadFailed { .. }
                 | Unavailable::Stopped
                 | Unavailable::NothingOnDuty
+                | Unavailable::Starting
                 | Unavailable::Redirected { .. }
                 | Unavailable::KeyRejected { .. }
                 | Unavailable::NotFound { .. }

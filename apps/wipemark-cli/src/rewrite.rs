@@ -1470,6 +1470,7 @@ pub(crate) fn refusal_line(why: &Unavailable) -> String {
         }
         Unavailable::Stopped => (Message::EngineRefusalStopped, none()),
         Unavailable::NothingOnDuty => (Message::EngineRefusalNothingOnDuty, none()),
+        Unavailable::Starting => (Message::EngineRefusalStarting, none()),
         Unavailable::Redirected {
             status,
             to_origin: Some(origin),

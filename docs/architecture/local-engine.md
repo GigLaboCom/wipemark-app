@@ -504,11 +504,19 @@ model that cannot fit at all. `None` on a discrete card, whose memory no
 portable call can read. Whether a GPU backend registered is asked once,
 with the models scan, on the background executor
 (`wipemark_engine::has_gpu_backend`, which runs `Runtime::init` — it
-dlopens every backend library).
+dlopens every backend library). It runs **beside** the scan's survey of
+the folder, on a thread of its own (`wipemark-backends`), not before it
+(F26, D747): on the first launch of a new build on macOS the registration
+took 17 s — macOS reads every new, ad hoc signed library before it lets
+one load, and Metal fills its shader cache — and a survey hashing a
+weight file no record covered took 17 s more after it.
 
 Refusals are values now (D53): `EngineError::Unavailable(Unavailable)`,
 with `NotBuilt`, `NoSuchFile { path }`, `WouldNotFit { need_mb, have_mb }`,
-`NoBackend`, `LoadFailed { detail }`, `Stopped` and `NothingOnDuty`. The
+`NoBackend`, `LoadFailed { detail }`, `Stopped`, `NothingOnDuty` and
+`Starting` — the application's handle before its host has first decided,
+which it does once the scan and the backends have landed (D746; see
+[who-rewrites.md](who-rewrites.md), "While nobody has looked yet"). The
 `Display` form is English and for logs; each variant has a sentence in
 every catalogue (`engine-refusal-*`), and `LoadFailed`'s detail is
 llama.cpp's own words, shown under the sentence and never translated.

@@ -119,6 +119,11 @@ queue-next = Next
 # deterministic scrubber and says so, rather than implying a rewrite is
 # available. Layer A is never licence-gated.
 status-idle-no-engine = Idle · no engine configured · { -layer-a } only
+# A model on this machine is chosen, and the application is still reading
+# the models folder and loading the processors that run it — on the first
+# launch of a new version that can take half a minute (F26). Not "no
+# engine": one is configured and on its way.
+status-engine-starting = Starting the engine · { -layer-a } works meanwhile
 # Somebody is on duty and nothing would leave: local weights, or an
 # endpoint on this machine. $model is the model's own name, never
 # translated.
@@ -644,6 +649,11 @@ settings-engine-state-ready-machine = Configured, and the document would not lea
 # the disk. Deliberately not a warning: nothing is broken, something is
 # unfinished.
 settings-engine-state-model-not-here = The model chosen for rewriting is not on this machine yet. Download it on the Models page, or point this page at a server.
+# A model on this machine is chosen and the application has not finished
+# looking for it yet: the models folder is being read and the processors
+# that run it loaded (F26). Not "not here" — nobody has looked — and it
+# passes by itself.
+settings-engine-state-starting = The engine is starting: the model chosen for rewriting and the processors that run it are still being looked for. The first launch of a new version can take half a minute.
 # $model is the stored id, because the entry it names is not in this
 # build's catalogue and so has no display name to show.
 settings-engine-state-model-unusable = The model chosen for rewriting, { $model }, is not one this version can use for it. Choose another on the Models page.
@@ -783,6 +793,9 @@ engine-refusal-no-backend = No processor could be found to run the model on.
 engine-refusal-load-failed = The model could not be loaded.
 engine-refusal-stopped = The local engine has stopped. Choosing the model again restarts it.
 engine-refusal-nothing-on-duty = Nothing is on duty to answer.
+# Nobody can say yet who answers: the application is still starting its
+# engine (F26). Passes by itself — it is not something to fix.
+engine-refusal-starting = The engine is still starting.
 
 # The endpoint's refusals. $status is an HTTP status code, e.g. "401";
 # $origin is scheme, host and port, never a path.

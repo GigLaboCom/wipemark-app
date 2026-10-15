@@ -337,6 +337,12 @@ the queue's own pause, said as "Waiting for an engine" on the row and in
 the status bar — never a failed item (D311). It lifts itself when the duty
 changes (`EngineHandle::when_changed`) or on Resume; it is never retried in
 a loop, because asking an endpoint means reading a key from the keychain.
+At launch the handle is `EngineHandle::starting()`, so an item left from
+the last run holds with "the engine is still starting" until the host
+first decides, once the models scan and the backends have landed (F26,
+D746), and a window push behind an endpoint on duty in those seconds
+waits the same way; a model on this machine not looked for yet greys
+Rewrite with that sentence instead (D745, `who-rewrites.md`).
 
 **The price first** (D61): Rewrite all takes every text not rewritten yet —
 not started, cleaned, found clean — and never a row that records a rewrite
