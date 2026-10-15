@@ -216,6 +216,19 @@ result, an edited result asked about first
   process reaches `exit` with a local model loaded. On Metal the CLI's
   exit went 134 → 0/1/2, and the application's quit during a rewrite
   134 → 0 (`scripts/verify/f31/`).
+- `chore/gpui-kit-next` (D755–D757): gpui-kit merged #3465 (`779534e2`)
+  and #3466 (`8abddf2a`), and the submodule is `longbridge/gpui-kit`
+  `next` at `8abddf2a` again, `gpui-pre` still `=0.3.8`, `Cargo.lock`
+  untouched. As merged, a pane's `display_map().version()` counts its
+  spacers, and Compare's `Level` numbers each pane's rows past the move
+  its own answer makes (D756);
+- `fix/f28-caller-format` (D750–D751; F28): a caller's row looks as a
+  window's row of the same thing does;
+- `fix/f23-window-not-found` (D752–D754; F23): a window closes itself
+  after the event that asked, on macOS by AppKit's close — Compare,
+  Settings, the panel and the title bar;
+- `fix/f27-compare-header` (D748–D749; F27): Compare's banner, the line
+  under the panes and a refusal wrap inside the window.
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
