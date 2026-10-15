@@ -231,7 +231,11 @@ result, an edited result asked about first
   under the panes and a refusal wrap inside the window;
 - `fix/f26-engine-starting` (D745–D747; F26): until the first look at
   the models folder lands, every surface says the engine is starting,
-  and the backends load beside the survey.
+  and the backends load beside the survey;
+- `fix/compare-toolbar-overflow` (D758–D760, the owner's call): the
+  result's strip hands the buttons that do not fit its pane, from the end,
+  to a more menu whose lines are those buttons — the same press, greying,
+  reason, shortcut and check.
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
