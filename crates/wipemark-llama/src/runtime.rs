@@ -240,7 +240,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::threads::{decode_threads, distinct};
-    use super::{classify, dirs_for, search_dirs, BackendKind, Runtime};
+    use super::{classify, search_dirs, BackendKind, Runtime};
 
     #[test]
     fn two_siblings_on_one_core_are_one_core() {
@@ -308,8 +308,8 @@ mod tests {
         let own = bundle.canonicalize().unwrap();
         let built = PathBuf::from("/built/backends");
 
-        let through_link = dirs_for(&[], Some(&link), Some(built.clone()));
-        let by_name = dirs_for(&[], Some(&program), None);
+        let through_link = super::dirs_for(&[], Some(&link), Some(built.clone()));
+        let by_name = super::dirs_for(&[], Some(&program), None);
         std::fs::remove_dir_all(&root).ok();
 
         assert_eq!(
