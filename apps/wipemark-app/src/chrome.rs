@@ -28,6 +28,17 @@
 //! window only when it says yes. gpui-component's default for that
 //! button, `remove_window`, would skip every one of those.
 //!
+//! **A window that closes itself does it after the event, as the close
+//! button would (F23, D752–D754).** ⌘W in Compare or Settings, Escape in
+//! Settings or the panel, a drop that makes way, an answer to Compare's
+//! question: each is an event the window is still handling when it asks
+//! to go. [`close_later`] closes it once that event has returned — on
+//! macOS through AppKit's own `close`, so that GPUI forgets the window in
+//! the same call that takes it off the screen and away from the keyboard,
+//! and the release of the key that closed it finds no window GPUI has
+//! already forgotten (`ERROR main : window not found`, the owner's log of
+//! 2026-10-13 09:37:54).
+//!
 //! **Bringing a window forward (F2, D594).** What gpui-pre 0.3.8
 //! (`gpui-pre-linux`) does with the two calls this application makes:
 //!
@@ -163,8 +174,53 @@ pub fn close(window: &mut Window, cx: &mut App) {
         .try_global::<Closers>()
         .and_then(|closers| closers.0.get(&id).cloned());
     if should_close.is_none_or(|should_close| should_close(window, cx)) {
-        window.remove_window();
+        close_later(window, cx);
     }
+}
+
+/// Close `window` from inside an event it is handling — the action of a
+/// key pressed in it, a click, a drop — once that event has returned
+/// (acceptance F23, D752).
+///
+/// `remove_window` from in there has GPUI forget the window when the
+/// event's update returns, while the platform window lives on until a
+/// task GPUI queues for it runs. On macOS that task is AppKit's `close`,
+/// and until it runs the `NSWindow` is still on screen and still the key
+/// window. Whatever reaches it meanwhile is handed to a window GPUI no
+/// longer has: GPUI logs `ERROR main : window not found` and drops it.
+/// On the owner's Mac it was the release of the ⌘W that closed Compare,
+/// 42 ms after its press and before that task had run (2026-10-13: the
+/// system log has the press at 09:37:54.683 and the release at .725, ours
+/// the error at .728, and the system log the ⌘'s release at .739).
+///
+/// So on macOS the window is closed by AppKit's own `close`, the close
+/// button's road: GPUI's close callback forgets the window inside that
+/// call, before AppKit takes it off the screen, and no event can fall
+/// between the two (D753). Not from inside the update: AppKit answers
+/// `close` at once, and GPUI cannot take its answer while the application
+/// is borrowed — the reason `screen::later`, macOS-only, exists
+/// (D728). Elsewhere, and in a test, whose window has no `NSWindow`, it
+/// is `remove_window` in a task on the foreground executor, so the window
+/// is still there for the rest of the event that asked (D754). Under
+/// Linux, E6 saw the same line once after every programmatic close, from
+/// a frame callback delivered after the window had gone; no close of the
+/// platform's own is reachable there to go through instead.
+///
+/// Whatever the window had to ask before it goes — save, or keep the
+/// edit — is asked before this: AppKit's `close`, unlike the button's
+/// `performClose:`, asks no should-close.
+pub fn close_later(window: &Window, cx: &App) {
+    #[cfg(target_os = "macos")]
+    if crate::screen::later(window, cx, |native| native.close()) {
+        return;
+    }
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        // Gone already — a second ⌘W queued a second close — is what was
+        // asked for.
+        let _ = handle.update(cx, |_, window, _| window.remove_window());
+    })
+    .detach();
 }
 
 /// How a window that is already open is brought in front of the others.
@@ -192,6 +248,25 @@ pub fn forward_on(compositor: &str) -> Forward {
 /// [`forward_on`] for the display server this process is on.
 pub fn forward(cx: &App) -> Forward {
     forward_on(cx.compositor_name())
+}
+
+/// Press `keys` in a test's window and let go, in the order AppKit hands
+/// them over (F23): the press dispatched, then its release given to the
+/// window's input callback — GPUI's own, the one that logged `window not
+/// found` — before anything the press queued has run, and then all of it.
+/// Panics when the press took the window away from under its own
+/// release.
+#[cfg(test)]
+pub(crate) fn press_and_let_go(window: &mut gpui::VisualTestContext, keys: &str) {
+    let keystroke = gpui::Keystroke::parse(keys).unwrap_or_else(|error| panic!("{keys}: {error}"));
+    let handle = window.window_handle();
+    window.dispatch_keystroke(handle, keystroke.clone());
+    assert!(
+        window.cx.windows().contains(&handle),
+        "{keys} took the window away inside its own dispatch: its release \
+         finds no window, and GPUI logs `window not found` (F23)"
+    );
+    window.simulate_event(gpui::KeyUpEvent { keystroke });
 }
 
 #[cfg(test)]
@@ -296,6 +371,35 @@ mod tests {
         cx.run_until_parked();
         assert!(!cx.windows().contains(&gone), "a yes kept the window");
         assert_eq!(asked.get(), 1);
+    }
+
+    /// F23, D752: a window that asks to close from inside one of its own
+    /// updates is still there when that update returns — for the rest of
+    /// the event that asked, a key's release on macOS — and gone once the
+    /// foreground executor has run; asked twice, it closes once and the
+    /// second ask finds nothing to do. Make `close_later` the
+    /// `remove_window` it replaces and the first assertion is red.
+    #[gpui::test]
+    fn a_window_that_closes_itself_outlasts_the_event_that_asked(cx: &mut gpui::TestAppContext) {
+        struct Blank;
+        impl Render for Blank {
+            fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let window: gpui::AnyWindowHandle = cx.add_window(|_, _| Blank).into();
+        window
+            .update(cx, |_, window, cx| close_later(window, cx))
+            .expect("the window is open");
+        assert!(
+            cx.windows().contains(&window),
+            "gone inside the update that asked"
+        );
+        window
+            .update(cx, |_, window, cx| close_later(window, cx))
+            .expect("the window is open for a second ask");
+        cx.run_until_parked();
+        assert!(!cx.windows().contains(&window), "never closed");
     }
 
     /// A window that registered nothing closes, as under the desktop's

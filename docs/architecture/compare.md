@@ -1050,6 +1050,16 @@ side can be told apart (D634).
   context. In an editor Escape dismisses the search panel and drops a
   selection, and a window that vanished on it would take a
   half-written result with it.
+* **Not gone inside the key that closed it** (F23, D752–D754). ⌘W,
+  Discard, Copy and close and the close after a save close the window
+  through `chrome::close_later`, once the event that asked has returned
+  — on macOS by AppKit's own `close`, as the close button does. Removed
+  inside ⌘W's dispatch, the window was gone from GPUI while AppKit still
+  sent it the key's release, and GPUI logged `ERROR main : window not
+  found` (the owner's run, 2026-10-13 09:37:54, three seconds after the
+  window opened on row 8). Nothing was lost; the line was the release
+  dropped. `the_key_that_closes_compare_finds_it_when_let_go` and
+  `discard_closes_compare_after_the_event_that_chose_it` are the gates.
 
 ## What heretic-amuse-merge contributed
 

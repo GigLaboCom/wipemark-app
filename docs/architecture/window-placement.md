@@ -217,7 +217,9 @@ window that vanished on the first press would make the second
 impossible. `SettingsView::make_way` is the whole of it, and it runs the
 same two statements `CloseSettings` does: the geometry is written down
 first, because the platform does not fire `on_window_should_close` for a
-programmatic close.
+programmatic close, and then the window is closed once the drop has
+returned (`chrome::close_later`, F23, D752) — the release that dropped
+it, and the pointer's next move, still find the window.
 
 It is one preference for the product rather than one per display — it is
 about the gesture, not about a monitor — so it is a row above the cards

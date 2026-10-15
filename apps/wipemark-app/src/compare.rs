@@ -2844,7 +2844,7 @@ impl CompareView {
             self.saving.closing = false;
         }
         if self.saving.closing && !self.saving.dirty && !self.saving.saver.running() {
-            window.remove_window();
+            crate::chrome::close_later(window, cx);
             return;
         }
         self.offer_save(cx);
@@ -3068,7 +3068,7 @@ impl CompareView {
         self.result
             .update(cx, |result, cx| result.set_text(&text, window, cx));
         if self.saving.closing {
-            window.remove_window();
+            crate::chrome::close_later(window, cx);
             return;
         }
         self.offer_save(cx);
@@ -3167,7 +3167,7 @@ impl CompareView {
                     }
                     (dialog::Pick::Second, _) => {
                         view.saving.discarded = true;
-                        window.remove_window();
+                        crate::chrome::close_later(window, cx);
                         return;
                     }
                     (dialog::Pick::Dismissed, Some(held)) => view.ask(held, false, window, cx),
@@ -3215,11 +3215,11 @@ impl CompareView {
                         let text = view.current(cx).to_string();
                         cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
                         view.saving.discarded = true;
-                        window.remove_window();
+                        crate::chrome::close_later(window, cx);
                     }
                     dialog::Pick::Second => {
                         view.saving.discarded = true;
-                        window.remove_window();
+                        crate::chrome::close_later(window, cx);
                     }
                     dialog::Pick::Dismissed => {
                         view.focus_result(window, cx);
@@ -3455,7 +3455,9 @@ impl Render for CompareView {
             // saves them or asks (S3).
             .on_action(cx.listener(|view, _: &CloseCompare, window, cx| {
                 if view.may_close(window, cx) {
-                    window.remove_window();
+                    // Once the key's own dispatch has returned, through
+                    // the platform's close (F23, D752).
+                    crate::chrome::close_later(window, cx);
                 }
             }))
             .on_action(cx.listener(|view, _: &SaveCompare, window, cx| {
@@ -7330,6 +7332,60 @@ mod tests {
         assert!(
             view.read_with(cx, |view, _| view.saving.question.is_some()),
             "closed without asking"
+        );
+    }
+
+    /// F23 (D752): ⌘W closes Compare once the key's own dispatch has
+    /// returned. On the owner's Mac the key's release reached the window
+    /// 42 ms after its press; removed inside the press, the window was gone
+    /// from GPUI by then, and GPUI logged `ERROR main : window not found`.
+    /// Put `window.remove_window()` back in `CloseCompare` and this is red.
+    #[gpui::test]
+    fn the_key_that_closes_compare_finds_it_when_let_go(cx: &mut TestAppContext) {
+        cx.update(init);
+        let (_view, window) = window_with(cx, MARKED, Comparison::default());
+        let handle = window.window_handle();
+        crate::chrome::press_and_let_go(window, "secondary-w");
+        assert!(
+            !window.cx.windows().contains(&handle),
+            "⌘W left Compare open"
+        );
+    }
+
+    /// F23 (D752), the question's road: Discard closes Compare once the
+    /// answer's own event has returned — the click's release, or the key's
+    /// that chose it, finds the window, as ⌘W's does. Put
+    /// `window.remove_window()` back at Discard and this is red.
+    #[gpui::test]
+    fn discard_closes_compare_after_the_event_that_chose_it(cx: &mut TestAppContext) {
+        let manual = Comparison {
+            autosave: false,
+            ..Comparison::default()
+        };
+        let (view, window) = window_with(cx, MARKED, manual);
+        type_in(&view, "let go of\n", window);
+        let handle = window.window_handle();
+        window.update(crate::chrome::close);
+        window.run_until_parked();
+        let question = window.update(|_, cx| {
+            view.read(cx)
+                .saving
+                .question
+                .as_ref()
+                .map(|(question, _)| question.clone())
+                .expect("the close asked")
+        });
+        window.update(|_, cx| {
+            question.update(cx, |question, cx| question.answer(dialog::Pick::Second, cx))
+        });
+        assert!(
+            window.cx.windows().contains(&handle),
+            "Discard took the window away inside the event that chose it"
+        );
+        window.run_until_parked();
+        assert!(
+            !window.cx.windows().contains(&handle),
+            "Discard left Compare open"
         );
     }
 }

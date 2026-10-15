@@ -1596,10 +1596,10 @@ impl Render for PanelView {
                 view.preferences.update(cx, |preferences, cx| {
                     preferences.panel_closed(cx);
                 });
-                // One `ERROR gpui::window: window not found` follows
-                // this, and it is not ours — see the same note in
-                // `settings`.
-                window.remove_window();
+                // Once Escape's own dispatch has returned, and on macOS
+                // through AppKit's close: see `chrome::close_later` (F23,
+                // D752).
+                crate::chrome::close_later(window, cx);
             }))
             // Drag anywhere to move it, as the help says (`panel-help-move`):
             // AppKit's `movableByWindowBackground` on macOS, and this on
@@ -2135,6 +2135,24 @@ mod tests {
         fn drop(&mut self) {
             std::fs::remove_dir_all(&self.scratch).ok();
         }
+    }
+
+    /// F23 (D752): Escape sends the panel away once the key's own dispatch
+    /// has returned, so the key's release finds the window — on macOS it
+    /// reaches the panel before AppKit has closed it. Put
+    /// `window.remove_window()` back in `ClosePanel` and this is red.
+    #[gpui::test]
+    fn the_key_that_closes_the_panel_finds_it_when_let_go(cx: &mut gpui::TestAppContext) {
+        cx.update(super::init);
+        let (listed, cx) = Listed::new("escape", false, cx);
+        cx.run_until_parked();
+        let handle = cx.window_handle();
+        crate::chrome::press_and_let_go(cx, "escape");
+        assert!(
+            !cx.cx.windows().contains(&handle),
+            "Escape left the panel up"
+        );
+        drop(listed);
     }
 
     /// The menu bar's panel item follows the panel (the owner, 2026-10-14):
