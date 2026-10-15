@@ -253,6 +253,17 @@ const DEFAULT_SIZE: Size<Pixels> = size(px(1120.0), px(720.0));
 /// The least a side-by-side can be read at.
 const MIN_SIZE: Size<Pixels> = size(px(640.0), px(400.0));
 
+/// The banner's explanation, its Back to … and its help button, by the
+/// names a test measures them by (F27, D748).
+const BANNER_TEXT: &str = "compare-banner";
+const BANNER_RESET: &str = "compare-reset";
+const BANNER_HELP: &str = "compare-help";
+/// The line under the panes — the count of lines, whether the result is
+/// saved — and a refusal's sentence, by the same names (D749).
+const SUMMARY: &str = "compare-summary";
+const STATUS: &str = "compare-status";
+const REFUSAL: &str = "compare-refusal";
+
 /// How long typing is left to settle before the marks are recomputed.
 ///
 /// The comparison is cheap and runs on the background executor, so
@@ -2381,6 +2392,7 @@ impl CompareView {
                 .items_center()
                 .justify_center()
                 .gap_2()
+                .px_4()
                 .text_sm()
                 .text_color(theme.warning)
                 .child(
@@ -2388,7 +2400,14 @@ impl CompareView {
                         .small()
                         .color(theme.warning),
                 )
-                .child(SharedString::from(refusal.sentence()))
+                // Wrapped inside the window rather than centred past both
+                // of its edges (D749).
+                .child(
+                    div()
+                        .min_w_0()
+                        .debug_selector(|| REFUSAL.into())
+                        .child(SharedString::from(refusal.sentence())),
+                )
                 .into_any_element(),
             State::Ready => div()
                 .flex_1()
@@ -3529,12 +3548,26 @@ impl Render for CompareView {
                     .child(
                         v_flex()
                             .flex_1()
+                            // The explanation takes what the controls
+                            // leave and wraps in it (F27, D748). A flex
+                            // item is never narrower than its content
+                            // unless told so, and a line of text, unwrapped,
+                            // is its content: without this the sentences
+                            // kept their length and pushed Back to … past
+                            // the window's right edge.
+                            .min_w_0()
+                            .debug_selector(|| BANNER_TEXT.into())
                             .text_xs()
                             .text_color(muted)
                             .children(banner.into_iter().map(SharedString::from)),
                     )
+                    // The controls keep their width: gpui-component's
+                    // button is never narrower than its label, and the
+                    // explanation, which starts from nothing (`flex_1`),
+                    // is what gives (D748).
                     .child(
                         Button::new("compare-reset")
+                            .debug_selector(|| BANNER_RESET.into())
                             .small()
                             .outline()
                             .icon(IconName::RotateLeft)
@@ -3560,6 +3593,7 @@ impl Render for CompareView {
                             .anchor(Anchor::TopRight)
                             .trigger(
                                 Button::new("compare-help-trigger")
+                                    .debug_selector(|| BANNER_HELP.into())
                                     .small()
                                     .ghost()
                                     .icon(IconName::CircleQuestion)
@@ -3582,15 +3616,19 @@ impl Render for CompareView {
                     .text_xs()
                     .text_color(muted)
                     .child(Icon::new(IconName::CodeCompare).small().color(muted))
-                    .child(SharedString::from(if ready {
-                        self.summary()
-                    } else {
-                        String::new()
-                    }))
+                    .child(div().flex_none().debug_selector(|| SUMMARY.into()).child(
+                        SharedString::from(if ready { self.summary() } else { String::new() }),
+                    ))
                     // Under the result: whether it is saved (S4).
                     .child(div().flex_1())
                     .children(status.map(|status| {
                         div()
+                            // Why a save failed is a whole sentence: it
+                            // wraps rather than run off the window's edge,
+                            // and the count beside it keeps its words
+                            // (D749).
+                            .min_w_0()
+                            .debug_selector(|| STATUS.into())
                             .when(failed, |line| line.text_color(theme.warning))
                             .child(SharedString::from(status))
                     })),
@@ -7469,5 +7507,263 @@ mod tests {
             !window.cx.windows().contains(&handle),
             "Discard left Compare open"
         );
+    }
+
+    // -- words that fit the window (F27) --------------------------------
+
+    /// Wider than anything the window says in any language: what each part
+    /// measures with nothing pressing on it.
+    const ROOMY: Size<Pixels> = size(px(4000.0), px(720.0));
+
+    /// The window in `cx` resized to `at` and drawn: its width, and where
+    /// each of `selectors` was painted.
+    fn parts_at<const N: usize>(
+        at: Size<Pixels>,
+        selectors: [&'static str; N],
+        cx: &mut gpui::VisualTestContext,
+    ) -> (Pixels, [Bounds<Pixels>; N]) {
+        cx.simulate_resize(at);
+        cx.run_until_parked();
+        let width = cx.update(|window, _| window.viewport_size().width);
+        assert_eq!(width, at.width, "the window was not resized");
+        let parts = selectors.map(|selector| {
+            cx.debug_bounds(selector)
+                .unwrap_or_else(|| panic!("no {selector} was painted"))
+        });
+        (width, parts)
+    }
+
+    /// Every miss, said, so that one red run names all of them.
+    #[derive(Default)]
+    struct Misses(Vec<String>);
+
+    impl Misses {
+        fn unless(&mut self, held: bool, said: impl FnOnce() -> String) {
+            if !held {
+                self.0.push(said());
+            }
+        }
+    }
+
+    /// The window's default width and its least.
+    const WIDTHS: [Size<Pixels>; 2] = [DEFAULT_SIZE, MIN_SIZE];
+
+    /// Every kind of banner a window opens with: what the result is, and
+    /// where an edit of it goes. Row 36 of the owner's run is the rewrite
+    /// with nothing kept.
+    fn banner_subjects(scratch: &Scratch) -> Vec<(&'static str, Subject)> {
+        let source = scratch.file("notes.md", MARKED.as_bytes());
+        let delivered = scratch.file("notes.rewritten.md", b"# Notes\n\nA rewritten line.\n");
+        let rewritten = |kept| Subject {
+            handed: Handed::Path(source.clone()),
+            intake: None,
+            made: Made::Rewritten {
+                from: RewriteFrom::File(delivered.clone()),
+                kept,
+            },
+        };
+        vec![
+            ("a clean not written yet", of(Handed::Path(source.clone()))),
+            ("a rewrite (row 36)", rewritten(None)),
+            (
+                "a rewrite that kept one paragraph of three",
+                rewritten(Some((1, 3))),
+            ),
+            (
+                "a rewrite that kept every paragraph",
+                rewritten(Some((3, 3))),
+            ),
+            (
+                "a clean that is the original itself",
+                Subject {
+                    handed: Handed::Path(source.clone()),
+                    intake: None,
+                    made: Made::CleanedTo(CleanedTo::File(source.clone())),
+                },
+            ),
+        ]
+    }
+
+    /// F27 (D748): the banner of every kind of window, at the default
+    /// width and at the least. The explanation wraps beside the controls,
+    /// Back to … keeps the width its label needs, and nothing of the row
+    /// goes past the window's right edge.
+    fn banner_misses(language: &str, misses: &mut Misses, cx: &mut TestAppContext) {
+        let scratch = Scratch::new(&format!("banner-{language}"));
+        for (what, subject) in banner_subjects(&scratch) {
+            let (_, _, cx) =
+                saving_window(cx, &scratch, subject, Comparison::default(), None, None);
+            let parts = [BANNER_TEXT, BANNER_RESET, BANNER_HELP];
+            let (_, [roomy_text, roomy_reset, _]) = parts_at(ROOMY, parts, cx);
+            for at in WIDTHS {
+                let (width, [text, reset, help]) = parts_at(at, parts, cx);
+                let here = format!("{language}, {what}, {} pt wide", f32::from(width));
+                misses.unless(help.right() <= width, || {
+                    format!(
+                        "{here}: the help button ends at {:?}, past the window's edge",
+                        help.right()
+                    )
+                });
+                misses.unless(
+                    (reset.size.width - roomy_reset.size.width).abs() < px(0.5),
+                    || {
+                        format!(
+                            "{here}: Back to … is {:?} wide, and its label needs {:?}",
+                            reset.size.width, roomy_reset.size.width
+                        )
+                    },
+                );
+                misses.unless(text.right() <= reset.left(), || {
+                    format!(
+                        "{here}: the explanation ends at {:?}, under Back to … at {:?}",
+                        text.right(),
+                        reset.left()
+                    )
+                });
+                // Wrapped, not cut: every line is still there, and at the
+                // least width every sentence takes more than one.
+                misses.unless(text.size.height >= roomy_text.size.height, || {
+                    format!("{here}: the explanation lost a line")
+                });
+                misses.unless(
+                    at != MIN_SIZE || text.size.height > roomy_text.size.height,
+                    || format!("{here}: the explanation did not wrap"),
+                );
+            }
+        }
+    }
+
+    /// D749 under the panes: whatever the line says of a save that did not
+    /// happen stays inside the window, and the count of lines beside it
+    /// keeps its words.
+    fn status_misses(language: &str, misses: &mut Misses, cx: &mut TestAppContext) {
+        let scratch = Scratch::new(&format!("status-{language}"));
+        let (_, subject) = banner_subjects(&scratch).swap_remove(1);
+        let (view, _, cx) = saving_window(cx, &scratch, subject, Comparison::default(), None, None);
+        for why in [
+            NotSaved::Busy,
+            NotSaved::Changed,
+            NotSaved::Link,
+            NotSaved::Original,
+            NotSaved::Gone,
+            NotSaved::Unreadable,
+        ] {
+            cx.update(|_, cx| {
+                view.update(cx, |view, cx| {
+                    view.saving.not_saved = Some(view.why(&why));
+                    cx.notify();
+                });
+            });
+            let (_, [roomy_summary, _]) = parts_at(ROOMY, [SUMMARY, STATUS], cx);
+            for at in WIDTHS {
+                let (width, [summary, status]) = parts_at(at, [SUMMARY, STATUS], cx);
+                let here = format!(
+                    "{language}, not saved ({why:?}), {} pt wide",
+                    f32::from(width)
+                );
+                misses.unless(status.right() <= width, || {
+                    format!(
+                        "{here}: the status ends at {:?}, past the window's edge",
+                        status.right()
+                    )
+                });
+                misses.unless(summary.right() <= status.left(), || {
+                    format!("{here}: the status runs over the count of lines")
+                });
+                misses.unless(
+                    (summary.size.width - roomy_summary.size.width).abs() < px(0.5),
+                    || format!("{here}: the count of lines was squeezed"),
+                );
+            }
+        }
+    }
+
+    /// D749 in the middle of the window: every refusal's sentence wraps
+    /// inside it, rather than centred past both of its edges.
+    fn refusal_misses(language: &str, misses: &mut Misses, cx: &mut TestAppContext) {
+        let (view, cx) = window_with(cx, MARKED, Comparison::default());
+        for refusal in [
+            Refusal::NotText,
+            Refusal::TooBig { size: 9 << 30 },
+            Refusal::Unreadable,
+            Refusal::Undecodable {
+                encoding: Encoding::Utf8,
+                offset: 1_048_576,
+            },
+            Refusal::Unable(clean::Unable::UnnamedEncoding),
+            Refusal::Unable(clean::Unable::Unread),
+        ] {
+            let what = format!("{refusal:?}");
+            cx.update(|_, cx| {
+                view.update(cx, |view, cx| {
+                    view.state = State::Refused(refusal);
+                    cx.notify();
+                });
+            });
+            for at in WIDTHS {
+                let (width, [sentence]) = parts_at(at, [REFUSAL], cx);
+                misses.unless(sentence.left() >= px(0.0) && sentence.right() <= width, || {
+                    format!(
+                        "{language}, refused ({what}), {} pt wide: the sentence runs from {:?} to {:?}",
+                        f32::from(width),
+                        sentence.left(),
+                        sentence.right()
+                    )
+                });
+            }
+        }
+    }
+
+    /// Set by the test below for the child process it starts.
+    const WORDS_ISOLATED: &str = "WIPEMARK_TEST_COMPARE_WORDS_ISOLATED";
+
+    /// F27 (D748, D749): what the Compare window says fits it, in every
+    /// language the binary ships — German and Russian say the same things
+    /// in longer words — at its default width and at its least. Run in a
+    /// process of its own, because the language is the process's
+    /// (`language::tests::switching_language_retranslates_the_selector_and_the_window`
+    /// says why). Take `min_w_0` off the banner's explanation and Back to …
+    /// ends past the window's right edge at 1120 pt, in every language and
+    /// for every kind of result; off the status or the refusal and their
+    /// sentences run off the window: red.
+    #[test]
+    fn compare_s_words_fit_its_window_in_every_language() {
+        const BODY: &str = "compare::tests::compare_s_words_fit_its_window_in_a_process_of_its_own";
+        let output = std::process::Command::new(std::env::current_exe().expect("the test binary"))
+            .args(["--exact", BODY, "--ignored", "--test-threads=1"])
+            .env(WORDS_ISOLATED, "1")
+            .output()
+            .expect("the test binary runs");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("test result: ok. 1 passed"),
+            "the window's words did not fit it:\n{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// The body of the test above. Ignored so that a run of the suite
+    /// never moves the language beside the tests that read English; under
+    /// a plain `--ignored` run, without the variable, it does nothing.
+    #[gpui::test]
+    #[ignore = "moves the process-wide language; run in its own process by compare_s_words_fit_its_window_in_every_language"]
+    fn compare_s_words_fit_its_window_in_a_process_of_its_own(cx: &mut TestAppContext) {
+        use wipemark_i18n::LanguagePreference;
+        if std::env::var_os(WORDS_ISOLATED).is_none() {
+            return;
+        }
+        let shipped = wipemark_i18n::available_languages();
+        assert!(shipped.len() >= 3, "{shipped:?}");
+        let mut misses = Misses::default();
+        for language in shipped {
+            let tag = language.id.to_string();
+            let chosen = LanguagePreference::parse(&tag).expect("a shipped tag");
+            assert_eq!(wipemark_i18n::select(&chosen).to_string(), tag);
+            banner_misses(&tag, &mut misses, cx);
+            status_misses(&tag, &mut misses, cx);
+            refusal_misses(&tag, &mut misses, cx);
+        }
+        wipemark_i18n::select(&LanguagePreference::System);
+        assert!(misses.0.is_empty(), "\n{}", misses.0.join("\n"));
     }
 }
