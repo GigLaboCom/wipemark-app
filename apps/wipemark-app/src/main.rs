@@ -591,13 +591,19 @@ fn status_now(duty: &Duty, loaded: &Loaded, progress: Option<f32>) -> String {
 /// be checked without a window. Every vacancy reads as the sentence a
 /// fresh install shows — nobody is on duty, and [`Layer A`](wipemark_core)
 /// is the product without one — because the bar has room for what the
-/// application is doing and the Engine page has room for why. Every
+/// application is doing and the Engine page has room for why. All but
+/// one: a chosen model nobody has looked for yet is an engine on its way,
+/// and the bar says it is starting (F26, D745). Every
 /// sentence still ends "Layer A only": a loaded model is a fact about
 /// memory, not a claim that rewriting works. The memory is shown only
 /// when it was measured; unknown is never a number.
 fn status_line(duty: &Duty, loaded: &Loaded) -> String {
     let Some(performer) = duty.performer() else {
-        return t(Message::StatusIdleNoEngine);
+        return t(if duty.starting() {
+            Message::StatusEngineStarting
+        } else {
+            Message::StatusIdleNoEngine
+        });
     };
     if let Performer::Machine(local) = performer {
         let model = local.display.clone();
@@ -1496,7 +1502,10 @@ fn main() {
     // one: the batch queue asks it for an engine as each item starts, the
     // MCP server takes it when `Preferences` starts it, and the host that
     // serves it is built over `Preferences` once the window exists.
-    let (engine_handle, engine_inbox) = EngineHandle::new();
+    // Starting until the host first decides, which is once the models scan
+    // and the backends have landed: until then whoever asks is told so,
+    // not that nothing is on duty (F26, D746).
+    let (engine_handle, engine_inbox) = EngineHandle::starting();
     // The batch queue and the document journal (E4-6b), over the same
     // database as the preferences — before the window and before the MCP
     // server, both of which push to it. Opening it reads its rows, which
@@ -2462,6 +2471,32 @@ mod tests {
             "{unmeasured:?}"
         );
         assert!(reads_as(&failed, Message::StatusLocalFailed), "{failed:?}");
+    }
+
+    /// F26 (D745): a model on this machine is chosen and the first scan —
+    /// the backends load with it, 34 s on the first launch of a new build —
+    /// has not landed. The bar says the engine is starting, not that none is
+    /// configured; every other vacancy still reads as a fresh install does.
+    /// Take the `starting` arm out of `status_line` and it reads "no engine
+    /// configured": red.
+    #[test]
+    fn the_status_bar_says_the_engine_is_starting_while_it_is() {
+        let starting = status_line(&Duty::Vacant(duty::Vacancy::Starting), &Loaded::No);
+        assert!(
+            reads_as(&starting, Message::StatusEngineStarting),
+            "{starting:?}"
+        );
+        assert!(
+            !reads_as(&starting, Message::StatusIdleNoEngine),
+            "a configured engine on its way read as none: {starting:?}"
+        );
+        let nobody = status_line(&Duty::Vacant(duty::Vacancy::NoModelChosen), &Loaded::No);
+        assert!(reads_as(&nobody, Message::StatusIdleNoEngine), "{nobody:?}");
+        // Whatever the host says of a model it does not hold yet.
+        assert_eq!(
+            status_now(&Duty::Vacant(duty::Vacancy::Starting), &Loaded::No, None),
+            starting
+        );
     }
 
     /// Whether `line` is `message` rendered in any shipped language, with

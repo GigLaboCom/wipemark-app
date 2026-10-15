@@ -1205,6 +1205,34 @@
   (`two_scans_asked_back_to_back_hash_a_file_once`); moving the folder
   stops the old store between chunks of a hash, and a scan that panics is
   caught and does not stop the next.
+  **Before the first scan lands, a chosen model is not missing — the
+  engine is starting** (F26, D745–D747). The first launch of a new build
+  on macOS took 34 s to its duty: 17 s for the backends (macOS reads every
+  new library before it lets one load) and 17 s more for a survey hashing a
+  weight file no record covered, one after the other. Until then the
+  status bar read "no engine configured" over a configured model.
+  `Roster::looked` is the first scan having landed; without it a chosen
+  model (catalogue or added) is `Vacancy::Starting`, never `ModelNotHere`.
+  A side still being read is **neither passed over nor reported past** —
+  `MachineFirst` does not send a document to its endpoint while the folder
+  is unread — and an endpoint asked first still answers at once. Every
+  surface says it: the status bar (`status-engine-starting`), the Engine
+  page's banner and local block, the setup walk-through and the Prompts
+  Check (`settings-engine-state-starting`), and Rewrite's greyed reason
+  (`engine-refusal-starting`). The application's `EngineHandle` is built
+  `starting()` and says `Unavailable::Starting` until its host first
+  decides, so the batch queue holds and the MCP server refuses ("the engine
+  is still starting; call again in a moment") rather than saying nothing is
+  on duty; an endpoint on duty meanwhile keeps its Rewrite, and what it
+  pushes waits in the line. The scan loads the backends **beside** its
+  survey (`side_by_side`), so the two costs overlap. Gates:
+  `a_chosen_model_nobody_has_looked_for_yet_is_starting`,
+  `a_chosen_model_is_starting_until_the_first_look_lands`,
+  `the_status_bar_says_the_engine_is_starting_while_it_is`,
+  `rewrite_says_the_engine_is_starting_while_it_is`,
+  `an_endpoint_on_duty_is_not_greyed_while_the_engine_starts`,
+  `the_applications_handle_says_the_engine_is_starting_until_its_host_decides`,
+  `the_backends_load_beside_the_survey`.
 * **The models folder is one row, and it is read recursively.**
   `models.dir` is an absolute path or `""` for `<data dir>/models`;
   a relative one reads as the default and is left in the row. On the

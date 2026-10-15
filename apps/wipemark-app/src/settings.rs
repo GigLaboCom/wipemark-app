@@ -2800,6 +2800,10 @@ impl Preferences {
                 serves: self.serves,
                 // D504: no draft is offered, whatever the row says.
                 speculative: self.local.speculative && wipemark_models::DRAFTS_OFFERED,
+                // Until the first scan lands — the backends load with it —
+                // a chosen model is not missing, it is not looked for yet
+                // (F26, D745).
+                looked: self.models_scanned(),
             },
             role,
             // The pin, when the command line named one. Nothing else
@@ -2852,11 +2856,18 @@ impl Preferences {
                             panic!("a scan that panics, for a test");
                         }
                         let host = Host::probe();
-                        let gpu = gpu_backend();
+                        // The backends load beside the survey, not before
+                        // it (F26, D747): on the first launch of a new build
+                        // they took 17 s, and a survey hashing a weight file
+                        // no record covers took 17 s more after them.
+                        // Neither needs the other.
+                        //
                         // One walk of the folder, and every catalogue entry
                         // looked for in it — at its place, or anywhere under
                         // the folder by name, size and sha256 (D302).
-                        let survey = models.survey(&entries);
+                        let (gpu, survey) = side_by_side("wipemark-backends", gpu_backend, || {
+                            models.survey(&entries)
+                        });
                         let states: BTreeMap<String, State> = survey
                             .located
                             .iter()
@@ -3871,6 +3882,34 @@ fn gpu_backend() -> Option<bool> {
     {
         None
     }
+}
+
+/// `beside` on a thread of its own, named `name`, while `here` runs on this
+/// one; both answers (F26, D747).
+///
+/// What the scan loads the ggml backends with: beside its survey of the
+/// models folder, not before it. On the first launch of a new build the
+/// backends took 17 s — macOS reads every new library before it lets one
+/// load — and a survey hashing a weight file no record covers took 17 s
+/// more after them; neither needs the other. A panic on either side is the
+/// caller's, as it was when they ran one after the other — the scan catches
+/// it (L4). A thread that cannot be made is a panic too.
+fn side_by_side<A: Send, B>(
+    name: &str,
+    beside: impl FnOnce() -> A + Send,
+    here: impl FnOnce() -> B,
+) -> (A, B) {
+    std::thread::scope(|scope| {
+        let theirs = std::thread::Builder::new()
+            .name(name.to_owned())
+            .spawn_scoped(scope, beside)
+            .unwrap_or_else(|error| panic!("no thread for {name}: {error}"));
+        let mine = here();
+        match theirs.join() {
+            Ok(theirs) => (theirs, mine),
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    })
 }
 
 /// The one dialog a Settings window can have open.
@@ -6278,13 +6317,14 @@ impl SettingsView {
             None => {
                 let (here, file) = match duty.performer() {
                     Some(Performer::Machine(local)) => (
-                        true,
+                        LocalDuty::Here,
                         match preferences.model_state(&local.id) {
                             State::Present { bytes } => Some(bytes),
                             _ => None,
                         },
                     ),
-                    _ => (false, None),
+                    _ if duty.starting() => (LocalDuty::Starting, None),
+                    _ => (LocalDuty::Elsewhere, None),
                 };
                 (
                     Message::SettingsEngineLocalTitle,
@@ -9190,6 +9230,13 @@ fn vacancy_line(vacancy: &Vacancy) -> (IconName, Tone, String) {
             Tone::Quiet,
             t(Message::SettingsEngineStateModelNotHere),
         ),
+        // F26 (D745): nobody has looked yet — not "not here", and nothing
+        // to fix.
+        Vacancy::Starting => (
+            IconName::CircleInfo,
+            Tone::Quiet,
+            t(Message::SettingsEngineStateStarting),
+        ),
         // E8-1: a model the person added — its fix is theirs, never a
         // download.
         Vacancy::AddedModelNotHere { state, .. } => (
@@ -9289,6 +9336,18 @@ fn idle_choices() -> Vec<Choice<u32>> {
         .collect()
 }
 
+/// Whether the model on this machine is the one on duty, for the
+/// local-model block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocalDuty {
+    Here,
+    /// An endpoint, or nobody.
+    Elsewhere,
+    /// A model on this machine is chosen and nobody has looked for it yet
+    /// (F26, D745).
+    Starting,
+}
+
 /// The local-model block's state, as values: a tone and its lines.
 ///
 /// A free function over values, like the banners, so the sentences can be
@@ -9296,15 +9355,22 @@ fn idle_choices() -> Vec<Choice<u32>> {
 /// is shown only when it was read; nothing here says a word about
 /// rewriting, because nothing rewrites.
 fn local_status(
-    here: bool,
+    here: LocalDuty,
     model: Option<&str>,
     loaded: &Loaded,
     since: Option<&str>,
     keeping: Keeping,
     file: Option<u64>,
 ) -> (Tone, Vec<String>) {
-    let Some(model) = model.filter(|_| here) else {
-        return (Tone::Quiet, vec![t(Message::SettingsEngineLocalNotHere)]);
+    let Some(model) = model.filter(|_| here == LocalDuty::Here) else {
+        return (
+            Tone::Quiet,
+            vec![t(if here == LocalDuty::Starting {
+                Message::EngineRefusalStarting
+            } else {
+                Message::SettingsEngineLocalNotHere
+            })],
+        );
     };
     let model = model.to_owned();
     let since = since.unwrap_or("").to_owned();
@@ -10280,6 +10346,7 @@ mod tests {
                 host: None,
                 serves: Serves::default(),
                 speculative: true,
+                looked: true,
             },
             Role::Rewrite,
             duty::Pick::Live,
@@ -10332,6 +10399,7 @@ mod tests {
                 host: None,
                 serves: Serves::default(),
                 speculative: true,
+                looked: true,
             },
             Role::Rewrite,
             duty::Pick::Live,
@@ -10406,6 +10474,7 @@ mod tests {
                 host: None,
                 serves: Serves::EndpointFirst,
                 speculative: true,
+                looked: true,
             },
             Role::Rewrite,
             duty::Pick::Live,
@@ -10922,7 +10991,7 @@ mod tests {
             resident_mb: None,
         };
         let (tone, lines) = local_status(
-            true,
+            LocalDuty::Here,
             model,
             &measured,
             Some("14:05"),
@@ -10941,7 +11010,7 @@ mod tests {
         );
 
         let (_, lines) = local_status(
-            true,
+            LocalDuty::Here,
             model,
             &unmeasured,
             Some("14:05"),
@@ -10955,7 +11024,7 @@ mod tests {
         );
 
         let (tone, lines) = local_status(
-            true,
+            LocalDuty::Here,
             model,
             &Loaded::Failed(wipemark_engine::Unavailable::LoadFailed {
                 detail: "llama_model_load_from_file returned null".to_owned(),
@@ -10967,8 +11036,22 @@ mod tests {
         assert_eq!(tone, Tone::Warn);
         assert_eq!(lines[1], "llama_model_load_from_file returned null");
 
-        let (_, resident) = local_status(true, model, &Loaded::No, None, Keeping::Resident, None);
-        let (_, on_demand) = local_status(true, model, &Loaded::No, None, Keeping::OnDemand, None);
+        let (_, resident) = local_status(
+            LocalDuty::Here,
+            model,
+            &Loaded::No,
+            None,
+            Keeping::Resident,
+            None,
+        );
+        let (_, on_demand) = local_status(
+            LocalDuty::Here,
+            model,
+            &Loaded::No,
+            None,
+            Keeping::OnDemand,
+            None,
+        );
         assert_eq!(
             resident.len(),
             2,
@@ -10977,9 +11060,44 @@ mod tests {
         assert_eq!(on_demand.len(), 1);
 
         // Not on duty here: one quiet line, and no model named.
-        let (tone, lines) = local_status(false, model, &measured, None, Keeping::OnDemand, None);
+        let (tone, lines) = local_status(
+            LocalDuty::Elsewhere,
+            model,
+            &measured,
+            None,
+            Keeping::OnDemand,
+            None,
+        );
         assert_eq!(tone, Tone::Quiet);
         assert!(!lines[0].contains("Qwen3"), "{lines:?}");
+    }
+
+    /// F26 (D745): while nobody has looked for the chosen model yet, the
+    /// local-model block says the engine is starting — not that nothing on
+    /// duty runs on this machine, which is what it said for the 34 s of the
+    /// first launch of a new build. Give `Starting` the `Elsewhere` line
+    /// and it reads that way again: red.
+    #[test]
+    fn the_local_block_says_the_engine_is_starting_while_it_is() {
+        let (tone, lines) = local_status(
+            LocalDuty::Starting,
+            None,
+            &Loaded::No,
+            None,
+            Keeping::OnDemand,
+            None,
+        );
+        assert_eq!(tone, Tone::Quiet);
+        assert_eq!(lines, vec![t(Message::EngineRefusalStarting)]);
+        let (_, elsewhere) = local_status(
+            LocalDuty::Elsewhere,
+            None,
+            &Loaded::No,
+            None,
+            Keeping::OnDemand,
+            None,
+        );
+        assert_eq!(elsewhere, vec![t(Message::SettingsEngineLocalNotHere)]);
     }
 
     /// A check's answer is the model's words and its timing; nothing in
@@ -11654,6 +11772,115 @@ mod tests {
         preferences.read_with(cx, |preferences, _| {
             assert!(!preferences.scanning);
             assert!(preferences.models_scanned(), "the next scan never answered");
+        });
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// F26 (D747): the scan loads the backends beside its survey of the
+    /// folder, not before it — on the first launch of a new build the two
+    /// took 17 s each, one after the other. The side on its own thread waits
+    /// for a word from the other, which it can only have while both run at
+    /// once. Run them one after the other, as the scan did, and the word
+    /// never comes: red, after two seconds. A panic on either side is still
+    /// the caller's, which the scan catches (L4).
+    #[test]
+    fn the_backends_load_beside_the_survey() {
+        let (told, heard) = flume::bounded::<()>(1);
+        let (waited, said) = side_by_side(
+            "wipemark-test-beside",
+            move || {
+                heard
+                    .recv_timeout(std::time::Duration::from_secs(2))
+                    .is_ok()
+            },
+            move || told.send(()).is_ok(),
+        );
+        assert!(waited, "the backends waited for the survey to end");
+        assert!(said);
+
+        for panics_beside in [true, false] {
+            let caught = std::panic::catch_unwind(|| {
+                side_by_side(
+                    "wipemark-test-beside",
+                    || assert!(!panics_beside, "a backend that panics"),
+                    || assert!(panics_beside, "a survey that panics"),
+                )
+            });
+            assert!(
+                caught.is_err(),
+                "a panic was lost (beside: {panics_beside})"
+            );
+        }
+    }
+
+    /// F26 (D745): before the first look at the models folder lands — the
+    /// backends load with it, 34 s on the first launch of a new build — a
+    /// chosen model is not "not here": nobody has looked. The duty says the
+    /// engine is starting, and so does the Engine page's banner (and with it
+    /// the setup walk-through's and the Prompts page's Check). Once the look
+    /// lands and the model is not in the folder, it is not here. Build the
+    /// roster with `looked: true` and the first answer is "not here": red.
+    #[gpui::test]
+    fn a_chosen_model_is_starting_until_the_first_look_lands(cx: &mut gpui::TestAppContext) {
+        use crate::duty::{Duty, Serves, Vacancy};
+
+        let root = std::env::temp_dir().join(format!(
+            "wipemark-starting-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(root.join("models")).expect("scratch");
+        let homes = Homes {
+            results: root.join("results"),
+            kept: root.join("kept"),
+        };
+        struct Holder(#[allow(dead_code)] Entity<Preferences>);
+        impl Render for Holder {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let slot: std::rc::Rc<std::cell::RefCell<Option<Entity<Preferences>>>> =
+            std::rc::Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |_, cx| {
+            let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+            *held.borrow_mut() = Some(preferences.clone());
+            Holder(preferences)
+        });
+        let preferences = slot.take().expect("the window builder ran");
+
+        preferences.update(cx, |preferences, cx| {
+            preferences.models =
+                Arc::new(Downloads::new(root.join("models"), root.join("records")));
+            preferences.select_serves(Serves::MachineOnly, cx);
+            preferences.select_rewrite_model(Some("qwen3-4b-instruct-2507-ud-q4".to_owned()), cx);
+        });
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            assert!(!preferences.models_scanned());
+            let duty = preferences.duty(Role::Rewrite);
+            assert_eq!(duty, Duty::Vacant(Vacancy::Starting));
+            let (_, _, lines) = engine_banner(&duty, false);
+            assert_eq!(
+                lines.first(),
+                Some(&t(Message::SettingsEngineStateStarting)),
+                "{lines:?}"
+            );
+        });
+
+        preferences.update(cx, |preferences, cx| preferences.look_at_models(cx));
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            assert!(preferences.models_scanned(), "the look never landed");
+            assert!(
+                matches!(
+                    preferences.duty(Role::Rewrite),
+                    Duty::Vacant(Vacancy::ModelNotHere { .. })
+                ),
+                "{:?}",
+                preferences.duty(Role::Rewrite)
+            );
         });
         std::fs::remove_dir_all(&root).ok();
     }

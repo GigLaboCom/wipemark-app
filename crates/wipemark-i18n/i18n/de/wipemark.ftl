@@ -74,6 +74,7 @@ queue-next = Weiter
 ## Statuszeile
 
 status-idle-no-engine = Bereit · keine Engine konfiguriert · nur { -layer-a }
+status-engine-starting = Die Engine startet · { -layer-a } funktioniert schon
 status-idle-here = Bereit · { $model } · nichts verlässt diesen Rechner
 status-idle-away = Bereit · { $model } auf { $host } · das Dokument verließe diesen Rechner
 status-local-loading = { $model } wird geladen · nichts verlässt diesen Rechner
@@ -393,6 +394,7 @@ settings-engine-state-off = Keine Engine. { -brand-name } bereinigt nur, was fü
 settings-engine-state-ready-local = Konfiguriert, und das Dokument bliebe auf diesem Rechner: { $endpoint }
 settings-engine-state-ready-machine = Konfiguriert, und das Dokument verließe diesen Rechner nicht: { $model } läuft hier.
 settings-engine-state-model-not-here = Das zum Umschreiben gewählte Modell liegt noch nicht auf diesem Rechner. Laden Sie es auf der Seite „Modelle“ herunter, oder richten Sie diese Seite auf einen Server.
+settings-engine-state-starting = Die Engine startet: Das zum Umschreiben gewählte Modell und die Prozessoren, auf denen es läuft, werden noch gesucht. Der erste Start einer neuen Version kann eine halbe Minute dauern.
 settings-engine-state-model-unusable = Das zum Umschreiben gewählte Modell { $model } kann diese Version dafür nicht verwenden. Wählen Sie auf der Seite „Modelle“ ein anderes.
 settings-engine-state-added-model-changed = Das von Ihnen hinzugefügte und zum Umschreiben gewählte Modell hat sich seit dem Hinzufügen geändert und wird daher nicht geladen. Fügen Sie es auf der Seite „Modelle“ erneut hinzu oder wählen Sie ein anderes.
 settings-engine-state-added-model-not-here = Das von Ihnen hinzugefügte und zum Umschreiben gewählte Modell ist nicht mehr dort, wo es war. Legen Sie die Datei zurück oder wählen Sie auf der Seite „Modelle“ ein anderes.
@@ -478,6 +480,7 @@ engine-refusal-no-backend = Es wurde kein Prozessor gefunden, auf dem das Modell
 engine-refusal-load-failed = Das Modell konnte nicht geladen werden.
 engine-refusal-stopped = Die lokale Engine wurde beendet. Das Modell erneut zu wählen startet sie neu.
 engine-refusal-nothing-on-duty = Es ist nichts zuständig, das antworten könnte.
+engine-refusal-starting = Die Engine startet noch.
 engine-refusal-redirected = Der Endpunkt antwortete mit { $status } und verwies auf { $origin }. Weiterleitungen folgt { -brand-name } nicht: Korrigieren Sie stattdessen die Adresse.
 engine-refusal-redirected-nowhere = Der Endpunkt antwortete mit { $status }, einer Weiterleitung. Weiterleitungen folgt { -brand-name } nicht: Korrigieren Sie stattdessen die Adresse.
 engine-refusal-key-rejected = Der Endpunkt hat den Schlüssel nicht angenommen ({ $status }).

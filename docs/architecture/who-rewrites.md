@@ -121,6 +121,52 @@ ready so a leak would be silent if one existed.
 `a_side_nobody_set_up_is_not_reported_as_passed_over` gate the
 asymmetry.
 
+## While nobody has looked yet: `Vacancy::Starting`
+
+The roster is gathered from what the models scan found, and the first
+scan lands a moment after the window opens — or, on the first launch of a
+new build on macOS, 34 s after it (F26: 17 s for the ggml backends, which
+load with the scan, and 17 s more for a survey hashing a weight file no
+record covered). Before it lands, the models directory has not been read,
+so a chosen model missing from `on_disk` is not *missing*: nobody has
+looked. `Roster::looked` says whether the first scan has landed
+(`Preferences::models_scanned`), and without it `this_machine` answers
+`Vacancy::Starting` for a chosen model — catalogue or added — after the
+checks that need no disk (`ModelGone`, `ModelDoesNotServe`). Nothing chosen
+is still "no model chosen", and a fresh install still reads as no engine.
+
+`in_order` treats a side still being read as **neither passed over nor
+reported past** (D745):
+
+* asked first and `Starting`, the duty is `Starting` — even with an
+  endpoint ready behind it, because under `MachineFirst` the other answer
+  would send a document away for the moment every launch takes to read
+  the folder;
+* asked second and `Starting`, the duty is `Starting` rather than the
+  first side's refusal, because the machine may still answer;
+* an endpoint asked first and able answers at once, scan or none.
+
+`Duty::starting()` is the one test every surface makes. The status bar
+reads *"Starting the engine · cleaning works meanwhile"*
+(`status-engine-starting`), the one vacancy that is not the fresh-install
+sentence; the Engine page's banner — and with it the setup walk-through's
+and the Prompts page's greyed Check — says the model and the processors
+that run it are still being looked for (`settings-engine-state-starting`);
+the local-model block and Rewrite's greyed reason say *"The engine is
+still starting."* (`engine-refusal-starting`). The engine host does not
+start before the scan lands either, and the application's `EngineHandle`
+is built `starting()` (D746): until the host first decides, a job, a price
+and the MCP server are told `Unavailable::Starting`, so the batch queue
+holds with that reason and an MCP `rewrite` is refused with *"the engine is
+still starting; call again in a moment"* — its own English, never the
+catalogue's. An endpoint on duty during those seconds keeps its Rewrite:
+the slot's word is not the duty's (D430), and what it pushes waits in the
+line for its engine, as it did while the slot said nothing was on duty.
+
+The scan loads the backends **beside** its survey of the folder rather
+than before it (`settings::side_by_side`, D747), so a launch that pays
+both pays the longer, not the sum.
+
 ## Which settings answer: `Pick`
 
 `Pick::Live` is the Engine page as it stands — the last thing the user
@@ -221,7 +267,8 @@ Three places, all reading the same function:
   machine whether it is loading, loaded (with the memory the process
   holds, measured) or refused. Every vacancy reads as the
   sentence a fresh install shows, because the bar has room for what the
-  application is doing and the Engine page has room for why;
+  application is doing and the Engine page has room for why — all but
+  `Starting`, which says the engine is starting (D745);
 * **the Engine page's banner** (`settings::engine_banner`) — which is
   where the wrong sentence lived. `Provider::Off` rendered as *"No
   engine. Wipemark runs Layer A alone"*, and that stops being true the

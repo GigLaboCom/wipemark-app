@@ -949,6 +949,12 @@ impl Problem {
 fn unrun_said(unrun: &Unrun) -> String {
     match unrun {
         Unrun::Nobody => "this server has no way to an engine".to_owned(),
+        // F26 (D746): the application has not decided who rewrites yet —
+        // it is reading its models folder and loading the backends — and
+        // the same call will run once it has.
+        Unrun::Unavailable(wipemark_engine::Unavailable::Starting) => {
+            "the engine is still starting; call again in a moment".to_owned()
+        }
         Unrun::Unavailable(why) => {
             format!("no engine could answer: {}", spelled(&why.to_string()))
         }
@@ -2417,6 +2423,19 @@ pub(crate) mod tests {
                 work: None,
             },
             "nothing is on duty",
+        );
+        // F26 (D746): the application's road while its engine is still
+        // starting — the first look at the models folder, the backends with
+        // it, can take half a minute. Not "nothing is on duty", and the
+        // agent is told the call can be made again. Take the `Starting` arm
+        // out of `unrun_said` and it is not: red.
+        let (starting, _) = crate::engine_host::EngineHandle::starting();
+        unrun(
+            &Services {
+                rewriter: Some(Rewriter::new(starting, None)),
+                work: None,
+            },
+            "the engine is still starting; call again in a moment",
         );
 
         let (services, inbox) = serving(FakeEngine::answering(|req, _| swapped(req)));
