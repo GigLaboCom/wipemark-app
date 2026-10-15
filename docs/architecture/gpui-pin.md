@@ -30,8 +30,9 @@ Cargo.toml ── gpui, gpui_platform ──► crates.io: gpui-pre, gpui-pre-pl
    │                                    since 2026-10-12, D620)
    │
    └── gpui-component (path) ──► vendor/gpui-component/crates/component
-                                   longbridge/gpui-kit, branch next @ 24ded30c
-                                   (#3359 + #3416 + #3417 + #3426 over main 8d8cc671)
+                                   longbridge/gpui-kit, branch next @ 8abddf2a
+                                   (#3359 + #3416 + #3417 + #3426 + #3465 + #3466
+                                    over main 8d8cc671)
                                    its own gpui: gpui-pre =0.3.8 — the same package
 ```
 
@@ -64,19 +65,23 @@ our X11 windows rely on (§2). It replaces
 `scripts/pin-gpui-component.sh`, which now only says it is retired.
 
 **The vendored component.** `vendor/gpui-component` is a submodule of
-**`longbridge/gpui-kit`** itself, branch **`next`**, at **`24ded30c`**
-(2026-10-11; `d9b7c421` from 2026-10-09, D460): `main` at `8d8cc671` plus
-four pull requests of the owner's, as merged — #3359 (`f8429177`, 2026-10-07), our line
+**`longbridge/gpui-kit`** itself, branch **`next`**, at **`8abddf2a`**
+(2026-10-15, D755; before it `24ded30c` from 2026-10-11, then the
+owner's fork from 2026-10-12, §4): `main` at `8d8cc671` plus
+six pull requests of the owner's, as merged — #3359 (`f8429177`, 2026-10-07), our line
 decorations (`docs/sdd/line-decorations.md` §4.1); #3416 (`63068d0f`), a
 vertical scroll bar on the left (`ScrollbarPlacement`); and #3417
 (`d9b7c421`), the editor's gutter on either side with its columns in a
 chosen order (`gutter_side`, `gutter_order`) — the two the Compare
 window's mirrored layout is built on (`docs/architecture/compare.md`,
-"Where the gutters sit"); and #3426 (`24ded30c`, 2026-10-11), the text
+"Where the gutters sit"); #3426 (`24ded30c`, 2026-10-11), the text
 clipped to its own side of the gutter, so a dark theme's translucent
-gutter no longer shows scrolled text through it. `next` held nothing
-beyond `24ded30c` when it was pinned, and none of the later commits
-touched a manifest:
+gutter no longer shows scrolled text through it; and #3465 (`779534e2`,
+2026-10-14), the editor's display map read through `display_map()`, and
+#3466 (`8abddf2a`, 2026-10-15), spacer rows — the two Compare's padded
+panes are built on (`compare.md`, "Long lines: both panes wrap, padded
+level"). `next` held nothing beyond `8abddf2a` when it was pinned, and
+no commit since `8d8cc671` has moved a `gpui-pre` requirement:
 `gpui-pre` stayed `=0.3.8`. Upstream split the old `crates/ui` into
 `crates/component` (`gpui-component`), `crates/base` (`gpui-base`),
 `crates/kit` and more, so the root manifest's path is
@@ -607,6 +612,66 @@ margin — clips the text too, and the test runs both. The component only:
 theme finding (`docs/plan/README.md` §7 E7, "the line numbers are
 painted over visible text").
 
+### The fork of 2026-10-12, and back on `next` on 2026-10-15: #3465 and #3466
+
+**On the fork (2026-10-12 to 2026-10-15).** Compare's padded panes
+(E7-11) needed two editor changes upstream had not merged yet, so on the
+owner's word the submodule moved off upstream for the first time since
+the bump: `.gitmodules` named the owner's fork `glani/gpui-component`,
+branch `editor-spacer-rows` (D675), at `50c120a8` from 2026-10-13 —
+upstream `next` at `24ded30c` plus our two pull requests, #3465
+(`editor-display-row-map`: the editor's display map read-only through
+`display_map()`, in the shape its maintainer gave it, `e536d663` and
+`0eba5139`) and #3466 (`editor-spacer-rows`: spacer rows on that map, the
+Editor Diff story's wrap and `examples/editor_spacers`). The branch took
+review changes on top and was never force-pushed while `feat` pinned it.
+`gpui-pre` stayed `=0.3.8` on it; the report is
+`docs/plan/reports/E7-11-compare-spacer-rows-2026-10-12.md`.
+
+**Back on `next` (2026-10-15, D755).** Upstream squash-merged #3465 as
+`779534e2` (2026-10-14) and #3466 as `8abddf2a` (2026-10-15), and
+`.gitmodules` is `longbridge/gpui-kit.git`, branch `next`, as it was from
+2026-10-07 to 2026-10-12. `git log 24ded30c..8abddf2a` is those two
+commits and nothing else; besides the editor (`crates/base`, and the
+re-export in `crates/component`), they bring the Editor Diff story's
+wrap, `examples/editor_spacers` (a member of gpui-kit's own workspace:
+one line of its `Cargo.toml`, one package in its `Cargo.lock`) and the
+docs, English and Chinese. No `gpui-pre` requirement moved: our
+`Cargo.lock` did not change, and `scripts/check-gpui-pin.sh` is green.
+From the fork's `50c120a8` the tree differs in three source files of
+`crates/base` and the two editor pages of the docs, all of it #3466's
+last review round:
+
+- **`DisplayMap::version()` now moves with the spacers.** On the fork it
+  moved with a pane's rows alone (an edit, a rewrap, a fold) and setting
+  spacers left it, so that a provider reading it would not be asked again
+  by its own answer. As merged, `version()` is the rows' number plus a
+  count of the times the spacers changed (`set_spacers` returns early on
+  an answer equal to the spacers shown), and the editor asks its provider
+  by a crate-private `rows_version()` instead. Compare's `Level` keyed its
+  padding and its "asked again" on each pane's `version()`, so every
+  padding that landed made it ask the pane again, a frame later, for the
+  same answer: with Compare unchanged,
+  `an_edit_is_padded_level_in_its_own_frame` went red (`late` 5 where 4
+  was expected). `Level::rows` now gives each pane's rows a number of its
+  own that a pane's own answer, landing, does not move (D756,
+  `a_padding_that_lands_asks_no_pane_again`; both tests red with the
+  answer's exception taken out of `Level::rows`).
+- **Ghost lines stand before the spacers below the cursor row.** An
+  inline completion's ghost lines push that row's spacers and their
+  backgrounds down with the rows after it (`row_extents`, the spacer
+  backgrounds' tops). Compare's panes have no inline completion; nothing
+  of ours changed.
+- The public API is otherwise the fork's: `display_map() -> &DisplayMap`,
+  `buffer_line_to_display_row_range`, `display_row_count`,
+  `display_row_to_buffer_line`, `is_spacer_row`, `Spacer`,
+  `SpacerProvider`, `set_spacer_provider`, `refresh_spacers`. The story
+  and the example `scripts/verify/e7-11/kit-shots` includes are
+  byte-for-byte the fork's.
+
+The fork's two branches are referenced by nothing in the build any more
+(D757).
+
 ### The next bump
 
 1. **The component.** Move the submodule to the gpui-kit commit that
@@ -692,7 +757,10 @@ painted over visible text").
 - `next` at `f8429177`, the commit the submodule pinned from 2026-10-07 to 2026-10-09 (#3359 merged): <https://github.com/longbridge/gpui-kit/commit/f8429177ce6516f0dc7a0a2c2d15767affce82bd>
 - #3416, scrollbar: Let the vertical scrollbar sit on the left side: <https://github.com/longbridge/gpui-kit/pull/3416>, `63068d0f`: <https://github.com/longbridge/gpui-kit/commit/63068d0fe0b33b2104c66c9963708c7486e5cc6f>
 - #3417, editor: Support mirrored gutters for side-by-side diffs: <https://github.com/longbridge/gpui-kit/pull/3417>, `d9b7c421` — the commit the submodule pinned from 2026-10-09 to 2026-10-11: <https://github.com/longbridge/gpui-kit/commit/d9b7c4219a93cc8a95e92d4a4f2f880bab26fb22>
-- #3426, editor: Clip the text to its own side of the gutter: <https://github.com/longbridge/gpui-kit/pull/3426>, `24ded30c` — the commit the submodule pins since 2026-10-11: <https://github.com/longbridge/gpui-kit/commit/24ded30c4c5770585755652ada7e90a6e620f520>
+- #3426, editor: Clip the text to its own side of the gutter: <https://github.com/longbridge/gpui-kit/pull/3426>, `24ded30c` — the commit the submodule pinned from 2026-10-11 to 2026-10-12: <https://github.com/longbridge/gpui-kit/commit/24ded30c4c5770585755652ada7e90a6e620f520>
+- #3465, editor: Expose read-only access to the display map: <https://github.com/longbridge/gpui-kit/pull/3465>, `779534e2`: <https://github.com/longbridge/gpui-kit/commit/779534e262f8b20228a75a69dc19148b4eeacc6e>
+- #3466, editor: Add spacer rows to the display map: <https://github.com/longbridge/gpui-kit/pull/3466>, `8abddf2a` — the commit the submodule pins since 2026-10-15: <https://github.com/longbridge/gpui-kit/commit/8abddf2a488a6b87fe18b16426c4793f800d4c87>
+- the owner's fork the submodule pinned from 2026-10-12 to 2026-10-15 (D675), `glani/gpui-component` `editor-spacer-rows` at `50c120a8`: <https://github.com/glani/gpui-component/tree/editor-spacer-rows>
 - the maintainer's Editor Diff story at `d9b7c421`, the calls Compare makes: <https://github.com/longbridge/gpui-kit/blob/d9b7c4219a93cc8a95e92d4a4f2f880bab26fb22/crates/story/src/stories/editor_diff_story.rs>
 
 **crates.io**

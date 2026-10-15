@@ -725,8 +725,7 @@
   lines — shared lines one for one, inside a changed passage the lines
   paired by their words (D679), a line with no partner standing against
   blank rows where it stands (`Diff::padding`) — is padded with the library's spacer rows
-  (gpui-kit's `SpacerProvider`, on the `glani` fork's
-  `editor-spacer-rows` until upstream merges it, D675), and a pane is
+  (gpui-kit's `SpacerProvider`, upstream `next` since #3466, D755), and a pane is
   asked again when the *other* pane's rows move: before the frame for an
   edit, at the end of the frame for a rewrap (D673). Past
   `diff::SPAN_CELLS` a changed passage is compared word by word line
