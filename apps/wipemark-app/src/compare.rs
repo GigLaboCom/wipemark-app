@@ -1201,14 +1201,22 @@ struct Level {
     padding: RefCell<Option<(LevelKey, Padding)>>,
     /// What each pane's spacers were last worked out from: original, result.
     asked: [Cell<Option<LevelKey>>; 2],
+    /// Each pane's rows as last read: the pane's version then, and the
+    /// number this level knows those rows by — see [`Level::rows`].
+    rows: [Cell<Option<(usize, u64)>>; 2],
+    /// Whether a pane has been handed its spacers since its version was
+    /// last read.
+    answered: [Cell<bool>; 2],
+    /// The last number handed to a pane's rows.
+    numbered: Cell<u64>,
 }
 
-/// What a padding is worked out from: the rows of both panes, by their
-/// versions, and the comparison's number.
+/// What a padding is worked out from: the rows of both panes, by the
+/// numbers [`Level::rows`] gives them, and the comparison's number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LevelKey {
-    original: usize,
-    result: usize,
+    original: u64,
+    result: u64,
     diff: u64,
 }
 
@@ -1220,7 +1228,41 @@ impl Level {
             diff: RefCell::new((diff, 0)),
             padding: RefCell::new(None),
             asked: [Cell::new(None), Cell::new(None)],
+            rows: [Cell::new(None), Cell::new(None)],
+            answered: [Cell::new(false), Cell::new(false)],
+            numbered: Cell::new(0),
         }
+    }
+
+    /// The number `side`'s rows go by: a new one whenever the pane's
+    /// `display_map().version()` moves, but for the move its own spacers
+    /// make (D756).
+    ///
+    /// gpui-kit counts a pane's spacers in its version (#3466): the answer
+    /// a pane is handed moves its version as it lands, when it differs from
+    /// the spacers the pane had, and its rows of text stay as they were.
+    /// Read as rows, every padding that lands would make a pane look
+    /// padded against rows that have moved and be asked again, a frame
+    /// later, for the same answer. The library sets an answer as soon as
+    /// it is handed over, in the pane's layout after its rewrap, and the
+    /// end of that same frame reads both panes
+    /// ([`CompareView::keep_level`]): a pane answered since its last read
+    /// has had nothing else move its version, so the version it reads now
+    /// keeps the number its rows had.
+    fn rows(&self, side: Side, pane: &EditorState) -> u64 {
+        let version = pane.display_map().version();
+        let answered = self.answered[side as usize].replace(false);
+        let rows = &self.rows[side as usize];
+        let number = match rows.get() {
+            Some((seen, number)) if seen == version || answered => number,
+            _ => {
+                let number = self.numbered.get() + 1;
+                self.numbered.set(number);
+                number
+            }
+        };
+        rows.set(Some((version, number)));
+        number
     }
 
     /// A fresh comparison to pair the lines by.
@@ -1233,9 +1275,10 @@ impl Level {
     /// What the padding would be worked out from now; `None` once a pane
     /// is gone.
     fn key(&self, cx: &App) -> Option<LevelKey> {
+        let (original, result) = (self.original.upgrade()?, self.result.upgrade()?);
         Some(LevelKey {
-            original: self.original.upgrade()?.read(cx).display_map().version(),
-            result: self.result.upgrade()?.read(cx).display_map().version(),
+            original: self.rows(Side::Original, original.read(cx)),
+            result: self.rows(Side::Result, result.read(cx)),
             diff: self.diff.borrow().1,
         })
     }
@@ -1278,6 +1321,8 @@ impl Level {
             *padding = Some((key, worked));
         }
         self.asked[side as usize].set(Some(key));
+        // The library sets what this returns as soon as it has it.
+        self.answered[side as usize].set(true);
         let filler = cx.theme().muted.opacity(0.6);
         let Some((_, padding)) = padding.as_ref() else {
             return Vec::new();
@@ -5635,6 +5680,43 @@ mod tests {
             assert!(level.stale(Side::Original, cx));
             assert!(level.stale(Side::Result, cx));
         });
+    }
+
+    /// A padding that lands moves its pane's version — gpui-kit counts a
+    /// pane's spacers in it (#3466) — and not the pane's rows (D756): a
+    /// comparison that pairs the lines anew is asked for once a pane, at
+    /// the end of the frame it lands in, and the frame its padding lands
+    /// in asks no pane again. Read the version as the rows and the pane
+    /// whose padding moved is asked a second time, a frame later, for the
+    /// same answer: red. Marks of whole lines, so that no empty edit of
+    /// the original (`repaint_original`) moves its rows as well.
+    #[gpui::test]
+    fn a_padding_that_lands_asks_no_pane_again(cx: &mut TestAppContext) {
+        let (original, result) = rewritten();
+        let comparison = Comparison {
+            grain: Grain::Lines,
+            ..wrapped()
+        };
+        let (view, cx) = window_over(cx, &original, &result, comparison);
+        let version = |cx: &mut gpui::VisualTestContext| {
+            cx.update(|_, cx| view.read(cx).original.read(cx).display_map().version())
+        };
+        let (before, late) = (version(cx), cx.update(|_, cx| view.read(cx).late.get()));
+
+        // Line for line: the paragraph only the result has no longer
+        // stands beside blank rows, and the original's padding moves.
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.apply(Diff::of(&original, &original), window, cx)
+            })
+        });
+        settle(cx);
+        assert_ne!(version(cx), before, "the original's padding did not move");
+        assert_eq!(
+            cx.update(|_, cx| view.read(cx).late.get()),
+            late + 2,
+            "a pane was asked again for the padding it had just been handed"
+        );
     }
 
     /// Unwrapped, nothing is padded (D670): the toolbar's Wrap long lines

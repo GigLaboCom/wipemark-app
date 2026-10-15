@@ -467,7 +467,8 @@ And for long lines (E7-11, "Long lines: both panes wrap, padded level"):
 - **D675** — the submodule on the `glani` fork's `editor-spacer-rows` until
   upstream merges #3465 and #3466 — on `feat` too since the owner's word of
   the same evening; the fork's branch is never force-pushed while `feat`
-  pins it.
+  pins it. Upstream merged both (2026-10-14, 2026-10-15), and the
+  submodule is back on `longbridge/gpui-kit` `next` (D755).
 - **D676** — pictures drawn with no display, by GPUI's headless renderer.
 - **D677** — `compare.wrap` off by default: a resize of a wrapped window
   costs 316 ms a frame for 200 paragraphs and 9 s for 8 MiB, the
@@ -475,6 +476,9 @@ And for long lines (E7-11, "Long lines: both panes wrap, padded level"):
   D721** (the owner, 2026-10-14): on by default; the measurement stands.
 - **D678** — between an edit and the next comparison the pairing is the
   last comparison's.
+- **D756** — a pane's own answer, landing, moves its `version()` (upstream
+  counts the spacers in it) and not its rows: `Level::rows` keeps the
+  number, so a padding that lands asks no pane again.
 
 ### What a save does not do (D419)
 
@@ -780,21 +784,26 @@ and the other not is the worst of the arrangements for reading across.
 **Padding.** The rows are the library's: gpui-kit's editor gained
 **spacer rows** for this — blank display rows above or below a buffer
 line, in the display map above folding, with no line number, no caret,
-no decoration, counted by the scroll and by `row_bounds` (the
-`editor-spacer-rows` pull request, D674) — and a read of the display-row
+no decoration, counted by the scroll and by `row_bounds` (gpui-kit
+#3466, D674) — and a read of the display-row
 map (`display_map()`, a `&DisplayMap` whose `buffer_line_to_display_row_range`
-gives a line's rows of text and whose `version()` moves with them; the
-`editor-display-row-map` pull request, in the shape its maintainer gave
-it). `Diff::padding` pairs the lines:
+gives a line's rows of text and whose `version()` moves with them, and
+with the pane's spacers; gpui-kit #3465, in the shape its maintainer gave
+it). Both are upstream's `next` since 2026-10-15 (D755). `Diff::padding` pairs the lines:
 shared lines one for one, line *i* of a hunk against line *i* of the
 other side's block, a paired line that takes fewer rows padded below by
 the difference, and the lines past the shorter block's count standing
 against blank rows at the end of the shorter block, marked as filler and
 tinted with the theme's muted colour. The last line of a text that ends
 with a newline, the editor's empty one, is paired too. A `Level` (one per
-window) works both sides' padding out once per pair of row versions and
-comparison, and each pane's `Padded` provider hands the library its
-side. `paired_lines_start_level_when_both_wrap` is the gate on the
+window) works both sides' padding out once per change of either pane's
+rows or of the comparison, and each pane's `Padded` provider hands the
+library its side. A pane's rows go by a number `Level::rows` gives them:
+a new one when the pane's `version()` moves, but not when it moves
+because the pane's own answer landed — upstream counts the spacers in the
+version, and read as rows, every padding that lands would have a pane
+asked again a frame later for the same answer (D756,
+`a_padding_that_lands_asks_no_pane_again`). `paired_lines_start_level_when_both_wrap` is the gate on the
 pairing, `the_toolbar_wraps_both_panes_and_pads_them` on the one state.
 
 **Asked again** (D673). The library asks a pane for its spacers when its

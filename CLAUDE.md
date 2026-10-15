@@ -32,20 +32,23 @@ git submodule sync --recursive      # picks up a moved URL in .gitmodules
 git submodule update --init --recursive
 ```
 
-The submodule is, **for now, the owner's fork `glani/gpui-component`**,
-branch **`editor-spacer-rows`**, at `50c120a8` (E7-11, D675, the owner's
-word, 2026-10-12). It is upstream **`longbridge/gpui-kit`** `next` at
-`24ded30c` plus our two draft pull requests for Compare's padded panes,
-#3465 (the editor's rows read through `display_map()`, approved
-2026-10-13) and #3466 (spacer rows). It goes back to upstream `next` once
-both are merged there. Upstream `next` at `24ded30c` already holds our
-four earlier pull requests:
+The submodule is upstream **`longbridge/gpui-kit`**, branch **`next`**,
+at `8abddf2a` (2026-10-15, D755), with our six pull requests merged
+there and nothing of ours carried on it:
 - the line decorations, gpui-kit#3359 (2026-10-07;
   `docs/sdd/line-decorations.md` §4.1);
 - a scroll bar on the left, #3416 (2026-10-09);
 - mirrored gutters for a side-by-side diff, #3417 (2026-10-09; E7-10,
   D460);
-- the text clipped to its own side of the gutter, #3426 (2026-10-11).
+- the text clipped to its own side of the gutter, #3426 (2026-10-11);
+- the editor's rows read through `display_map()`, #3465 (2026-10-14);
+- spacer rows, for Compare's padded panes, #3466 (2026-10-15; E7-11).
+  As merged, a pane's `display_map().version()` moves with its spacers
+  too, which Compare's `Level::rows` reads past (D756).
+
+From 2026-10-12 to 2026-10-15 it was the owner's fork
+`glani/gpui-component`, branch `editor-spacer-rows`, at `50c120a8` (D675),
+until upstream merged the last two.
 
 GPUI is the **`gpui-pre`** snapshots on
 crates.io at exactly the component's version (`=0.3.8`, zed `279fe07`),
