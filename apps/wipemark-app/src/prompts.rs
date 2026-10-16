@@ -73,6 +73,7 @@ use crate::diff::Diff;
 use crate::duty::{Duty, Performer};
 use crate::engine::{self, Choice};
 use crate::engine_host::{self, EngineHandle};
+use crate::hover::Tip as _;
 use crate::icon::IconName;
 use crate::settings::{engine_banner, Preferences, Tone};
 
@@ -2764,7 +2765,7 @@ impl PromptsPage {
                     Message::PromptsAdaptFrom,
                     &args!("language" => lang_name(lang)),
                 )))
-                .tooltip(SharedString::from(match blocked {
+                .tip(SharedString::from(match blocked {
                     None => t_args(
                         Message::PromptsAdaptNote,
                         &args!("source" => lang_name(lang), "target" => lang_name(slot.lang())),

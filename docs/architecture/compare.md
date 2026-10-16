@@ -589,8 +589,50 @@ moment, and answers on the background executor with one range per
 line (a range across lines is dropped whole by the library the moment
 either end scrolls out of view), in a tint at the side's hue — the
 danger red, the success green — at a lightness the theme's text reads
-over. The library keeps the answer as painted, so a theme switch
-re-tints these at the next asking.
+over.
+
+**The colours, and a theme switch (F35, D797–D799).** The library
+keeps the answer as painted, and asks again only when the text under it
+changes — so until 2026-10-16 a window open across a switch to Dark
+went on painting the light theme's marks: light boxes with black text in
+a dark window, on the original's side for good (the site's dropped
+`compare-dark.png`). The window now watches the theme
+(`observe_global::<Theme>`), and when the colour of either side's mark
+moves it asks both panes again through the library's own
+`EditorState::refresh` — no edit, so no undo entry and no selection
+collapsed; an update that moves no colour asks nothing
+(`a_theme_switch_puts_the_finer_question_to_both_sides_again`).
+
+The text on a mark is the library's choice, black over a colour of HSL
+lightness 0.5 or more and white under it (gpui-component
+`split_runs_by_bg_segments`), so the colour decides it. The **light**
+theme's marks are the side's hue at saturation 0.55 and lightness 0.80,
+black text — as they always were (D799). The **dark** theme's are set
+per side, a red and a green of one lightness being far apart in
+luminance: the original's at saturation 0.80 and lightness 0.45
+(`#cf1717`), the result's at 0.55 and 0.32 (`#257e45`), white text, the
+lightness kept at least 0.05 under the library's 0.5 (D798). Every
+ratio is WCAG 2.x, measured on the theme the window paints with — the
+panes' ground is the field's translucent background over the window's
+(`#141414` in the dark theme), and a line's tint is blended over it in
+sRGB values, as GPUI's BGRA8Unorm surface blends:
+
+| | text on the mark | the mark on the ground | the mark on its line |
+|---|---|---|---|
+| held, dark | ≥ 4.5 (SC 1.4.3) | ≥ 3 (SC 1.4.11) | ≥ 2.5 |
+| dark, original — was `s 0.55, l 0.30` | 5.56 — was 10.32 | 3.28 — was 1.77 | 2.60 — was 1.40 |
+| dark, result — was the same | 5.03 — was 5.58 | 3.63 — was 3.30 | 2.62 — was 2.39 |
+| light, original (kept) | 11.27 | 1.86 | 1.51 |
+| light, result (kept) | 15.20 | 1.38 | 1.21 |
+
+Not 3:1 off the line: with light text it cannot be had on the result's
+side (4.5:1 for the text caps the mark's luminance at 0.183; 3:1 off a
+green line needs 0.186), and black text on a mid-tone mark is the look
+the site turned down. The light theme's marks are told apart by hue,
+below what the dark theme is held to; that is the owner's to raise.
+`the_dark_word_marks_meet_wcag_contrast` computes every ratio from the
+theme (red on the old tone), and `the_light_word_marks_are_as_they_were`
+pins the light colour and its text.
 
 Which is the catch. The library asks a document-colour provider only
 when the text it is over *changes*. The result's changes with every
@@ -977,7 +1019,7 @@ keystroke takes once the bindings have resolved it. The editor's
 call them if it wanted to. Going through the action is what makes the
 button and the shortcut unable to mean two different things; the
 tooltip asks the window what the action is bound to
-(`Button::tooltip_with_action`), so it is never a table that drifted.
+(`hover::Tip::tip_with_action`, D796), so it is never a table that drifted.
 `the_toolbar_undoes_what_the_keystroke_would` is the gate on the road,
 and it goes red with the dispatch deleted.
 

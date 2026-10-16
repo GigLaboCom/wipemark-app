@@ -164,7 +164,6 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::scroll::Scrollbar;
 use gpui_component::tag::Tag;
-use gpui_component::tooltip::Tooltip;
 use gpui_component::{
     h_flex, v_flex, ActiveTheme, ColorName, Disableable as _, InteractiveElementExt as _,
     Sizable as _, StyledExt as _,
@@ -178,6 +177,7 @@ use crate::clean::{self, Cleanable, Outcome};
 use crate::cleaner::{self, Cleaner};
 use crate::compare::{self, CleanedTo, Comparison, Home, Made, RewriteFrom, Subject, Told};
 use crate::drop::{self, Arrival, Catcher, Landed};
+use crate::hover::Tip as _;
 use crate::icon::{Icon, IconName};
 use crate::journal::{self, Work, Writer, Written};
 use crate::preview::{Excerpt, Picture, Preview};
@@ -2433,7 +2433,7 @@ fn status_cell(row: &Row, notes: Vec<String>, held: bool) -> AnyElement {
     div()
         .id(("queue-status", row.id))
         .child(tag.small().child(SharedString::from(word)))
-        .tooltip(move |window, cx| Tooltip::new(sentence.clone()).build(window, cx))
+        .tip(sentence)
         .into_any_element()
 }
 
@@ -2545,10 +2545,14 @@ fn copyable(id: (&'static str, u64), value: Option<String>, cx: &App) -> AnyElem
         .gap_1()
         .min_w(px(0.0))
         .child(div().text_sm().truncate().child(shown))
+        // The tooltip on a frame of our own around the button rather than
+        // the button's own, which gpui-component keeps up after the button
+        // has gone (D796).
         .child(
-            Clipboard::new(id)
-                .value(value)
-                .tooltip(SharedString::from(t(Message::QueueCopy))),
+            div()
+                .id(id)
+                .tip(t(Message::QueueCopy))
+                .child(Clipboard::new(id).value(value)),
         )
         .into_any_element()
 }
@@ -2653,7 +2657,7 @@ fn process_cell(
             div()
                 .id((key, id))
                 .debug_selector(move || format!("{key}-{id}"))
-                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                .tip(tooltip)
                 .child(
                     Button::new((key, id))
                         .xsmall()
@@ -2827,7 +2831,7 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
         .ghost()
         .xsmall()
         .icon(IconName::Ellipsis)
-        .tooltip(SharedString::from(t(Message::QueueActions)))
+        .tip(SharedString::from(t(Message::QueueActions)))
         .debug_selector(move || format!("row-actions-{id}"))
         .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
             let (opened, open_why) = split(actions.open.clone());
@@ -3227,7 +3231,7 @@ impl Queue {
                             .ghost()
                             .label(title)
                             .icon(self.order.glyph())
-                            .tooltip(SharedString::from(t(self.order.next_label())))
+                            .tip(SharedString::from(t(self.order.next_label())))
                             .on_click(cx.listener(|queue, _, _, cx| queue.flip_order(cx))),
                     ),
                     _ => cell.child(title),

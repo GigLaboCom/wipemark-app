@@ -137,6 +137,7 @@ use gpui_component::{
 };
 use wipemark_i18n::{t, Message};
 
+use crate::hover::Tip as _;
 use crate::icon::{Icon, IconName};
 
 /// The key context the editor's bindings are scoped to — the one the
@@ -738,14 +739,14 @@ impl ResultEditor {
             }));
         match (why, action) {
             // A greyed button says why, not what it would have done.
-            (Some(why), _) => button.tooltip(why),
+            (Some(why), _) => button.tip(why),
             // The label, and beside it whatever the window says the action
             // is bound to — read from the keymap at hover time, never
             // written down here.
             (None, Some((action, context))) => {
-                button.tooltip_with_action(label, action.as_ref(), Some(context))
+                button.tip_with_action(label, action.as_ref(), Some(context))
             }
-            (None, None) => button.tooltip(label),
+            (None, None) => button.tip(label),
         }
     }
 
@@ -855,7 +856,7 @@ impl ResultEditor {
                     .ghost()
                     .xsmall()
                     .icon(IconName::Ellipsis)
-                    .tooltip(SharedString::from(t(Message::ResultMore)))
+                    .tip(SharedString::from(t(Message::ResultMore)))
                     .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, cx| {
                         let Some(strip) = editor.upgrade() else {
                             return menu;

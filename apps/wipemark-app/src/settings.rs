@@ -107,6 +107,7 @@ use crate::engine_host::{
     self, Check, CheckOutcome, EngineHandle, EngineHost, Keeping, Loaded, LocalPolicy, IDLE_MINUTES,
 };
 use crate::hotkey::{self, Hotkey, Registration};
+use crate::hover::Tip as _;
 use crate::icon::{Icon, IconName};
 use crate::language::{self, LanguageChoice};
 use crate::mcp::server::{self, Supervisor};
@@ -6397,7 +6398,7 @@ impl SettingsView {
                                 .small()
                                 .outline()
                                 .label(SharedString::from(t(Message::SettingsEngineLocalUnload)))
-                                .tooltip(SharedString::from(t(if can_unload {
+                                .tip(SharedString::from(t(if can_unload {
                                     Message::SettingsEngineLocalUnloadTooltip
                                 } else {
                                     Message::SettingsEngineLocalUnloadDisabled
@@ -6413,7 +6414,7 @@ impl SettingsView {
                             .small()
                             .outline()
                             .label(SharedString::from(t(Message::SettingsEngineLocalCheck)))
-                            .tooltip(SharedString::from(t(if machine {
+                            .tip(SharedString::from(t(if machine {
                                 Message::SettingsEngineLocalCheckTooltip
                             } else {
                                 Message::SettingsEngineRemoteCheckTooltip
@@ -8833,7 +8834,7 @@ fn zone_cell(
                 .h_full()
                 .selected(taken)
                 .disabled(!placeable)
-                .tooltip(SharedString::from(t(zone.label())))
+                .tip(SharedString::from(t(zone.label())))
                 .on_click(cx.listener({
                     let display = display.clone();
                     move |view, _, _, cx| {

@@ -97,6 +97,12 @@ wipemark-log.workspace = true
 # reads from disk works under `cargo run` and paints nothing once
 # bundled. See src/assets.rs.
 rust-embed = { version = "8", features = ["interpolate-folder-path", "include-exclude"] }
+# `RootPlugin`, which gpui-component does not re-export: the plugin that
+# tells GPUI the pointer has left a window, in every window (src/hover.rs,
+# D795). The tests read `gpui_base::POPUP_PRIORITY` through it as well —
+# the gate on `dialog::MODAL_PRIORITY`. Already in the tree through
+# gpui-component, at the same path.
+gpui-base.workspace = true
 
 [dev-dependencies]
 # `test-support` is what makes `#[gpui::test]`, `add_empty_window` and
@@ -108,11 +114,6 @@ gpui = { workspace = true, features = ["test-support"] }
 # ignored, run by `scripts/verify/e7-11/shots.sh`). The feature turns on
 # crates already in the tree (`image`), nothing new.
 gpui_platform = { workspace = true, features = ["test-support"] }
-# `gpui_base::POPUP_PRIORITY`, which gpui-component does not re-export:
-# the gate on `dialog::MODAL_PRIORITY` reads it rather than a copy of it,
-# so a bump that moves it is a red test. Already in the tree through
-# gpui-component, at the same path.
-gpui-base.workspace = true
 
 # macOS-only, and these are affordances rather than features: the Dock
 # icon of an unbundled dev build (src/dock_icon.rs), the window moves and

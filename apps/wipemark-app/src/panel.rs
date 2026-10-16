@@ -112,6 +112,7 @@ use wipemark_intake::{Arrived, Format, Intake, Kind};
 
 use crate::clean::{self, Cleanable, Findings, Outcome};
 use crate::drop::{self, Arrival, Catcher, Landed};
+use crate::hover::Tip as _;
 use crate::icon::{Icon, IconName};
 use crate::placement;
 use crate::queue::{Queue, Standing, Table};
@@ -1571,7 +1572,7 @@ impl PanelView {
                     Message::PanelClean
                 })))
                 .disabled(!clean_offered(&states))
-                .tooltip(SharedString::from(t(Message::PanelCleanTooltip)))
+                .tip(SharedString::from(t(Message::PanelCleanTooltip)))
                 .on_click(cx.listener(|view, _, _, cx| view.clean(cx))),
         )
     }
@@ -1683,7 +1684,7 @@ impl Render for PanelView {
                                     .ghost()
                                     .xsmall()
                                     .icon(IconName::CircleInfo)
-                                    .tooltip(SharedString::from(t(Message::PanelHelp))),
+                                    .tip(SharedString::from(t(Message::PanelHelp))),
                             )
                             .content(|_, _, cx| help(cx)),
                     ),

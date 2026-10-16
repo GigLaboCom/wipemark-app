@@ -329,6 +329,7 @@ the gate test named there is what holds each one.
 - A window with no focus handle has no keyboard.
 - `window_bounds` goes in as content and comes back as frame (`settings::geometry_of`).
 - Only the glyphs in `assets/icons/` resolve; promote with `scripts/promote-icon.sh`.
+- A tooltip is GPUI's own, attached with `hover::Tip`, never `tooltip(…)`; every window tells GPUI when the pointer has left it (`hover::Edge`, F34, D795–D796).
 
 **Words a person reads**
 - Every string a person reads comes from the catalogue (`wipemark.ftl`); nothing a machine reads does. Only applications localize.

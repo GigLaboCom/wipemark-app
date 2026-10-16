@@ -498,6 +498,141 @@ and `gpui-pre-linux`'s `x11/window.rs:1774` still calls
 `renderer.draw(scene)` and ignores the answer. Not patched (out of the
 bump's scope).
 
+### Worked around, not carried: the pointer leaving a window, and tooltips (F34, D795–D796)
+
+The owner's acceptance on macOS (2026-10-16, M3 Pro): a tooltip stayed
+up after the pointer had left its control, until something else
+happened. Two causes upstream, both handled in our own code
+(`apps/wipemark-app/src/hover.rs`), neither patched and **neither filed
+yet** — the owner's to send. Each is reproduced by a test of ours that
+goes red with our workaround taken out.
+
+**1. GPUI (zed, `gpui-pre 0.3.8` = zed `279fe07`): `MouseExited` leaves
+the pointer inside the window.** `Window::dispatch_event` takes the
+position from every move, press, release, scroll and pinch, and from
+`PlatformInput::MouseExited` only the modifiers (`gpui-pre`
+`src/window.rs:5499–5502`). So after an exit `mouse_position()` is the
+last point inside, and the hit test made from it at the end of every
+draw (`window.rs:3616`) still has the element under it. On macOS nothing
+follows `mouseExited:` — the content view's tracking area
+(`MouseEnteredAndExited | MouseMoved | ActiveAlways | InVisibleRect`,
+`gpui-pre-macos` `src/window.rs:2488–2507`) reports moves inside its
+rectangle only, so a pointer that leaves across a control, or fast past
+one near an edge, leaves it hovered. What that does:
+
+* GPUI's own tooltip (`StatefulInteractiveElement::tooltip`) listens to
+  `MouseMoveEvent`, `MouseDownEvent`, `LongPressEvent` and
+  `ScrollWheelEvent` only (`src/elements/div.rs:3712–3801`), and its
+  prepaint check compares the element's bounds with `mouse_position()`
+  (`div.rs:3206–3214`, `3961–4037`): it never hides.
+* `on_hover` does hear the exit — "The pointer can leave the window
+  without a final MouseMove, so also clear hover on MouseExited"
+  (`div.rs:3178–3184`) — and the next paint undoes it: the listener
+  checks the hover again as the element is painted (`div.rs:3154–3163`)
+  against that stale hit test, finds the element hovered, and calls the
+  listener with `true` again. gpui-component's tooltips hang on
+  `on_hover`, so theirs came back a moment after going.
+* Hover styles stay on too, for the same reason.
+
+A reproduction for the issue (gpui's own test platform, nothing of
+gpui-kit):
+
+```rust
+#[gpui::test]
+fn mouse_exit_leaves_the_tooltip_up(cx: &mut gpui::TestAppContext) {
+    struct Tip;
+    impl Render for Tip {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().debug_selector(|| "tip".into()).size(px(40.))
+        }
+    }
+    struct View;
+    impl Render for View {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(
+                div().id("target").size(px(50.)).tooltip(|_, cx| cx.new(|_| Tip).into()),
+            )
+        }
+    }
+    let (_, cx) = cx.add_window_view(|_, _| View);
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.simulate_mouse_move(point(px(10.), px(10.)), None, Modifiers::default());
+    cx.executor().advance_clock(Duration::from_secs(1));
+    cx.run_until_parked();
+    cx.update(|window, cx| { window.refresh(); window.draw(cx).clear(cx) });
+    assert!(cx.debug_bounds("tip").is_some());
+    cx.simulate_event(MouseExitEvent { position: point(px(10.), px(-3.)), ..Default::default() });
+    cx.executor().advance_clock(Duration::from_secs(1));
+    cx.run_until_parked();
+    cx.update(|window, cx| { window.refresh(); window.draw(cx).clear(cx) });
+    assert!(cx.debug_bounds("tip").is_none(), "the tooltip stayed after the pointer left");
+    // and: assert!(cx.update(|window, _| window.mouse_position()) is outside the viewport)
+}
+```
+
+The fix upstream is one line in `dispatch_event`: on `MouseExited`, put
+`mouse_position` outside the viewport (or remember "no pointer" and give
+an empty hit test) — then the tooltip, `on_hover` and hover styles all
+end on their own. **Ours** (D795): `hover::Edge`, a gpui-base `Root`
+plugin registered once before the first window, so it is in every window
+we open; its canvas listens for `MouseExitEvent` and, with no button
+held as the last press, release or move said, dispatches a
+`MouseMoveEvent` to just outside the window after the exit has been
+handed round (`hover::outside` puts an edge pixel one pixel past the
+nearest edge). A held button is a drag, whose moves AppKit keeps sending;
+macOS reports every exit with no button (`gpui-pre-macos`
+`src/events.rs:322–330`), hence the plugin's own record.
+`the_pointer_leaving_a_window_is_told_to_gpui` and
+`a_tooltip_goes_when_the_pointer_leaves_the_window` go red without it,
+`a_drag_leaving_the_window_keeps_its_place` without the held check.
+
+**2. gpui-kit (`vendor/gpui-component` at `78348fde`): a managed tooltip
+outlives a trigger that is no longer painted.** `Button::tooltip` (and
+`Clipboard`, `Switch`, `Checkbox`, `Radio`, …) goes through
+`ManagedTooltipExt::managed_tooltip_with_placement`
+(`crates/component/src/tooltip.rs:247–292`): `on_hover(true)` asks the
+window's one `gpui_base::TooltipOverlay` to show, `on_hover(false)` to
+hide, a press to hide at once. The overlay (`crates/base/src/tooltip.rs:97–213`)
+keeps its `content` until one of those comes and never looks at the
+trigger again. A trigger that stops being painted while hovered sends
+neither, and the tooltip stays where the trigger was until another
+tooltip replaces it or a press on a managed trigger clears it. In this
+application: Pause on the toolbar as the queue drains, a row's button
+scrolled out of its list, the panel's Clean as the panel clears itself,
+a strip button handed to the more menu. Reproduction:
+
+```rust
+// A Root window (gpui_component::init first) whose view renders, while
+// `shown`, Button::new("b").label("B").tooltip("tip") at (10, 10).
+cx.simulate_mouse_move(point(px(20.), px(20.)), None, Modifiers::default());
+cx.executor().advance_clock(Duration::from_secs(1));
+cx.run_until_parked();                 // the tooltip is up
+view.update(cx, |v, cx| { v.shown = false; cx.notify() });
+cx.simulate_mouse_move(point(px(300.), px(300.)), None, Modifiers::default());
+cx.executor().advance_clock(Duration::from_secs(1));
+cx.run_until_parked();
+// The overlay still renders the tooltip: a new gpui_component::tooltip::Tooltip
+// entity is built in every frame (cx.observe_new::<Tooltip> counts them).
+```
+
+A related one in the same overlay: moving from one managed trigger
+straight onto the next, when the next is painted **after** the first (to
+its right along a toolbar), the next's `request_show` runs first in the
+bubble phase and the first's `request_hide` after it, in the same
+dispatch — and hides the tooltip just shown, under the pointer, after
+the grace period (`tooltip.rs:139–195`). Moving leftwards it works.
+**Ours** (D796): every tooltip of ours is GPUI's own, attached with
+`hover::Tip` to the control itself (`Interactivity::tooltip`, in
+gpui-component's `Tooltip` look), which the element registers in each
+frame it is painted and so goes with it, and which has no shared
+overlay to race in; `every_tooltip_is_attached_through_tip` keeps
+`tooltip(…)` out of `apps/wipemark-app/src`, and
+`a_tooltip_goes_with_its_control` goes red with `tip` pointed back at
+`Button::tooltip`. gpui-component's own controls — the editor's search
+bar, menus, the Linux title bar — keep their managed tooltips; D795
+covers them when the pointer leaves the window, not when their trigger
+goes.
+
 ## 3. How upstream moved
 
 **gpui-kit no longer takes zed from git.** Since #2929 (merged
