@@ -233,7 +233,7 @@ mod tests {
             .collect();
         assert_eq!(table, committed());
         for (role, id, raw) in COMPILED {
-            assert!(["working", "backup"].contains(role), "role {role}");
+            assert!(["working", "next", "backup"].contains(role), "role {role}");
             let key = PublicKey::from_hex(raw).expect("32 bytes of hex");
             assert_eq!(key.id().to_string(), *id, "the id of {raw}");
         }

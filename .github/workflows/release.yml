@@ -23,6 +23,19 @@
 #           lazy-shot's names, and they reach only the steps that sign —
 #           never the build, whose build scripts run third-party code.
 #
+#   publish-update  on the person's Publish of the draft (`release:
+#           published`, D783), or by hand from the tag (platform
+#           `publish-update`): the release's own files downloaded, their sums
+#           and build attestations checked, each artifact's release statement
+#           signed with the update key (scripts/release/update/statement.sh,
+#           sign.sh) and put on the giglabo release service with its `sig`
+#           (publish.sh: open, presign, PUT, finalize), then what is served
+#           read back and verified with the committed public key, apart from
+#           the signer (verify-served.sh). In the GitHub Environment
+#           `releases`, which admits only wipemark-v* tags. Without its three
+#           secrets the job says so and publishes nothing; with some but not
+#           all it fails, as the macOS lane does (D775).
+#
 # The shape is lazy-shot's (giglabo/heretic-lazy-shot, build-client.yml):
 # one build job per platform and one release job per platform, so one
 # platform failing never keeps the other's files off the release (D778).
@@ -36,16 +49,21 @@ name: release
 on:
   push:
     tags: ["wipemark-v*"]
+  # A person's Publish of the draft — a release made with GITHUB_TOKEN would
+  # not fire it, and nothing here publishes one (D783).
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       platform:
-        description: Platform to build
+        description: Platform to build, or publish-update to publish a published release's update again (run it from the tag)
         type: choice
         default: all
         options:
           - all
           - linux
           - macos
+          - publish-update
 
 concurrency:
   group: release-${{ github.ref }}
@@ -63,6 +81,12 @@ jobs:
       inputs.platform == 'linux'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    # The build's own provenance for its files (D783): publish-update checks
+    # it before it signs anything.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       # The caches run-build.sh mounts into the builder (registry, target).
       - name: Build volume
@@ -109,6 +133,14 @@ jobs:
           ls -l dist/*.AppImage dist/*.deb 2>/dev/null || true
           cat dist/SHA256SUMS 2>/dev/null || true
 
+      - name: Attest the build (provenance for publish-update)
+        if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.AppImage
+            dist/*.deb
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -136,6 +168,10 @@ jobs:
       inputs.platform == 'macos'
     runs-on: macos-14
     timeout-minutes: 180
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: "0"
@@ -282,6 +318,12 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           cat "$GITHUB_STEP_SUMMARY"
 
+      - name: Attest the build (provenance for publish-update)
+        if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/Wipemark-*-arm64.dmg
+
       - uses: actions/upload-artifact@v4
         with:
           name: wipemark-macos
@@ -296,7 +338,7 @@ jobs:
   # the draft, the second finds it and adds to it.
   release-linux:
     name: release (linux files to the draft)
-    if: startsWith(github.ref, 'refs/tags/wipemark-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/wipemark-v')
     needs: linux
     runs-on: ubuntu-24.04
     permissions:
@@ -327,7 +369,7 @@ jobs:
 
   release-macos:
     name: release (macOS files to the draft)
-    if: startsWith(github.ref, 'refs/tags/wipemark-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/wipemark-v')
     needs: macos
     runs-on: ubuntu-24.04
     permissions:
@@ -354,3 +396,159 @@ jobs:
           files: |
             artifacts/*.dmg
             artifacts/*.dmg.sha256
+
+  # The update, when a person publishes the draft (D783): the version becomes
+  # visible to installations only then. Signs and publishes nothing without
+  # the Environment's three secrets, and says so.
+  publish-update:
+    name: publish the update (signed statements to releases.giglabo.com)
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.platform == 'publish-update')
+    runs-on: ubuntu-24.04
+    # Admits only wipemark-v* tags (the owner's checklist in
+    # docs/architecture/packaging.md): a branch cannot reach the key.
+    environment: releases
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      attestations: read
+    concurrency:
+      group: publish-update-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASES_API: https://releases.giglabo.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # All three or none (D775's rule): none is a notice and nothing
+      # published; some is an error naming the missing ones.
+      - name: Update secrets
+        id: secrets
+        env:
+          RELEASES_PUBLISH_TOKEN: ${{ secrets.RELEASES_PUBLISH_TOKEN }}
+          WIPEMARK_UPDATE_SIGNING_KEY: ${{ secrets.WIPEMARK_UPDATE_SIGNING_KEY }}
+          WIPEMARK_UPDATE_SIGNING_KEY_PASSWORD: ${{ secrets.WIPEMARK_UPDATE_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          have=(); missing=()
+          for n in RELEASES_PUBLISH_TOKEN WIPEMARK_UPDATE_SIGNING_KEY WIPEMARK_UPDATE_SIGNING_KEY_PASSWORD; do
+            if [ -n "${!n:-}" ]; then have+=("$n"); else missing+=("$n"); fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "mode=publish" >> "$GITHUB_OUTPUT"
+            echo "The three update secrets are set: the release's statements are signed and published."
+          elif [ "${#have[@]}" -eq 0 ]; then
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Update not published::No update secret is set in the Environment 'releases': nothing is signed or published to releases.giglabo.com, and no installation is offered this version (docs/architecture/packaging.md, the owner's checklist)."
+            {
+              echo "### Update not published"
+              echo
+              echo "No update secret is set in the Environment \`releases\`, so this release's files were not signed or"
+              echo "published to releases.giglabo.com. Installations are not offered it. The secrets to add:"
+              echo "docs/architecture/packaging.md, \"The owner's checklist\"."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error title=Update half set up::Set: ${have[*]}. Missing: ${missing[*]}. Set all three or none."
+            exit 1
+          fi
+
+      - name: Tag and version
+        if: steps.secrets.outputs.mode == 'publish'
+        id: tag
+        env:
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          tag="${EVENT_TAG:-$GITHUB_REF_NAME}"
+          [[ "$tag" =~ ^wipemark-v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || {
+            echo "::error::$tag is not wipemark-v<major>.<minor>.<patch>: stable releases only (D781)"
+            exit 1
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          # The application believes only the keys it was built with.
+          ls crates/wipemark-update/keys/*.pem > /dev/null 2>&1 || {
+            echo "::error::no public key is committed under crates/wipemark-update/keys/ — scripts/release/update-keys.sh first"
+            exit 1
+          }
+          scripts/release/update/statement.sh stable 0.2.0 macos-aarch64 dmg \
+            Wipemark-0.2.0-arm64.dmg 24117248 \
+            9f2c000000000000000000000000000000000000000000000000000000000001 \
+            | cmp - fixtures/update/statement.txt
+
+      - name: The release's own files
+        if: steps.secrets.outputs.mode == 'publish'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D release \
+            -p '*.dmg' -p '*.dmg.sha256' -p '*.AppImage' -p '*.deb' -p SHA256SUMS
+          ls -l release
+          for pattern in 'Wipemark-*-arm64.dmg' 'Wipemark-*-x86_64.AppImage' 'wipemark_*_amd64.deb'; do
+            ls release/$pattern > /dev/null 2>&1 || { echo "::error::the release has no $pattern"; exit 1; }
+          done
+          # The sums the build jobs wrote, recomputed.
+          (cd release && sha256sum --check --ignore-missing SHA256SUMS)
+          (cd release && sha256sum --check Wipemark-*-arm64.dmg.sha256)
+
+      # Someone who could replace a release asset could replace SHA256SUMS
+      # too; they cannot forge this repository's build attestation.
+      - name: Build attestations
+        if: steps.secrets.outputs.mode == 'publish'
+        run: |
+          set -euo pipefail
+          for file in release/Wipemark-*-arm64.dmg release/Wipemark-*-x86_64.AppImage release/wipemark_*_amd64.deb; do
+            gh attestation verify "$file" -R "$GITHUB_REPOSITORY"
+          done
+
+      - name: Sign and publish
+        if: steps.secrets.outputs.mode == 'publish'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          GIT_SHA: ${{ github.sha }}
+          RELEASES_PUBLISH_TOKEN: ${{ secrets.RELEASES_PUBLISH_TOKEN }}
+          WIPEMARK_UPDATE_SIGNING_KEY: ${{ secrets.WIPEMARK_UPDATE_SIGNING_KEY }}
+          WIPEMARK_UPDATE_SIGNING_KEY_PASSWORD: ${{ secrets.WIPEMARK_UPDATE_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$RUNNER_TEMP/update-signing.pem"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$WIPEMARK_UPDATE_SIGNING_KEY" > "$key"
+          unset WIPEMARK_UPDATE_SIGNING_KEY
+          publish() {
+            local platform="$1" format="$2" file="$3" sig
+            scripts/release/update/statement.sh stable "$VERSION" "$platform" "$format" "$file" > "$RUNNER_TEMP/statement"
+            sig="$(scripts/release/update/sign.sh "$RUNNER_TEMP/statement" "$key")"
+            scripts/release/update/publish.sh "$platform" "$format" "$file" "$sig"
+          }
+          publish macos-aarch64 dmg      release/Wipemark-"$VERSION"-arm64.dmg
+          publish linux-x64     AppImage release/Wipemark-"$VERSION"-x86_64.AppImage
+          publish linux-x64     deb      release/wipemark_"$VERSION"_amd64.deb
+
+      # What the application will read, read back and verified with the
+      # committed public key through OpenSSL, apart from the signer; every
+      # file downloaded and hashed (MnemoVi, 2026-08-05).
+      - name: Verify what is served
+        if: steps.secrets.outputs.mode == 'publish'
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          scripts/release/update/verify-served.sh "$VERSION" \
+            release/Wipemark-"$VERSION"-arm64.dmg \
+            release/Wipemark-"$VERSION"-x86_64.AppImage \
+            release/wipemark_"$VERSION"_amd64.deb
+          {
+            echo "### Update published: Wipemark $VERSION"
+            echo
+            echo "Signed statements for the .dmg, the AppImage and the .deb are on releases.giglabo.com,"
+            echo "read back and verified with the committed public key."
+          } >> "$GITHUB_STEP_SUMMARY"
