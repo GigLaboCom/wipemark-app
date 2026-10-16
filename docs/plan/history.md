@@ -236,6 +236,11 @@ result, an edited result asked about first
   result's strip hands the buttons that do not fit its pane, from the end,
   to a more menu whose lines are those buttons — the same press, greying,
   reason, shortcut and check.
+- `fix/copy-result` (D761–D764, the owner, 2026-10-16; F32): a row's "Open
+  with the default app" is "Open with", and Copy the result copies whatever
+  the result is — a text file's result as its text, a picture's as the
+  picture (Copy the result image), its file's own bytes; on Linux the
+  carried `gpui-pre-linux` writes a picture to the clipboard as a picture.
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice

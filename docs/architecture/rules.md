@@ -395,9 +395,13 @@
   (gpui-component's menu items have no tooltip, D269); Clean all offers
   only what `clean::cleanable` accepts, while `--clean=` asks for a row
   whatever it is and its badge says why (D268). The rest of the menu:
-  *open with the default app* (`App::open_with_system`, disabled rather
-  than absent on a row with no file behind it), Compare, Open the
-  result, Show the result in its folder, Copy the result and **Report…**
+  *Open with* (the default application, `App::open_with_system`,
+  disabled rather than absent on a row with no file behind it, D761),
+  Compare, Open the result, Show the result in its folder, Copy the
+  result — whatever the result is: a text as characters, in its file's
+  encoding and without its byte order mark, a picture as its file's own
+  bytes in their own format, under *Copy the result image* (D762, D763)
+  — and **Report…**
   (`report.rs`, painted by the shell over the whole window, D274) — each
   greyed until there is something behind it. There is no **Replace the
   existing result** any more (D638): a row whose result's name is taken

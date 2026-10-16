@@ -130,12 +130,14 @@ unpacks the published `.crate` (sha256 `b1131746…720e`; `Cargo.toml` as
 normalised by publishing, `Cargo.toml.orig`, its `Cargo.lock` and
 `LICENSE-APACHE`; the crate was published without a
 `.cargo_vcs_info.json`, so there is none) with
-`vendor/gpui-pre-linux.patch` applied — four files:
+`vendor/gpui-pre-linux.patch` applied — five files:
 `src/linux/x11/client.rs` and `src/linux/wayland/client.rs` (F9's drop
-before the file list, then F15's text), `src/linux/platform.rs` (the
-dragged text's read and its drop file, shared by both backends) and one
-word of `src/linux/wayland/clipboard.rs` (`has_mime_type` made
-`pub(crate)`, so a drag can ask its offer's types). Each changed file
+before the file list, then F15's text, then the clipboard's picture),
+`src/linux/platform.rs` (the dragged text's read and its drop file, shared
+by both backends), `src/linux/wayland/clipboard.rs` (`has_mime_type` made
+`pub(crate)`, so a drag can ask its offer's types; a picture sent as its
+bytes) and `src/linux/x11/clipboard.rs` (a picture offered under its own
+type). Each changed file
 opens with a one-line notice of the change (D625). The root
 `Cargo.toml` takes it with `[patch.crates-io] gpui-pre-linux = { path =
 "vendor/gpui-pre-linux" }` and lists the directory in `exclude`, so it is
@@ -180,6 +182,19 @@ now chosen by name and a refused one falls back to the next, then to
 drop's position is `XdndPosition`'s own, not the stale X pointer
 (D696–D701, `drag-and-drop.md`, "Under XWayland"; the report is
 `docs/plan/reports/linux-text-drop-2-2026-10-12.md`).
+
+The clipboard's picture (the owner, 2026-10-16, D764): the table's Copy the
+result image puts a picture on the clipboard as a `ClipboardEntry::Image`
+(D762, D763). Both backends of the published crate write only the item's
+text — an empty string for a picture: X11's `write_to_clipboard` calls
+`set_text` whatever the item holds, and its `set_image`, never called,
+offered every format as `image/png`; Wayland offers the text types and
+sends the text. The patch writes a picture alone on the clipboard as that
+picture: X11 through `set_image`, under its own format's type; Wayland
+offering that type and sending its bytes. A text, or anything with more
+than one entry, goes as before. No test of the crate reaches a clipboard;
+macOS writes a picture the same way in the published `gpui-pre-macos`
+(`pasteboard.rs`, `write_image`).
 
 **How it is checked.** `scripts/check-gpui-pin.sh` allows exactly this
 one `[patch]` entry on a snapshot crate (step 1) and its path package in

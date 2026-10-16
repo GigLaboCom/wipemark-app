@@ -260,7 +260,7 @@ that still ships in the binary and still has to be licence-audited.
 | `file-import` | the toolbar's Import button, and the empty queue's invitation (E6) |
 | `paste` | the toolbar's Paste button — what is on the clipboard, down a drop's road (E6); the result's toolbar, `input::Paste` (E7) |
 | `circle-question` | the toolbar's Help popover; the queue's glyph for a thing nothing recognised (E6) |
-| `arrow-up-right-from-square` | the queue's Actions menu: open with the default app (E6) — lazy-shot's `ExternalLink` |
+| `arrow-up-right-from-square` | the queue's Actions menu: Open with, the default application (E6, D761) — lazy-shot's `ExternalLink` |
 | `file-lines` | the queue's glyph for text and documents with no preview (E6); the row's Report… (E7); the result's toolbar, Copy all — the whole text, beside Copy's two pages (D634) |
 | `image` | the queue's glyph for a picture this binary cannot decode, or one past the thumbnail limit (E6) |
 | `film` | the queue's glyph for sound and video (E6) |

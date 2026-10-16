@@ -1,3 +1,4 @@
+// Modified by GigLabo and Denis Esakov, 2026-10-16: a picture written to the clipboard is offered under its own type (vendor/gpui-pre-linux.patch).
 /*
  * Copyright 2022 - 2025 Zed Industries, Inc.
  * License: Apache-2.0
@@ -1008,7 +1009,6 @@ impl Clipboard {
         }
     }
 
-    #[allow(unused)]
     pub(crate) fn set_image(
         &self,
         image: Image,
@@ -1018,7 +1018,7 @@ impl Clipboard {
         let format = self.image_format_atom(image.format);
         let data = vec![ClipboardData {
             bytes: image.bytes,
-            format: self.inner.atoms.PNG__MIME,
+            format,
         }];
         self.inner.write(data, selection, wait)
     }

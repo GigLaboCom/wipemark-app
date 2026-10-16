@@ -1,4 +1,4 @@
-// Modified by GigLabo and Denis Esakov, 2026-10-12: a drag reads which types its offer has (vendor/gpui-pre-linux.patch).
+// Modified by GigLabo and Denis Esakov, 2026-10-12 and 2026-10-16: a drag reads which types its offer has; a picture written to the clipboard is sent as that picture (vendor/gpui-pre-linux.patch).
 use std::{
     fs::File,
     io::{ErrorKind, Write},
@@ -180,7 +180,11 @@ impl Clipboard {
     }
 
     pub fn send(&self, _mime_type: String, fd: OwnedFd) {
-        if let Some(text) = self.contents.as_ref().and_then(|contents| contents.text()) {
+        if let Some([ClipboardEntry::Image(image)]) =
+            self.contents.as_ref().map(|contents| contents.entries())
+        {
+            self.send_bytes(fd, image.bytes.clone());
+        } else if let Some(text) = self.contents.as_ref().and_then(|contents| contents.text()) {
             self.send_bytes(fd, text.as_bytes().to_owned());
         }
     }
