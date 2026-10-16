@@ -27,6 +27,9 @@ What it does, by subcommand:
                    brings the application forward and clicks at (x, y)
                    points inside that window, with Quartz events (System
                    Events' "click at" is ignored by GPUI).
+  scroll <scratch> <window id> <x> <y> <lines>
+                   the pointer to (x, y) points in that window, and the wheel
+                   down that many lines.
   stop <scratch>   SIGTERMs the application (it quits the way Quit does,
                    D717) and the server, by the pids `start` wrote.
 
@@ -194,6 +197,28 @@ def click(scratch, number, x, y):
     sys.exit(f"no on-screen window {number} of pid {pid}")
 
 
+def scroll(scratch, number, x, y, lines):
+    import Quartz
+
+    pid = pids(scratch)["app"]
+    for w in windows(pid):
+        if w["kCGWindowNumber"] == number:
+            b = w["kCGWindowBounds"]
+            point = (b["X"] + x, b["Y"] + y)
+            move = Quartz.CGEventCreateMouseEvent(
+                None, Quartz.kCGEventMouseMoved, point, Quartz.kCGMouseButtonLeft
+            )
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, move)
+            time.sleep(0.1)
+            wheel = Quartz.CGEventCreateScrollWheelEvent(
+                None, Quartz.kCGScrollEventUnitLine, 1, -lines
+            )
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, wheel)
+            print(f"scrolled {lines} lines at {point}")
+            return
+    sys.exit(f"no on-screen window {number} of pid {pid}")
+
+
 def stop(scratch):
     for role, pid in pids(scratch).items():
         try:
@@ -211,6 +236,8 @@ if __name__ == "__main__":
         shot(sys.argv[2], sys.argv[3])
     elif command == "click":
         click(sys.argv[2], int(sys.argv[3]), float(sys.argv[4]), float(sys.argv[5]))
+    elif command == "scroll":
+        scroll(sys.argv[2], int(sys.argv[3]), float(sys.argv[4]), float(sys.argv[5]), int(sys.argv[6]))
     elif command == "stop":
         stop(sys.argv[2])
     else:
