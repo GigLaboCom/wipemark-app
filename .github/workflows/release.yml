@@ -1,4 +1,4 @@
-# wipemark — the release lane (docs/plan/v1-release.md, P1; D609).
+# wipemark — the release lane (docs/plan/v1-release.md, P1; D609, D775–D779).
 #
 #   linux   the AppImage and the .deb, built in the pinned builder image
 #           (ci/linux-builder, Ubuntu 24.04, D600) by
@@ -11,17 +11,41 @@
 #           scripts/verify/release/deb-gate.sh (apt installs it from its
 #           Depends alone, every NEEDED library comes from a declared
 #           package, remove leaves nothing).
+#   macos   Wipemark.app and its .dmg on Apple Silicon (P3):
+#           scripts/release/macos/bundle.sh lays the bundle out and signs it
+#           ad hoc; then, when the six APPLE_* secrets exist,
+#           scripts/release/macos/sign-and-notarize.sh signs every Mach-O
+#           with the Developer ID (hardened runtime, secure timestamp, no
+#           entitlements), notarizes and staples the app and the .dmg, and
+#           asks Gatekeeper. Without the secrets the .dmg is ad hoc and the
+#           job's summary says so (D583); with only some of them the job
+#           fails, naming the missing ones (D775). The secrets are
+#           lazy-shot's names, and they reach only the steps that sign —
+#           never the build, whose build scripts run third-party code.
 #
-# On a `wipemark-v*` tag the artifacts go to a DRAFT release named after the
-# tag — a person publishes it. By hand (workflow_dispatch) they are only
-# uploaded to the run. Nothing here pushes a tag. The macOS bundle (P3) is
-# the release lane's next job and joins this file.
+# The shape is lazy-shot's (giglabo/heretic-lazy-shot, build-client.yml):
+# one build job per platform and one release job per platform, so one
+# platform failing never keeps the other's files off the release (D778).
+# On a `wipemark-v*` tag each release job attaches its platform's files to
+# one DRAFT release named after the tag (softprops/action-gh-release, which
+# finds the draft the other made); a person publishes it. By hand
+# (workflow_dispatch, with a platform to build) the files are only uploaded
+# to the run. Nothing here pushes a tag.
 name: release
 
 on:
   push:
     tags: ["wipemark-v*"]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        type: choice
+        default: all
+        options:
+          - all
+          - linux
+          - macos
 
 concurrency:
   group: release-${{ github.ref }}
@@ -33,10 +57,12 @@ permissions:
 jobs:
   linux:
     name: linux (AppImage + .deb, built and gated)
+    if: >-
+      github.event_name == 'push' ||
+      inputs.platform == 'all' ||
+      inputs.platform == 'linux'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
-    permissions:
-      contents: write   # the draft release, on a tag only
     steps:
       # The caches run-build.sh mounts into the builder (registry, target).
       - name: Build volume
@@ -102,17 +128,229 @@ jobs:
           path: ${{ runner.temp }}/appimage-gate
           if-no-files-found: ignore
 
-      - name: Draft release (tag only)
-        if: startsWith(github.ref, 'refs/tags/wipemark-v')
-        env:
-          GH_TOKEN: ${{ github.token }}
+  macos:
+    name: macos (Wipemark.app + .dmg; Developer ID and notarized when the secrets exist)
+    if: >-
+      github.event_name == 'push' ||
+      inputs.platform == 'all' ||
+      inputs.platform == 'macos'
+    runs-on: macos-14
+    timeout-minutes: 180
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Submodule
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" --clobber \
-              dist/*.AppImage dist/*.deb dist/SHA256SUMS
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+
+      # The registry only, as on Linux: the target directory is rebuilt
+      # every time.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: release-macos-cargo-registry-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build (release, llama-native, Metal)
+        run: cargo build --release --locked --features llama-native -p wipemark-app -p wipemark-cli
+
+      # The bundle, its notices (THIRD-PARTY.md, D779), signed ad hoc, and
+      # its .dmg — the release as it is without the secrets.
+      - name: Bundle
+        run: scripts/release/macos/bundle.sh target/release dist
+
+      # All six or none (D775): a half-configured lane would publish
+      # something between a signed release and an unsigned one.
+      - name: Signing secrets
+        id: signing
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          set -euo pipefail
+          have=(); missing=()
+          for n in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                   APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_CONTENT; do
+            if [ -n "${!n:-}" ]; then have+=("$n"); else missing+=("$n"); fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "mode=developer-id" >> "$GITHUB_OUTPUT"
+            echo "All six APPLE_* secrets are set: Developer ID and notarization."
+          elif [ "${#have[@]}" -eq 0 ]; then
+            echo "mode=adhoc" >> "$GITHUB_OUTPUT"
+            echo "::warning title=macOS not signed::No APPLE_* secret is set: the .dmg is signed ad hoc and not notarized (docs/architecture/packaging.md, the owner's checklist)."
           else
-            gh release create "$GITHUB_REF_NAME" --draft \
-              --title "Wipemark ${GITHUB_REF_NAME#wipemark-v}" \
-              --notes "Draft — built and gated by the release workflow; the notes are docs/release/." \
-              dist/*.AppImage dist/*.deb dist/SHA256SUMS
+            echo "::error title=macOS signing half set up::Set: ${have[*]}. Missing: ${missing[*]}. Set all six or none (D775)."
+            exit 1
           fi
+
+      # lazy-shot's step: the .p12 into a keychain of the run's own.
+      - name: Import macOS certificate
+        if: steps.signing.outputs.mode == 'developer-id'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$CERTIFICATE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" > /dev/null
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          rm -f "$CERTIFICATE_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      # lazy-shot's step: the App Store Connect key where notarytool reads it.
+      - name: Write Apple API key for notarization
+        if: steps.signing.outputs.mode == 'developer-id'
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          umask 077
+          mkdir -p ~/private_keys
+          echo -n "$APPLE_API_KEY_CONTENT" > ~/private_keys/AuthKey_"$APPLE_API_KEY".p8
+
+      - name: Sign, notarize and staple (Developer ID)
+        if: steps.signing.outputs.mode == 'developer-id'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: scripts/release/macos/sign-and-notarize.sh dist/Wipemark.app dist
+
+      - name: Forget the certificate and the key
+        if: always() && steps.signing.outputs.mode == 'developer-id'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+          rm -rf ~/private_keys
+
+      - name: Sums and summary
+        env:
+          MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          set -euo pipefail
+          cd dist
+          dmg="$(ls Wipemark-*-arm64.dmg)"
+          shasum -a 256 "$dmg" > "$dmg.sha256"
+          {
+            echo "### macOS: \`$dmg\`"
+            echo
+            if [ "$MODE" = developer-id ]; then
+              echo "**Signed with a Developer ID, notarized and stapled.** What Gatekeeper says:"
+              echo
+              echo '```'
+              spctl -a -t exec -vv Wipemark.app 2>&1 || true
+              spctl -a -t open --context context:primary-signature -vv "$dmg" 2>&1 || true
+              xcrun stapler validate "$dmg" 2>&1 || true
+              echo '```'
+            else
+              echo "**Signed ad hoc, not notarized.** No APPLE_* secret is set on this repository,"
+              echo "so macOS blocks a downloaded copy on its first open until the person allows it"
+              echo "in System Settings › Privacy & Security, and the release notes must say so (D583)."
+              echo "The secrets to add: docs/architecture/packaging.md, \"The owner's checklist\"."
+            fi
+            echo
+            echo "Size $(du -h "$dmg" | cut -f1); sha256 \`$(cut -d' ' -f1 "$dmg.sha256")\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wipemark-macos
+          path: |
+            dist/*.dmg
+            dist/*.dmg.sha256
+          if-no-files-found: error
+
+  # One release job per platform (D778). Each needs only its own build, so a
+  # red macOS lane never keeps the Linux files off the draft, nor the other
+  # way round. They take turns (`release-publish-<tag>`): the first creates
+  # the draft, the second finds it and adds to it.
+  release-linux:
+    name: release (linux files to the draft)
+    if: startsWith(github.ref, 'refs/tags/wipemark-v')
+    needs: linux
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release-publish-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wipemark-linux
+          path: artifacts
+
+      - name: Title
+        id: title
+        run: echo "title=Wipemark ${GITHUB_REF_NAME#wipemark-v}" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.title.outputs.title }}
+          draft: true
+          body: "Draft — built and gated by the release workflow; the notes are docs/release/."
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/*.AppImage
+            artifacts/*.deb
+            artifacts/SHA256SUMS
+
+  release-macos:
+    name: release (macOS files to the draft)
+    if: startsWith(github.ref, 'refs/tags/wipemark-v')
+    needs: macos
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release-publish-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wipemark-macos
+          path: artifacts
+
+      - name: Title
+        id: title
+        run: echo "title=Wipemark ${GITHUB_REF_NAME#wipemark-v}" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.title.outputs.title }}
+          draft: true
+          body: "Draft — built and gated by the release workflow; the notes are docs/release/."
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/*.dmg
+            artifacts/*.dmg.sha256

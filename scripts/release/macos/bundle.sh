@@ -24,25 +24,27 @@
 #   4. writes Info.plist (com.GigLabo.wipemark, the version `wipemark
 #      --version` prints) and Resources/icon.icns from
 #      apps/wipemark-app/assets/icon/;
-#   5. copies NOTICE, LICENSE.md and THIRD-PARTY.md (when built) into
-#      Contents/Resources/;
-#   6. signs: with $WIPEMARK_SIGN_IDENTITY (a Developer ID, hardened runtime)
-#      when it is set, ad hoc otherwise — every Mach-O inside out, then the
-#      bundle — and checks the signature with `codesign --verify --deep
-#      --strict`;
+#   5. copies NOTICE and LICENSE.md into Contents/Resources/, and writes
+#      THIRD-PARTY.md there from Cargo.lock (scripts/release/third-party.py
+#      for aarch64-apple-darwin, with llama.cpp's own licence file; D779) —
+#      a bundle without it is not made;
+#   6. signs ad hoc — every Mach-O inside out, then the bundle — and checks
+#      the signature with `codesign --verify --deep --strict`. This is the
+#      release without the APPLE_* secrets (D583); the Developer ID
+#      signature, notarization and staple are sign-and-notarize.sh's, run on
+#      this bundle afterwards (D775–D777);
 #   7. checks the packaged programs: no Mach-O in the bundle names a path
 #      outside it (otool -L, LC_RPATH), and both `--version`s run from the
 #      bundle with no loader variables set (P4);
-#   8. makes dist/Wipemark-<version>-arm64.dmg (hdiutil, UDZO) holding the
-#      app and a link to /Applications, and prints the sizes (P8).
-#   Notarization is not here: it needs the APPLE_* secrets, and the release
-#   lane runs it after this when they exist.
+#   8. makes dist/Wipemark-<version>-arm64.dmg holding the app and a link to
+#      /Applications (dmg.sh), and prints the sizes (P8).
 #
 # How to run:   cargo build --release --locked --features llama-native \
 #                 -p wipemark-app -p wipemark-cli
 #               scripts/release/macos/bundle.sh [target/release] [dist]
 # Needs:        macOS, the Xcode command-line tools (install_name_tool, otool,
-#               codesign), hdiutil, plutil.
+#               codesign), hdiutil, plutil, python3 and cargo (the notices;
+#               the registry a build left, or `cargo fetch --locked`).
 # Output:       dist/Wipemark.app and dist/Wipemark-<version>-arm64.dmg; one
 #               line per step. Exit 1 on anything missing or any check failed.
 set -euo pipefail
@@ -56,6 +58,11 @@ contents="$app/Contents"
 fw_rpath='@executable_path/../Frameworks'
 
 [ "$(uname -s)" = Darwin ] || { echo "ERROR: macOS only" >&2; exit 1; }
+[ -z "${WIPEMARK_SIGN_IDENTITY:-}" ] || {
+  echo "ERROR: WIPEMARK_SIGN_IDENTITY is gone: this script signs ad hoc, and" \
+    "sign-and-notarize.sh signs the bundle it makes with a Developer ID (APPLE_SIGNING_IDENTITY)" >&2
+  exit 1
+}
 for exe in wipemark wipemark-cli; do
   [ -x "$bindir/$exe" ] || { echo "ERROR: no $bindir/$exe — build first" >&2; exit 1; }
 done
@@ -136,20 +143,18 @@ PLIST
 plutil -lint "$contents/Info.plist" >/dev/null
 echo "    Info.plist, icon.icns"
 
-# 5. The notices.
-for f in NOTICE LICENSE.md THIRD-PARTY.md; do
-  [ -f "$repo/$f" ] && cp "$repo/$f" "$contents/Resources/"
+# 5. The notices: ours, and every third party's, from Cargo.lock (D779).
+for f in NOTICE LICENSE.md; do
+  [ -f "$repo/$f" ] || { echo "ERROR: no $f at the repository root" >&2; exit 1; }
+  cp "$repo/$f" "$contents/Resources/"
 done
-[ -f "$contents/Resources/THIRD-PARTY.md" ] || echo "    (no THIRD-PARTY.md — scripts/release/third-party.py writes it)"
+(cd "$repo" && python3 scripts/release/third-party.py "$contents/Resources/THIRD-PARTY.md" \
+  --target aarch64-apple-darwin --llama-license "$llama/LICENSE-llama.cpp") | sed 's/^/    /'
+[ -s "$contents/Resources/THIRD-PARTY.md" ] || { echo "ERROR: no THIRD-PARTY.md written" >&2; exit 1; }
 
-# 6. Signing, inside out.
-if [ -n "${WIPEMARK_SIGN_IDENTITY:-}" ]; then
-  sign=(codesign --force --timestamp --options runtime --sign "$WIPEMARK_SIGN_IDENTITY")
-  echo "==> signing with $WIPEMARK_SIGN_IDENTITY (hardened runtime)"
-else
-  sign=(codesign --force --sign -)
-  echo "==> signing ad hoc (no WIPEMARK_SIGN_IDENTITY): Gatekeeper will ask on first open"
-fi
+# 6. Signing ad hoc, inside out. A Developer ID is sign-and-notarize.sh's.
+sign=(codesign --force --sign -)
+echo "==> signing ad hoc: Gatekeeper blocks the first open of a downloaded copy until sign-and-notarize.sh has run"
 find "$contents/Frameworks" "$contents/MacOS" -type f \( -name '*.dylib' -o -name '*.so' \) -print0 |
   while IFS= read -r -d '' f; do "${sign[@]}" "$f"; done
 "${sign[@]}" "$contents/MacOS/wipemark-cli"
@@ -181,12 +186,5 @@ for exe in wipemark wipemark-cli; do
 done
 
 # 8. The disk image.
-dmg="$dist/Wipemark-$version-arm64.dmg"
-stage="$(mktemp -d)"
-trap 'rm -rf "$stage"' EXIT
-cp -a "$app" "$stage/"
-ln -s /Applications "$stage/Applications"
-rm -f "$dmg"
-hdiutil create -quiet -volname "Wipemark $version" -srcfolder "$stage" -ov -format UDZO "$dmg"
 echo "==> $(du -sh "$app" | cut -f1)  $app"
-echo "==> $(du -sh "$dmg" | cut -f1)  $dmg"
+"$repo/scripts/release/macos/dmg.sh" "$app" "$dist/Wipemark-$version-arm64.dmg"

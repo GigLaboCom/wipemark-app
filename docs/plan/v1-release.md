@@ -27,9 +27,15 @@ D580–D589. `feat/e0-e6-shell` at `e648dc6` is the release candidate's base.*
 
 1. **«Да» на слияние PR #1 в `main`** и на тег `wipemark-v0.1.0`. Без вашего
    слова я `main` не трогаю.
-2. **Подпись macOS.** Нужен сертификат Developer ID и данные для нотаризации
-   в секретах GitHub. Если их нет, `.dmg` выйдет без подписи, и macOS при
-   первом запуске это скажет. Тогда либо так, либо macOS позже.
+2. **Подпись macOS — готова, ждёт шести секретов.** Подпись Developer ID и
+   нотаризация идут в GitHub Actions при релизе (`release.yml`, D775–D779);
+   на этом Mac подпись проверена, приложение с ней запускается и находит
+   Metal. Нужно добавить в `GigLaboCom/wipemark-app` шесть секретов с теми же
+   именами, что у lazy-shot: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
+   `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_ISSUER`,
+   `APPLE_API_KEY_CONTENT`. Сейчас их нет ни одного. Пошагово —
+   [packaging.md](../architecture/packaging.md), «The owner's checklist».
+   Без них `.dmg` выйдет без подписи, и macOS при первом запуске это скажет.
 3. **Подтвердить, что 0.1.0 бесплатная.**
 
 ## 1. What ships (D580)
@@ -66,6 +72,8 @@ default.
   [packaging.md](../architecture/packaging.md).
 - **macOS.** A `.app` inside a `.dmg`. Signed and notarized when the
   `APPLE_*` secrets exist; otherwise unsigned, and the release notes say so.
+  The signing and notarization run in the release lane on GitHub (the owner,
+  2026-10-16: "notarization is done in the repo when we release"; D775–D779).
 
 Windows, Flatpak and a glibc 2.36 build are stage two.
 
@@ -73,11 +81,11 @@ Windows, Flatpak and a glibc 2.36 build are stage two.
 
 | | |
 |---|---|
-| **P1** | `.github/workflows/release.yml`, on a `wipemark-v*` tag and by hand (`workflow_dispatch`, which builds without publishing). It builds `wipemark` and `wipemark-cli` with `--features llama-native --locked --release` on `ubuntu-24.04` and `macos-14`. **Linux job: written** (D609) — the builder image, the AppImage and the .deb, both install gates, a draft release on a tag; not yet run on GitHub. macOS joins it. |
+| **P1** | `.github/workflows/release.yml`, on a `wipemark-v*` tag and by hand (`workflow_dispatch`, which builds without publishing). It builds `wipemark` and `wipemark-cli` with `--features llama-native --locked --release` on `ubuntu-24.04` and `macos-14`. **Linux job: written** (D609) — the builder image, the AppImage and the .deb, both install gates. **macOS job: written** (D775–D779) — the build on `macos-14`, `bundle.sh`, and with the six `APPLE_*` secrets `sign-and-notarize.sh`; without them an ad hoc `.dmg` and a summary that says so; with only some of them a red job. lazy-shot's shape (D778): one release job per platform, each attaching its files to one draft release on a tag (`softprops/action-gh-release`), so one platform failing does not hold the other back; by hand, a platform to choose and the files in the run. `actionlint` passes; neither job has run on GitHub yet. |
 | **P2** | **The Linux packages — built** (`e10/appimage`, D600–D609; [report](reports/E10-appimage-2026-10-12.md)). `Wipemark-0.1.0-x86_64.AppImage` and `wipemark_0.1.0_amd64.deb`, one tree: <ul><li>`wipemark` and `wipemark-cli` in `/usr/lib/wipemark/` beside llama.cpp's libraries and backends, rpath `$ORIGIN`, links in `/usr/bin/`;</li><li>the `.desktop` file, the full hicolor set and AppStream metainfo;</li><li>NOTICE and THIRD-PARTY.md.</li></ul> The AppImage carries `libgomp`, `libxkbcommon-x11` and `libxcb-xkb` and runs the CLI by `--cli` or a link named `wipemark-cli`; the .deb declares them instead, its Depends computed from what the binaries NEED (`libgtk-3-0t64`, `libxkbcommon-x11-0`, `libvulkan1`, `libgomp1` among them) plus `libayatana-appindicator3-1`. Open: the windows' `app_id` (D605). |
-| **P3** | **The macOS bundle.** `Wipemark.app`: <ul><li>llama.cpp's dylibs in `Contents/Frameworks`;</li><li>`wipemark-cli` beside the app binary;</li><li>the icon from `assets/icon/icon.icns`.</li></ul> It ships as a `.dmg`. `codesign` with hardened runtime and `notarytool` run only when the secrets exist. |
+| **P3** | **The macOS bundle — built** (`scripts/release/macos/bundle.sh`, the acceptance's A14). `Wipemark.app`: <ul><li>llama.cpp's dylibs in `Contents/Frameworks`, ggml's backends beside the programs;</li><li>`wipemark-cli` beside the app binary;</li><li>the icon from `assets/icon/icon.icns`;</li><li>NOTICE, LICENSE.md and THIRD-PARTY.md (D779).</li></ul> It ships as a `.dmg` (`dmg.sh`). **Signing — written and proved locally** (D776, D777): `sign-and-notarize.sh` signs every Mach-O inside out with the Developer ID, hardened runtime and a secure timestamp, no entitlements; notarizes and staples the app, then the `.dmg`; Gatekeeper must say `Notarized Developer ID`. It runs only when the secrets exist; `bundle.sh` alone signs ad hoc. On this Mac the signed bundle verifies `--deep --strict`, starts under the hardened runtime and registers `BLAS, MTL0, CPU` from its own files; notarization waits for the secrets ([packaging.md](../architecture/packaging.md), macOS). |
 | **P4** | `tests/standalone.rs`'s check run on the **packaged** binaries: `wipemark --version` finds llama.cpp without cargo's loader path. **Linux: done** — `scripts/release/linux/build.sh` runs both `--version`s from the packed AppImage, the gates below from the AppImage and the installed .deb. |
-| **P5** | **Licences — done for Linux** (D606). `THIRD-PARTY.md` is generated from `Cargo.lock` by `scripts/release/third-party.py` (from `cargo metadata`, no extra tool) and shipped beside `NOTICE`; it adds llama.cpp (MIT), the carried system libraries' copyright files, and says that model weights are downloaded, not shipped. |
+| **P5** | **Licences — done for Linux** (D606) **and macOS** (D779: `bundle.sh` writes it into `Contents/Resources/` for `aarch64-apple-darwin`). `THIRD-PARTY.md` is generated from `Cargo.lock` by `scripts/release/third-party.py` (from `cargo metadata`, no extra tool) and shipped beside `NOTICE`; it adds llama.cpp (MIT), the carried system libraries' copyright files, and says that model weights are downloaded, not shipped. |
 | **P6** | **Smoke test on a clean machine**, as a script under `scripts/verify/release/` — **Linux: done** (D607): `appimage-gate.sh` (32 checks, the CLI on a bare ubuntu:24.04, the application on the declared floor under Xvfb) and `deb-gate.sh` (7 checks). The plan as written: Install the `.deb` in a fresh `ubuntu:24.04` container, then: <ul><li>`wipemark --version`;</li><li>`wipemark-cli inspect` and `clean` over `fixtures/clean-parity` and one Gemini and one Grok fixture, exits as the parity table says;</li><li>`wipemark` started under Xvfb for ten seconds with a scratch `WIPEMARK_DATA_DIR`: it starts, binds MCP, writes its beacon and exits on SIGTERM.</li></ul> On macOS the same CLI part on the runner. |
 | **P7** | **Release notes**, `docs/release/0.1.0.md`: <ul><li>what it does;</li><li>install on each platform (and the unsigned-macOS step if it applies);</li><li>where data lives;</li><li>known limitations, which is §4's list in plain words.</li></ul> README gets an "Install" section. |
 | **P8** | **The size of each artifact**, recorded in the report. No budget gate yet. |

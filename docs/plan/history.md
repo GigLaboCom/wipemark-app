@@ -250,6 +250,19 @@ result, an edited result asked about first
   and #3521 on it (`context_menu_with`, `default_context_menu`), for
   Compare's per-line menu on a line number. `gpui-pre` still `=0.3.8`,
   `Cargo.lock` untouched; back to plain `next` once both are merged.
+- `release/macos-signing` (D775–D779, the owner, 2026-10-16: "prepare the
+  main signing and notarization", "look at how we do lazy-shot"): the
+  release lane's `macos` job on `macos-14` — build, `bundle.sh` (now with
+  `THIRD-PARTY.md`), and with lazy-shot's six `APPLE_*` secrets
+  `scripts/release/macos/sign-and-notarize.sh`: every Mach-O signed inside
+  out with the Developer ID, hardened runtime and a timestamp, no
+  entitlements; the app and then the `.dmg` notarized and stapled;
+  Gatekeeper asked. Without the secrets an ad hoc `.dmg` and a summary that
+  says so. lazy-shot's shape: a release job per platform attaching to one
+  draft. Proved on this Mac up to notarization: the signed bundle starts
+  under the hardened runtime and registers `BLAS, MTL0, CPU` from its own
+  files. The secrets are the owner's to add (packaging.md, "The owner's
+  checklist").
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
