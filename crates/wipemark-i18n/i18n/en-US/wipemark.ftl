@@ -2446,3 +2446,12 @@ queue-action-why-no-result = There is no result yet.
 queue-action-why-to-caller = The result went back to whoever asked; nothing was written here.
 queue-action-why-no-file = It arrived with no file behind it.
 queue-action-why-nothing-written = Nothing was written for it; its status says why.
+
+## A second launch on a data directory another { -brand-name } already holds
+## (D792). Said on standard error by the launch that ends, never in a
+## window; the flags are the command line's own spelling and are not
+## translated. `launch-already-running`: the running one's main window was
+## brought forward. `launch-not-answering`: it did not answer within five
+## seconds and did not quit.
+launch-already-running = { -brand-name } is already running for this data directory; its window was brought forward. --import=, --clean=, --compare=, --settings, --profile= and --setup are taken only by the launch that starts it: use that window, or quit { -brand-name } and run the command again.
+launch-not-answering = { -brand-name } is already running for this data directory and did not answer. Wait for it to finish starting, or quit it, and run the command again.

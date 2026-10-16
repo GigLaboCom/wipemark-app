@@ -619,7 +619,8 @@
   `x11_session`; elsewhere the row says *Stored, and not active*). A
   launch whose whole request is `--panel` or `--show` hands it to the
   running instance over `<data dir>/wipemark.sock` and exits 0
-  (`apps/wipemark-app/src/instance.rs`, D646). While the recorder listens
+  (`apps/wipemark-app/src/instance.rs`, D646), on Linux and macOS alike
+  (D790; *One Wipemark per data directory*, below). While the recorder listens
   its action's registration is taken away, and the row's chord is asked
   for again when it lets go — the new one, or the old after Escape (D649,
   Linux). The row is the request and
@@ -1794,6 +1795,26 @@
   `docs/architecture/visible-marks.md`.
 * **Layer A is never licence-gated.** Any state, expired or invalid,
   keeps the deterministic scrubber available.
+* **One Wipemark per data directory** (acceptance F33, D646,
+  D790–D794). The application holds `<data dir>/wipemark.lock` — an
+  exclusive `flock` taken before the database, the batch queue, the
+  journal, the MCP server or a window, kept until the process ends
+  (the kernel lets go then, however it ends) and never removed — so two
+  processes never run one queue, write one journal twice or serve MCP
+  twice. A second launch on a held data directory never starts: `--panel`,
+  `--show` or a bare launch is handed to the holder over
+  `<data dir>/wipemark.sock` and exits 0; one that asks for more (a file,
+  a page, a profile, the walk-through) brings the holder's main window
+  forward, says why on stderr (`launch-already-running`) and exits 2; a
+  holder that does not answer within five seconds is `launch-not-answering`,
+  exit 2. The socket is bound right after the lock, before the database.
+  On macOS too: LaunchServices keeps one instance only for a launch that
+  goes through it, never for the bundle's executable started by name. A
+  lock the filesystem refuses is a warning and a start (D794). The command
+  line never takes the lock. `apps/wipemark-app/src/instance.rs`,
+  `a_second_launch_hands_over_or_ends_and_never_starts`,
+  `tests/second_launch.rs`; see `docs/architecture/hotkeys.md`, "One
+  Wipemark per data directory".
 * **The CLI finds the application by its beacon, and only on loopback.**
   The MCP supervisor writes `<data dir>/mcp.json` (`{pid, port,
   address}`) atomically when it is listening — loopback or a wildcard

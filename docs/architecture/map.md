@@ -66,6 +66,7 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `theme.rs` | Light, Dark and `System` — the live one |
 | `language.rs` | what the language selector offers, and what a click means |
 | `tray.rs` | the menu-bar item on macOS and on Linux — one menu, `build_menu`; on Linux a GTK thread of its own, installed only where a StatusNotifier host would draw it, the icon derived at run time (D340–D342, D347) — and the close button that only hides while it exists |
+| `instance.rs` | Unix only: one Wipemark per data directory — `<data dir>/wipemark.lock`, an exclusive `flock` held for the life of the process (`hold`, D791); `<data dir>/wipemark.sock`, the socket a second launch hands `--panel`, `--show` or a bare launch to, listened on by a thread of its own (`wipemark-instance`) from before the database (D646, D790, D793); `admit`, what a launch does — hand over, start, or end with exit 2 (D792) |
 | `signals.rs` | Unix only: SIGTERM, SIGINT and SIGHUP quit through `App::quit`, the tray's Quit — registered through `async-signal` on a thread of its own (`wipemark-signals`), handed to the GPUI side over `flume`, a second signal ending the process at once with `128 +` its number (D717) |
 | `hotkey.rs` | a system-wide shortcut: the chord, its row spelling, what a keystroke means while one is recorded, and the registration — Carbon on macOS, an X11 key grab on a thread of its own on Linux under X11 (D346, B1) |
 | `recorder.rs` | the shortcut recorder — the field that is clicked, then pressed into |

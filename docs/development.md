@@ -79,7 +79,7 @@ can be made without driving the windows by hand.
 | `--clean=<path>` | imports a file and cleans it at startup. The result goes where the Retention page says. |
 | `--compare=<path>` | opens Compare on a file at startup. |
 | `--profile=<name>` | pins a saved endpoint profile for this session **without applying it**. A name nobody saved is refused. |
-| `--panel`, `--show` | summon the panel, or bring the main window forward. If an instance is already running for the same data directory, a launch that asks only for this hands it over `<data dir>/wipemark.sock` and exits 0. GNOME's custom shortcut runs this command. |
+| `--panel`, `--show` | summon the panel, or bring the main window forward. If an instance is already running for the same data directory, a launch that asks only for this — or a launch with no flag at all — hands it over `<data dir>/wipemark.sock` and exits 0, on Linux and macOS. GNOME's custom shortcut runs this command. Any other launch on a data directory another process holds does not start: it brings that window forward, says why on stderr and exits 2. |
 | `--version` | prints `wipemark <version>` and exits before the database, the MCP port or a window. |
 
 Anything else on the application's command line is ignored rather than
