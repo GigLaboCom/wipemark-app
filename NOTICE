@@ -11,8 +11,8 @@ right to use them except to identify the origin of the software.
 
 Third-party material redistributed inside the Wipemark binary and its
 installers. This file covers *bundled assets and vendored source*, not
-the full Cargo dependency graph — `cargo license` over `Cargo.lock` is
-the authority on that, and epic E10 wires it into the packaging step.
+the full Cargo dependency graph: THIRD-PARTY.md, generated from
+`Cargo.lock` and shipped beside this file in every package, covers that.
 
 ------------------------------------------------------------------------
 Icons
