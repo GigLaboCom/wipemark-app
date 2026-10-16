@@ -1,0 +1,73 @@
+# wipemark — the product website on GitHub Pages, by hand only.
+#
+# Runs scripts/site/build.sh, which assembles site/dist/ from site/ and the
+# screenshots and the video under docs/assets/, and publishes that directory
+# with GitHub's own Pages actions. Nothing triggers it but a person
+# (workflow_dispatch): a push never deploys the site. site/README.md has the
+# one-time setup (Settings › Pages › Source: GitHub Actions) and the
+# alternative, Cloudflare Pages.
+name: pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_origin:
+        description: "Where the site is served, no trailing slash (https://host, or https://owner.github.io/repo for a project page)"
+        required: true
+        default: "https://wipemark.example"
+      releases_url:
+        description: "Where the download buttons point"
+        required: true
+        default: "https://github.com/GigLaboCom/wipemark-app/releases/latest"
+      strict:
+        description: "Refuse to build while a screenshot or the video is missing"
+        type: boolean
+        default: true
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build site/dist
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        env:
+          SITE_ORIGIN: ${{ inputs.site_origin }}
+          RELEASES_URL: ${{ inputs.releases_url }}
+          STRICT: ${{ inputs.strict }}
+        run: |
+          if [ "$STRICT" = "true" ]; then
+            scripts/site/build.sh --strict
+          else
+            scripts/site/build.sh
+          fi
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    name: deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

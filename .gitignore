@@ -112,3 +112,8 @@ Thumbs.db
 # The Linux builder's pinned tools (ci/linux-builder/fetch-tools.sh): downloaded
 # and checked against ci/linux-builder/tools.sha256, never committed.
 /ci/linux-builder/vendor/
+
+# ── The product website (scripts/site/build.sh) ───────────────────────
+# site/dist/ is assembled from site/ and docs/assets/ on every build and
+# deployed as it is; the sources are what is committed.
+/site/dist/
