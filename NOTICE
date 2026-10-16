@@ -57,12 +57,14 @@ UI framework
   One of them, `gpui-pre-linux` 0.3.8, is carried modified under
   `vendor/gpui-pre-linux/`: the published crate with
   `vendor/gpui-pre-linux.patch` applied, which changes
-  `src/linux/x11/client.rs`, `src/linux/wayland/client.rs`,
-  `src/linux/wayland/clipboard.rs` and `src/linux/platform.rs` so that a
+  `src/linux/x11/client.rs`, `src/linux/x11/clipboard.rs`,
+  `src/linux/wayland/client.rs`, `src/linux/wayland/clipboard.rs` and
+  `src/linux/platform.rs` so that a
   file dropped before its file list has been read is not lost, a
   dragged text is handed over as a private drop file, a refused type
   falls back to the next, and a drop is placed where the drag's own
-  message says (Wipemark, 2026-10-12). Each changed file opens with a notice of the change. Its
+  message says (Wipemark, 2026-10-12), and so that a picture written to
+  the clipboard is offered as that picture (Wipemark, 2026-10-16). Each changed file opens with a notice of the change. Its
   licence file, `LICENSE-APACHE`, is kept in that directory as
   published.
 

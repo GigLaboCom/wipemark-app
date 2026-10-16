@@ -1,4 +1,4 @@
-// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; the offer's types are ranked by name (vendor/gpui-pre-linux.patch).
+// Modified by GigLabo and Denis Esakov, 2026-10-12 and 2026-10-16: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; the offer's types are ranked by name; a picture written to the clipboard is offered as that picture (vendor/gpui-pre-linux.patch).
 use std::{
     cell::{RefCell, RefMut},
     hash::Hash,
@@ -1464,6 +1464,10 @@ impl WaylandConnection {
             return;
         };
         if state.mouse_focused_window.is_some() || state.keyboard_focused_window.is_some() {
+            let image = match item.entries() {
+                [gpui::ClipboardEntry::Image(image)] => Some(image.format),
+                _ => None,
+            };
             state.clipboard.set(item);
             let Some(serial) = state.serial_tracker.selection_serial() else {
                 log::warn!(
@@ -1473,8 +1477,13 @@ impl WaylandConnection {
             };
             let data_source = data_device_manager
                 .create_data_source(&state.globals.qh, DataSourceKind::Clipboard);
-            for mime_type in TEXT_MIME_TYPES {
-                data_source.offer(mime_type.to_string());
+            match image {
+                Some(format) => data_source.offer(format.mime_type().to_string()),
+                None => {
+                    for mime_type in TEXT_MIME_TYPES {
+                        data_source.offer(mime_type.to_string());
+                    }
+                }
             }
             data_source.offer(state.clipboard.self_mime());
             data_device.set_selection(Some(&data_source), serial.as_raw());

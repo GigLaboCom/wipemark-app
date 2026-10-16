@@ -440,25 +440,6 @@ fn every_greyed_item_says_what_is_missing() {
             "{nothing:?}"
         );
     }
-    for file in [
-        done(Some("/f/x.cleaned.md"), None),
-        said(
-            Action::Clean,
-            Phase::Done,
-            Some(Delivered::File {
-                path: "/f/x.cleaned.md".to_owned(),
-                original: None,
-                replaced: false,
-            }),
-        ),
-    ] {
-        assert_eq!(
-            why_not_copy(&file),
-            t(M::QueueActionWhyResultFile),
-            "{file:?}"
-        );
-    }
-
     // What is missing, never who handed it over.
     for message in [
         M::QueueActionWhyNotKept,
@@ -467,7 +448,6 @@ fn every_greyed_item_says_what_is_missing() {
         M::QueueActionWhyToCaller,
         M::QueueActionWhyNoFile,
         M::QueueActionWhyNothingWritten,
-        M::QueueActionWhyResultFile,
     ] {
         let sentence = t(message).to_lowercase();
         for origin in ["agent", "command line", "panel", "window", " you"] {
@@ -860,6 +840,7 @@ fn where_a_thing_came_from_never_changes_what_its_row_can_do(cx: &mut TestAppCon
             "compare",
             "open-result",
             "reveal-result",
+            "copy-result",
             "report",
             "remove",
         ],

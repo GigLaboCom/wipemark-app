@@ -307,11 +307,11 @@ index 44aa658..1d22515 100644
      mod read_fd_with_timeout {
          use super::super::{PIPE_READ_TIMEOUT, read_fd_with_timeout};
 diff --git a/src/linux/wayland/client.rs b/src/linux/wayland/client.rs
-index bc73fc3..3d161ea 100644
+index bc73fc3..e2ff95b 100644
 --- a/src/linux/wayland/client.rs
 +++ b/src/linux/wayland/client.rs
 @@ -1,3 +1,4 @@
-+// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; the offer's types are ranked by name (vendor/gpui-pre-linux.patch).
++// Modified by GigLabo and Denis Esakov, 2026-10-12 and 2026-10-16: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; the offer's types are ranked by name; a picture written to the clipboard is offered as that picture (vendor/gpui-pre-linux.patch).
  use std::{
      cell::{RefCell, RefMut},
      hash::Hash,
@@ -430,7 +430,34 @@ index bc73fc3..3d161ea 100644
              },
              external_drag: None,
              click: ClickState {
-@@ -2813,22 +2862,43 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+@@ -1415,6 +1464,10 @@ impl WaylandConnection {
+             return;
+         };
+         if state.mouse_focused_window.is_some() || state.keyboard_focused_window.is_some() {
++            let image = match item.entries() {
++                [gpui::ClipboardEntry::Image(image)] => Some(image.format),
++                _ => None,
++            };
+             state.clipboard.set(item);
+             let Some(serial) = state.serial_tracker.selection_serial() else {
+                 log::warn!(
+@@ -1424,8 +1477,13 @@ impl WaylandConnection {
+             };
+             let data_source = data_device_manager
+                 .create_data_source(&state.globals.qh, DataSourceKind::Clipboard);
+-            for mime_type in TEXT_MIME_TYPES {
+-                data_source.offer(mime_type.to_string());
++            match image {
++                Some(format) => data_source.offer(format.mime_type().to_string()),
++                None => {
++                    for mime_type in TEXT_MIME_TYPES {
++                        data_source.offer(mime_type.to_string());
++                    }
++                }
+             }
+             data_source.offer(state.clipboard.self_mime());
+             data_device.set_selection(Some(&data_source), serial.as_raw());
+@@ -2813,22 +2871,43 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                          return;
                      };
                      let uri_read_generation = state.drag.begin_uri_read();
@@ -480,7 +507,7 @@ index bc73fc3..3d161ea 100644
  
                      let this = this.clone();
                      state
-@@ -2837,59 +2907,61 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+@@ -2837,59 +2916,61 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                          .foreground_executor
                          .clone()
                          .spawn(async move {
@@ -562,7 +589,7 @@ index bc73fc3..3d161ea 100644
  
                  let input = PlatformInput::FileDrop(FileDropEvent::Pending { position });
                  drop(state);
-@@ -3108,6 +3180,8 @@ impl Dispatch<XdgDialogV1, ()> for WaylandClientStatePtr {
+@@ -3108,6 +3189,8 @@ impl Dispatch<XdgDialogV1, ()> for WaylandClientStatePtr {
  mod tests {
      use std::cell::Cell;
  
@@ -571,7 +598,7 @@ index bc73fc3..3d161ea 100644
      use super::*;
  
      #[test]
-@@ -3188,6 +3262,8 @@ mod tests {
+@@ -3188,6 +3271,8 @@ mod tests {
              window: None,
              position: Point::default(),
              uri_read_generation: 0,
@@ -580,7 +607,7 @@ index bc73fc3..3d161ea 100644
          }
      }
  
-@@ -3234,28 +3310,198 @@ mod tests {
+@@ -3234,28 +3319,198 @@ mod tests {
          assert!(drag.window.is_none());
      }
  
@@ -593,7 +620,8 @@ index bc73fc3..3d161ea 100644
 +        }
 +    }
 +
-+    #[test]
+     #[test]
+-    fn drop_then_leave_discards_pending_drag_uri_read() {
 +    fn drop_before_uri_read_completes_delivers_the_drop() {
 +        let mut drag = drag_state();
 +        let data_offer = FakeDataOffer::new("A");
@@ -620,8 +648,7 @@ index bc73fc3..3d161ea 100644
 +        assert!(drag.finish_pending_drop().is_none());
 +    }
 +
-     #[test]
--    fn drop_then_leave_discards_pending_drag_uri_read() {
++    #[test]
 +    fn drop_then_leave_before_uri_read_completes_delivers_the_drop() {
          let mut drag = drag_state();
          let data_offer = FakeDataOffer::new("A");
@@ -784,11 +811,11 @@ index bc73fc3..3d161ea 100644
      fn stale_completion_preserves_newer_drag_destination() {
          let mut drag = drag_state();
 diff --git a/src/linux/wayland/clipboard.rs b/src/linux/wayland/clipboard.rs
-index 86dc7da..395de6f 100644
+index 86dc7da..5cba249 100644
 --- a/src/linux/wayland/clipboard.rs
 +++ b/src/linux/wayland/clipboard.rs
 @@ -1,3 +1,4 @@
-+// Modified by GigLabo and Denis Esakov, 2026-10-12: a drag reads which types its offer has (vendor/gpui-pre-linux.patch).
++// Modified by GigLabo and Denis Esakov, 2026-10-12 and 2026-10-16: a drag reads which types its offer has; a picture written to the clipboard is sent as that picture (vendor/gpui-pre-linux.patch).
  use std::{
      fs::File,
      io::{ErrorKind, Write},
@@ -803,12 +830,25 @@ index 86dc7da..395de6f 100644
      fn has_mime_type(&self, mime_type: &str) -> bool {
          self.mime_types.iter().any(|t| t == mime_type)
      }
+@@ -175,7 +180,11 @@ impl Clipboard {
+     }
+ 
+     pub fn send(&self, _mime_type: String, fd: OwnedFd) {
+-        if let Some(text) = self.contents.as_ref().and_then(|contents| contents.text()) {
++        if let Some([ClipboardEntry::Image(image)]) =
++            self.contents.as_ref().map(|contents| contents.entries())
++        {
++            self.send_bytes(fd, image.bytes.clone());
++        } else if let Some(text) = self.contents.as_ref().and_then(|contents| contents.text()) {
+             self.send_bytes(fd, text.as_bytes().to_owned());
+         }
+     }
 diff --git a/src/linux/x11/client.rs b/src/linux/x11/client.rs
-index 601eb93..f86195f 100644
+index 601eb93..edb607d 100644
 --- a/src/linux/x11/client.rs
 +++ b/src/linux/x11/client.rs
 @@ -1,3 +1,4 @@
-+// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; a refused type falls back to the next, and the drop is placed where XdndPosition says (vendor/gpui-pre-linux.patch).
++// Modified by GigLabo and Denis Esakov, 2026-10-12 and 2026-10-16: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; a refused type falls back to the next, and the drop is placed where XdndPosition says; a picture written to the clipboard is offered as that picture (vendor/gpui-pre-linux.patch).
  use anyhow::{Context as _, anyhow};
  use ashpd::WindowIdentifier;
  use calloop::{
@@ -1348,7 +1388,31 @@ index 601eb93..f86195f 100644
                  }
              }
              Event::ConfigureNotify(event) => {
-@@ -2369,20 +2726,31 @@ fn check_gtk_frame_extents_supported(
+@@ -1838,13 +2195,19 @@ impl X11Client {
+ 
+     pub(crate) fn write_to_clipboard(&self, item: gpui::ClipboardItem) {
+         let mut state = self.0.borrow_mut();
+-        state
+-            .clipboard
+-            .set_text(
++        let written = match item.entries() {
++            [gpui::ClipboardEntry::Image(image)] => state.clipboard.set_image(
++                image.clone(),
++                clipboard::ClipboardKind::Clipboard,
++                clipboard::WaitConfig::None,
++            ),
++            _ => state.clipboard.set_text(
+                 std::borrow::Cow::Owned(item.text().unwrap_or_default()),
+                 clipboard::ClipboardKind::Clipboard,
+                 clipboard::WaitConfig::None,
+-            )
++            ),
++        };
++        written
+             .context("X11: Failed to write to clipboard (clipboard)")
+             .log_with_level(log::Level::Debug);
+         state.clipboard_item.replace(item);
+@@ -2369,20 +2732,31 @@ fn check_gtk_frame_extents_supported(
      supported_atom_ids.contains(&atoms._GTK_FRAME_EXTENTS)
  }
  
@@ -1389,7 +1453,7 @@ index 601eb93..f86195f 100644
      if let Some(reply) = get_reply(
          || "Failed to get XDnD supported atoms",
          xcb_connection.get_property(
-@@ -2397,13 +2765,9 @@ fn xdnd_get_supported_atom(
+@@ -2397,13 +2771,9 @@ fn xdnd_get_supported_atom(
      .log_with_level(Level::Warn)
          && let Some(atoms) = reply.value32()
      {
@@ -1405,7 +1469,7 @@ index 601eb93..f86195f 100644
  }
  
  fn xdnd_send_finished(
-@@ -2411,12 +2775,18 @@ fn xdnd_send_finished(
+@@ -2411,12 +2781,18 @@ fn xdnd_send_finished(
      atoms: &XcbAtoms,
      source: xproto::Window,
      target: xproto::Window,
@@ -1425,7 +1489,7 @@ index 601eb93..f86195f 100644
          sequence: 0,
          response_type: xproto::CLIENT_MESSAGE_EVENT,
      };
-@@ -3209,4 +3579,185 @@ mod tests {
+@@ -3209,4 +3585,185 @@ mod tests {
          // Assert pressing space while on the Czech layout still types a space.
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
@@ -1611,3 +1675,29 @@ index 601eb93..f86195f 100644
 +        assert_eq!(xdnd.receive_paths(true), XdndPaths::Ignore);
 +    }
  }
+diff --git a/src/linux/x11/clipboard.rs b/src/linux/x11/clipboard.rs
+index 9835786..d75e548 100644
+--- a/src/linux/x11/clipboard.rs
++++ b/src/linux/x11/clipboard.rs
+@@ -1,3 +1,4 @@
++// Modified by GigLabo and Denis Esakov, 2026-10-16: a picture written to the clipboard is offered under its own type (vendor/gpui-pre-linux.patch).
+ /*
+  * Copyright 2022 - 2025 Zed Industries, Inc.
+  * License: Apache-2.0
+@@ -1008,7 +1009,6 @@ impl Clipboard {
+         }
+     }
+ 
+-    #[allow(unused)]
+     pub(crate) fn set_image(
+         &self,
+         image: Image,
+@@ -1018,7 +1018,7 @@ impl Clipboard {
+         let format = self.image_format_atom(image.format);
+         let data = vec![ClipboardData {
+             bytes: image.bytes,
+-            format: self.inner.atoms.PNG__MIME,
++            format,
+         }];
+         self.inner.write(data, selection, wait)
+     }

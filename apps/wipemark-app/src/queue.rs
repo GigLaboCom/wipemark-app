@@ -766,7 +766,7 @@ fn nothing_behind(named: bool) -> String {
     })
 }
 
-/// Why "Open with the default app" is greyed, or `None` when a file is
+/// Why "Open with" is greyed, or `None` when a file is
 /// behind the row to open (D731). A text that arrived this session has none
 /// to open. Pure.
 pub fn why_not_open(arrival: Option<&Arrival>, named: bool) -> Option<String> {
@@ -811,27 +811,19 @@ pub fn why_no_result_file(status: &Status) -> String {
     })
 }
 
-/// Why "Copy the result" is greyed on a row with no text to copy (D731): it
-/// copies a text — a paste's clean, or a rewrite read back from its file or
-/// the batch queue's row — so a result that is a file says to open it, and
-/// otherwise the item says what [`why_no_result_file`] says, or that the
-/// text a row's result lived in is no longer kept. Pure; asked only where
-/// nothing is there to copy.
+/// Why "Copy the result" is greyed on a row with no result to copy (D731,
+/// D762): it copies whatever the result is — a text kept in the row, a
+/// rewrite's read back, a file a clean wrote — so the item says what
+/// [`why_no_result_file`] says, or that the text a row's result lived in is
+/// no longer kept. Pure; asked only where nothing is there to copy.
 pub fn why_not_copy(status: &Status) -> String {
-    let file = match status {
-        Status::Done(outcome) => outcome.written.is_some(),
-        Status::Recorded(said) if said.phase.is_end() => {
-            if matches!(said.result, Some(Delivered::Row)) {
-                return t(Message::QueueActionWhyNotKept);
-            }
-            matches!(said.result, Some(Delivered::File { .. }))
+    match status {
+        Status::Recorded(said)
+            if said.phase.is_end() && matches!(said.result, Some(Delivered::Row)) =>
+        {
+            t(Message::QueueActionWhyNotKept)
         }
-        _ => false,
-    };
-    if file {
-        t(Message::QueueActionWhyResultFile)
-    } else {
-        why_no_result_file(status)
+        _ => why_no_result_file(status),
     }
 }
 
@@ -2103,39 +2095,64 @@ mod rewriting;
 #[cfg(test)]
 pub(crate) const TICK: std::time::Duration = rewriting::TICK;
 
-/// Copy the result: row `id`'s cleaned text onto the clipboard. The
-/// person's own text, cleaned: no catalogue touches it on the way there.
+/// Copy the result: row `id`'s result onto the clipboard, whatever it
+/// is (D762) — a cleaned text kept in the row, a rewrite's read back from
+/// its file or the batch queue's row, or the file a clean wrote: a text in
+/// the file's own encoding, a picture as the picture. The person's own
+/// document, cleaned: no catalogue touches it on the way there.
 fn copy_result(queue: &Entity<Queue>, id: u64, cx: &App) {
     if let Some(text) = queue.read(cx).result_text(id) {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
         return;
     }
-    // A rewrite's result is read back from where it was delivered — a
-    // file, or the batch queue's row — off this thread.
+    // Read back from where it was delivered, off this thread.
     let from = {
         let queue = queue.read(cx);
-        queue
-            .rows
-            .iter()
-            .find(|row| row.id == id)
-            .and_then(|row| row.rewritten(queue.work.as_ref()))
+        queue.rows.iter().find(|row| row.id == id).and_then(|row| {
+            row.rewritten(queue.work.as_ref())
+                .or_else(|| row.written().map(RewriteFrom::File))
+        })
     };
     let Some(from) = from else {
         return;
     };
     cx.spawn(async move |cx| {
-        let text = cx
+        let item = cx
             .background_executor()
-            .spawn(async move { compare::rewritten_text(&from) })
+            .spawn(async move { copied_of(&from) })
             .await;
-        match text {
-            Ok(text) => {
-                cx.update(|cx| cx.write_to_clipboard(ClipboardItem::new_string(text)));
-            }
-            Err(_) => tracing::warn!(id, "a rewrite's result could not be read back to copy"),
+        match item {
+            Some(item) => cx.update(|cx| cx.write_to_clipboard(item)),
+            None => tracing::warn!(id, "a result could not be read back to copy"),
         }
     })
     .detach();
+}
+
+/// What Copy the result puts on the clipboard of a result read back from
+/// `from`: a picture as its file's own bytes, in the format the bytes say
+/// they are — nothing decoded or written again, so what is pasted is what
+/// was cleaned (D763) — and anything else as the text it is, without the
+/// byte order mark a file may open with: that says how the file is
+/// encoded, and pasted it would be an invisible character. `None` when it
+/// cannot be read. Blocking.
+fn copied_of(from: &RewriteFrom) -> Option<ClipboardItem> {
+    if let RewriteFrom::File(path) = from {
+        let intake = wipemark_intake::of_path(path);
+        if intake.kind == Kind::Image {
+            let format = gpui::ImageFormat::from_mime_type(intake.format?.mime())?;
+            let bytes = std::fs::read(path).ok()?;
+            return Some(ClipboardItem::new_image(&gpui::Image::from_bytes(
+                format, bytes,
+            )));
+        }
+    }
+    let text = compare::rewritten_text(from).ok()?;
+    let text = match text.strip_prefix('\u{FEFF}') {
+        Some(rest) => rest.to_owned(),
+        None => text,
+    };
+    Some(ClipboardItem::new_string(text))
 }
 
 /// Where a clean of `row` put its result, when it put one: the file it
@@ -2691,7 +2708,7 @@ fn format_cell(look: &Look, cx: &App) -> AnyElement {
 /// picture is looked up at click time.
 struct Actions {
     id: u64,
-    /// The file behind the row, for "Open with the default app" — or why
+    /// The file behind the row, for "Open with" — or why
     /// there is none (D731).
     open: Result<PathBuf, String>,
     /// `None` when Compare opens; otherwise why not (D731).
@@ -2713,9 +2730,11 @@ struct Actions {
     /// The result on disk, for Open the result and Show it in its folder —
     /// or why there is none (D731).
     written: Result<PathBuf, String>,
-    /// `None` when there is a text to copy — a paste's clean, a rewrite's
-    /// result — otherwise why not (D731).
+    /// `None` when there is a result to copy, otherwise why not (D731).
     copy: Option<String>,
+    /// What Copy the result is called on this row: Copy the result image on
+    /// a picture's (D762).
+    copy_label: Message,
     /// Whether there is a finished clean to report.
     report: bool,
     /// Why Report… is greyed, when there is a reason to give: a row whose
@@ -2723,10 +2742,10 @@ struct Actions {
     report_why: Option<String>,
 }
 
-/// A row's Actions menu as a test reads it: Clean's and Rewrite's labels,
-/// then every item by its key ([`Actions::items`]).
+/// A row's Actions menu as a test reads it: Clean's, Rewrite's and Copy
+/// the result's labels, then every item by its key ([`Actions::items`]).
 #[cfg(test)]
-pub(crate) type Menu = ((Message, Message), Vec<(&'static str, Item)>);
+pub(crate) type Menu = ((Message, Message, Message), Vec<(&'static str, Item)>);
 
 /// An item of the Actions menu as a test reads it: live, or greyed — with
 /// the reason drawn under it, or none.
@@ -2780,14 +2799,15 @@ impl Actions {
 /// a menu item has no tooltip — for a row that cannot be cleaned, is in
 /// line, or was rewritten; on a row whose clean ended it is **Clean
 /// again**, and Rewrite on a row whose rewrite ended is **Rewrite again**
-/// (D703) — the same item, renamed, never a third one. "Open with the
-/// default app" hands the path to the
+/// (D703) — the same item, renamed, never a third one. "Open with"
+/// (D761) hands the path to the
 /// operating system — `App::open_with_system` is `open` on macOS and
 /// `xdg-open` on Linux, on a background task — and is disabled for a
 /// row with no file behind it: a note pasted from a chat has nothing to
 /// open. "Compare with the result" opens the Compare window on the row,
 /// and is disabled for a row that is not text. Then the result: open
-/// it, show it in its folder, copy it when it came back as text. (No
+/// it, show it in its folder, copy it — a text as characters, a picture
+/// as the picture, under "Copy the result image" (D762). (No
 /// "Replace the existing result" any more: a row's result takes a name of
 /// its own rather than being refused over a file, D638.) Disabled rather
 /// than absent, every one, so the
@@ -2889,7 +2909,7 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
             ))
             .item(menu_item(
                 (id, "copy-result"),
-                Message::QueueActionCopyResult,
+                actions.copy_label,
                 IconName::Copy,
                 actions.copy.clone(),
                 move |_, _, cx| copy_result(&copying, id, cx),
@@ -3314,7 +3334,8 @@ impl Queue {
     fn actions_for(&self, row: &Row, rewrite: Option<String>) -> Actions {
         let named = row.named.is_some();
         let copyable = row.outcome().is_some_and(|outcome| outcome.text.is_some())
-            || row.rewritten(self.work.as_ref()).is_some();
+            || row.rewritten(self.work.as_ref()).is_some()
+            || row.written().is_some();
         Actions {
             id: row.id,
             open: match why_not_open(row.arrival.as_ref(), named) {
@@ -3335,6 +3356,11 @@ impl Queue {
             remove: why_not_remove(&row.status, row.origin, row.consented),
             written: row.written().ok_or_else(|| why_no_result_file(&row.status)),
             copy: (!copyable).then(|| why_not_copy(&row.status)),
+            copy_label: if row.look.kind == Kind::Image {
+                Message::QueueActionCopyResultImage
+            } else {
+                Message::QueueActionCopyResult
+            },
             report: row.outcome().is_some() && row.arrival.is_some(),
             report_why: why_no_report(&row.status),
         }
@@ -3347,7 +3373,8 @@ impl Queue {
         let row = self.rows.iter().find(|row| row.id == id)?;
         let vacant = self.vacancy(cx);
         let actions = self.actions_for(row, self.why_not_rewrite_given(id, vacant.as_deref()));
-        Some((actions.labels, actions.items()))
+        let (clean, rewrite) = actions.labels;
+        Some(((clean, rewrite, actions.copy_label), actions.items()))
     }
 
     /// The table with nothing in it: the invitation, and — while
@@ -3531,13 +3558,14 @@ impl Render for Queue {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::cell::Cell;
+    use std::path::PathBuf;
     use std::rc::Rc;
 
     use chrono::Local;
     use gpui::prelude::*;
     use gpui::{
-        div, point, px, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, TestAppContext,
-        VisualTestContext,
+        div, point, px, ClipboardItem, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent,
+        TestAppContext, VisualTestContext,
     };
     use wipemark_i18n::{t, Message};
     use wipemark_intake::{Handed, Kind};
@@ -3545,8 +3573,8 @@ pub(crate) mod tests {
 
     use super::{
         arrived_label, copy_result, kind_glyph, kind_tag, page_range, pages, row_frame, shown,
-        why_not_clean, why_not_remove, Cleanable, Column, Filter, Order, Queue, Said, Status,
-        PAGE_SIZES, ROW,
+        why_not_clean, why_not_remove, Cleanable, Column, Filter, Item, Order, Queue, Row, Said,
+        Status, PAGE_SIZES, ROW,
     };
     use crate::retention::{Destination, Homes};
     use crate::settings::Preferences;
@@ -4248,5 +4276,116 @@ pub(crate) mod tests {
             std::fs::read(kept[0].join("original.txt")).expect("original"),
             pasted.as_bytes()
         );
+    }
+
+    /// The result `id` wrote, read off its row.
+    fn written_of(queue: &gpui::Entity<Queue>, id: u64, cx: &mut VisualTestContext) -> PathBuf {
+        cx.update(|_, cx| {
+            queue
+                .read(cx)
+                .rows
+                .iter()
+                .find(|row| row.id == id)
+                .and_then(Row::written)
+        })
+        .expect("a result file")
+    }
+
+    /// D762: a text file's clean writes its result beside it, in the
+    /// file's own encoding — UTF-16 here — and Copy the result puts that
+    /// result on the clipboard as characters, read back in that encoding,
+    /// without the byte order mark the file opens with. The item is live on
+    /// the row and called Copy the result. Read the result as a text kept
+    /// in the row only, as before, and the clipboard stays empty: red; keep
+    /// the mark and it is an invisible character on the clipboard: red.
+    #[gpui::test]
+    fn a_cleaned_file_s_result_is_copied_as_its_text(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("copy-text-file");
+        let mut utf16 = vec![0xFF, 0xFE];
+        utf16.extend(MARKED.encode_utf16().flat_map(u16::to_le_bytes));
+        let note = scratch.file("note.md", &utf16);
+        let (queue, _, cx) = queue_in(cx, &scratch);
+
+        queue.update(cx, |queue, cx| queue.hand(vec![note], cx));
+        cx.run_until_parked();
+        let ids = cx.update(|_, cx| queue.read(cx).ids());
+        queue.update(cx, |queue, cx| queue.clean(&ids, cx));
+        cx.run_until_parked();
+        assert_eq!(statuses(&queue, cx), ["cleaned"]);
+        let written = written_of(&queue, ids[0], cx);
+        assert_ne!(
+            std::fs::read(&written).expect("the result"),
+            utf16,
+            "nothing was cleaned"
+        );
+
+        let ((_, _, copy), items) = cx
+            .update(|_, cx| queue.read(cx).menu_of(ids[0], cx))
+            .expect("a menu");
+        assert_eq!(copy, Message::QueueActionCopyResult);
+        assert!(items.contains(&("copy-result", Item::Live)), "{items:?}");
+
+        cx.update(|_, cx| cx.write_to_clipboard(ClipboardItem::new_string(String::new())));
+        cx.update(|_, cx| copy_result(&queue, ids[0], cx));
+        cx.run_until_parked();
+        let copied = cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text()));
+        assert_eq!(
+            copied.as_deref(),
+            Some("# Notes\n\nA zerowidth space.\n"),
+            "the copy is not the result's text"
+        );
+    }
+
+    /// D762, D763: a picture's clean writes its result as a file, and Copy
+    /// the result image puts that picture on the clipboard — the result's
+    /// own bytes in its own format, PNG as PNG and JPEG as JPEG, nothing
+    /// decoded or written again. Greyed as "the result is a file", or a
+    /// copy of the text of the bytes, and it is red.
+    #[gpui::test]
+    fn a_cleaned_picture_is_copied_as_the_picture(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("copy-picture");
+        let fixture = |name: &str| {
+            std::fs::read(format!(
+                "{}/../../fixtures/image/{name}",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .expect("a fixture")
+        };
+        let png = scratch.file("shot.png", &fixture("xmp-provenance-url.png"));
+        let jpeg = scratch.file("photo.jpg", &fixture("xmp-provenance.jpg"));
+        let (queue, _, cx) = queue_in(cx, &scratch);
+
+        queue.update(cx, |queue, cx| queue.hand(vec![png, jpeg], cx));
+        cx.run_until_parked();
+        let ids = cx.update(|_, cx| queue.read(cx).ids());
+        queue.update(cx, |queue, cx| queue.clean(&ids, cx));
+        cx.run_until_parked();
+        assert_eq!(statuses(&queue, cx), ["cleaned", "cleaned"]);
+
+        for (id, format) in ids
+            .into_iter()
+            .zip([gpui::ImageFormat::Png, gpui::ImageFormat::Jpeg])
+        {
+            let ((_, _, copy), items) = cx
+                .update(|_, cx| queue.read(cx).menu_of(id, cx))
+                .expect("a menu");
+            assert_eq!(copy, Message::QueueActionCopyResultImage, "{format:?}");
+            assert!(items.contains(&("copy-result", Item::Live)), "{items:?}");
+
+            cx.update(|_, cx| cx.write_to_clipboard(ClipboardItem::new_string(String::new())));
+            cx.update(|_, cx| copy_result(&queue, id, cx));
+            cx.run_until_parked();
+            let copied = cx
+                .update(|_, cx| cx.read_from_clipboard())
+                .expect("the clipboard");
+            let written = std::fs::read(written_of(&queue, id, cx)).expect("the result");
+            assert_eq!(
+                copied.entries(),
+                &[gpui::ClipboardEntry::Image(gpui::Image::from_bytes(
+                    format, written
+                ))],
+                "the copy is not the result picture"
+            );
+        }
     }
 }

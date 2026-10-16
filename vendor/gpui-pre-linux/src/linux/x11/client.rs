@@ -1,4 +1,4 @@
-// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; a refused type falls back to the next, and the drop is placed where XdndPosition says (vendor/gpui-pre-linux.patch).
+// Modified by GigLabo and Denis Esakov, 2026-10-12 and 2026-10-16: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; a refused type falls back to the next, and the drop is placed where XdndPosition says; a picture written to the clipboard is offered as that picture (vendor/gpui-pre-linux.patch).
 use anyhow::{Context as _, anyhow};
 use ashpd::WindowIdentifier;
 use calloop::{
@@ -2195,13 +2195,19 @@ impl X11Client {
 
     pub(crate) fn write_to_clipboard(&self, item: gpui::ClipboardItem) {
         let mut state = self.0.borrow_mut();
-        state
-            .clipboard
-            .set_text(
+        let written = match item.entries() {
+            [gpui::ClipboardEntry::Image(image)] => state.clipboard.set_image(
+                image.clone(),
+                clipboard::ClipboardKind::Clipboard,
+                clipboard::WaitConfig::None,
+            ),
+            _ => state.clipboard.set_text(
                 std::borrow::Cow::Owned(item.text().unwrap_or_default()),
                 clipboard::ClipboardKind::Clipboard,
                 clipboard::WaitConfig::None,
-            )
+            ),
+        };
+        written
             .context("X11: Failed to write to clipboard (clipboard)")
             .log_with_level(log::Level::Debug);
         state.clipboard_item.replace(item);

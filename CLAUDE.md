@@ -234,7 +234,10 @@ through `[patch.crates-io]`. The patch keeps a file dropped before GPUI has
 read its file list from being lost on X11 or Wayland (acceptance F9,
 D620–D627). It also takes a dragged text: the text is handed over as a
 private drop file that `drop.rs` reads back as a text and removes
-(acceptance F15, D653–D659). `scripts/check-gpui-pin.sh` fails on anything else in that
+(acceptance F15, D653–D659). And it writes a picture put on the clipboard
+as that picture, under its own type, where both backends wrote its text
+(an empty one) — what Copy the result image needs (D764).
+`scripts/check-gpui-pin.sh` fails on anything else in that
 directory; `docs/architecture/gpui-pin.md` §2 says how to change or drop
 it. The stale first frame — a new window showing a piece of the
 screen until the mouse moved, because its `MapNotify` stayed in x11rb's
@@ -418,5 +421,5 @@ with `"think": false` (D709).
 and the socket go. A second signal ends the process at once.
 
 Everything else is stage two (§4 of the release plan). The next free
-decision block is **D761** (D758–D760 hand the buttons that do not fit Compare's result strip to a more menu; D755–D757 put the submodule back on upstream gpui-kit `next`; D752–D754 make a window close itself after the event that asked, on macOS by AppKit's close, F23; D750–D751 make a caller's row look as a window's row of the same thing, F28; D748–D749 make Compare's words fit its window, F27; D745–D747 make the engine say it is starting until the first models scan lands, F26; D740–D744 make no process reach `exit` with a local model loaded, F31; D735–D739 make the panel on macOS come and go on its own, F30; D734 makes the program's own directory a link's target, F29; D729–D733 make a row's actions depend on what is on disk, never on where the row came from; D728 makes AppKit window changes outside a GPUI update, F24; D723–D727 are the panel's nine anchors; D722 is the tray's Show/Hide panel item; D721 puts Compare's wrap on by default; D703–D708 are Redo a row's, D709–D714 F20/F19's, D715–D719 F1/F7's, D720 where the two meet; D702 is the macOS acceptance's Rewrite all; D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
+decision block is **D765** (D761–D764 make a row's Open with say so, and its Copy the result copy whatever the result is — a text file's as its text, a picture's as the picture, F32; D758–D760 hand the buttons that do not fit Compare's result strip to a more menu; D755–D757 put the submodule back on upstream gpui-kit `next`; D752–D754 make a window close itself after the event that asked, on macOS by AppKit's close, F23; D750–D751 make a caller's row look as a window's row of the same thing, F28; D748–D749 make Compare's words fit its window, F27; D745–D747 make the engine say it is starting until the first models scan lands, F26; D740–D744 make no process reach `exit` with a local model loaded, F31; D735–D739 make the panel on macOS come and go on its own, F30; D734 makes the program's own directory a link's target, F29; D729–D733 make a row's actions depend on what is on disk, never on where the row came from; D728 makes AppKit window changes outside a GPUI update, F24; D723–D727 are the panel's nine anchors; D722 is the tray's Show/Hide panel item; D721 puts Compare's wrap on by default; D703–D708 are Redo a row's, D709–D714 F20/F19's, D715–D719 F1/F7's, D720 where the two meet; D702 is the macOS acceptance's Rewrite all; D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
 history of every merge is [docs/plan/history.md](docs/plan/history.md).
