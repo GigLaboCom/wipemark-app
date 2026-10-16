@@ -837,7 +837,12 @@ The gates: `the_unload_button_shows_only_for_a_loaded_model_on_this_machine`,
 `the_main_windows_unload_waits_for_nothing_and_unloads_only_an_idle_model`,
 `every_holder_is_counted_as_who_it_is`, the two race tests above,
 `the_unload_button_reads_clearly_in_both_themes`, and
-`every_holder_says_why_in_every_language`.
+`every_holder_says_why_in_every_language`. Live on macOS
+(`scripts/verify/f36/unload-live.sh`, 2026-10-16, Gemma 4 12B on Metal, the
+dark theme): absent while the engine started, there once the model loaded,
+greyed while the command line's rewrite ran through the application, and
+one press took the process's resident memory from 5 124 704 KiB to
+145 216 KiB; the next rewrite loaded the model again.
 
 ## What it does not do yet
 
