@@ -1,0 +1,44 @@
+# Captures for `cargo run --release -p wipemark-pixels --example calibrate -- <this dir> --out <dir>`.
+#
+# Original downloads only: the product's own Download or Save button. Never a
+# screenshot, never sent through a messenger or a photo app, never re-saved —
+# those recompress and strip, and the calibration would learn the messenger.
+# Per output size: 3 on black, 3 on white (5 each when the product gives JPEG),
+# 3 on mid-grey (#808080), 5 ordinary pictures with busy bottom corners, and,
+# when the product allows it, 5 pairs of one generation with and without the
+# mark (`clean`). See docs/sdd/visible-marks.md §4.6.
+
+id = "acme-logo-v1"          # a format: lower-case ASCII, never renamed
+vendor = "acme"
+product = "imagine"
+mark = "logo"
+observed = "2026-10"         # the month these were made
+
+[[capture]]
+file = "1024x1024/black-1.png"
+background = "black"         # black | white | grey | content
+tier = "free"
+app = "web"
+date = "2026-10-04"
+
+[[capture]]
+file = "1024x1024/white-1.png"
+background = "white"
+tier = "free"
+app = "web"
+date = "2026-10-04"
+
+[[capture]]
+file = "1024x1024/grey-1.png"
+background = "grey"
+tier = "free"
+app = "web"
+date = "2026-10-04"
+
+[[capture]]
+file = "1024x1024/pair-1-marked.png"
+background = "content"
+clean = "1024x1024/pair-1-clean.png"   # the same generation without the mark
+tier = "free"
+app = "web"
+date = "2026-10-04"

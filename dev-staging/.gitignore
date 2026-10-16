@@ -1,0 +1,6 @@
+# Defense-in-depth. Every corpus artefact in this directory is also
+# ignored from the repository root, but a local rule here means a stray
+# `git add dev-staging/` can never include them.
+node_modules/
+fontawesome-free/
+package-lock.json

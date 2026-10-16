@@ -1,0 +1,15 @@
+[package]
+name = "wipemark-license"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Heretic licence activation: Ed25519/PASETO tokens, offline grace, device fingerprint."
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

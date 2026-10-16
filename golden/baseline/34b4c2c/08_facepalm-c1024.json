@@ -1,0 +1,62 @@
+{
+ "id": "08_facepalm-c1024",
+ "class": "frames",
+ "variant": "c1024-png",
+ "input_sha256": "b3cbb39faf2fb9c884b893a73a0bf26813196465f018da2274429211fbe32180",
+ "inspect": {
+  "exit": 0,
+  "json": {
+   "container": "png",
+   "ai_metadata": false,
+   "c2pa": false,
+   "findings": [],
+   "visible": {
+    "examined": true,
+    "restorable": true,
+    "found": [],
+    "restored": []
+   },
+   "not_established": [
+    "invisible-pixel-marks",
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes"
+   ]
+  }
+ },
+ "clean": {
+  "exit": 0,
+  "json": {
+   "report": {
+    "container": "png",
+    "still_has_ai_metadata": false,
+    "still_has_c2pa": false,
+    "removed": [],
+    "kept": [],
+    "orientation_removed": null,
+    "visible": {
+     "examined": true,
+     "restorable": true,
+     "found": [],
+     "restored": []
+    },
+    "encoding": {
+     "kind": "unchanged"
+    },
+    "marks_left": false,
+    "not_established": [
+     "invisible-pixel-marks",
+     "vendor-detector-evasion",
+     "human-authorship",
+     "unknown-mark-schemes"
+    ]
+   },
+   "written": true
+  },
+  "output_sha256": "b3cbb39faf2fb9c884b893a73a0bf26813196465f018da2274429211fbe32180"
+ },
+ "time_s": {
+  "inspect": 1.0683,
+  "clean": 1.0117
+ }
+}

@@ -1,0 +1,1674 @@
+//! The document journal, as the application keeps it (E4-6b, R4): a status
+//! for every document somebody handed over — a window, the panel, a launch
+//! flag, an agent, the command line — and the batch queue every rewrite
+//! runs in.
+//!
+//! # Three writers, one table
+//!
+//! The table is `wipemark-store`'s; its words are
+//! `wipemark_store::entry`'s, shared with the command line, which writes
+//! its own row when no application takes its call (D314). Inside the
+//! application:
+//!
+//! * **the windows** write through a [`Writer`] — one thread of its own,
+//!   in the order asked, so the GPUI thread never waits on the database
+//!   and a row's change can never land before the row. A window names its
+//!   rows by its own session numbers ([`crate::clean::number`]); the
+//!   writer maps them to journal ids and says which, as
+//!   [`Note::Recorded`].
+//! * **the MCP server's connection threads** write directly — they may
+//!   block — and are told the id, which an answer hands back to the caller
+//!   as `_meta["wipemark/journal"]`.
+//! * **the bookkeeper**, a thread reading the batch queue's events, writes
+//!   every queued rewrite's start and end into its row, whichever surface
+//!   pushed it — so an end the window was not open to hear still lands.
+//!
+//! Every write says so on one channel ([`Journal::notes`]); the main
+//! window reads it and reads the rows again. A row the **command line**
+//! wrote through its own connection says nothing on that channel, and is
+//! noticed by `PRAGMA data_version` instead, polled once a second (D316).
+//!
+//! # What a row keeps
+//!
+//! Metadata (D312, В4): the name, the size, what was asked, what came of
+//! it, where the result went — never the document. A rewrite's text lives
+//! in the batch queue's row while it is needed: queued or running, and
+//! after the end only when the row is the result's one home (a paste
+//! rewritten in the window). An agent's text goes back to the agent and
+//! its queue row is removed the moment it has (D313).
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+
+use wipemark_intake::{Arrived, Handed, Intake, Kind};
+use wipemark_queue::{End, ItemId, Queue, QueueEvent, Whereto};
+use wipemark_store::entry::{Action, Delivered, Entry, Origin, Outcome, Phase};
+use wipemark_store::{Change, JournalRow, NewRow, Store};
+
+use crate::clean::{self, Refusal, Verdict};
+use crate::drop::Arrival;
+
+/// Milliseconds since the Unix epoch, UTC — the journal's clock.
+pub fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+/// What the journal says when it was written to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Note {
+    /// Some row changed: read them again.
+    Changed,
+    /// The window's row `key` is journal row `id`.
+    Recorded { key: u64, id: i64 },
+}
+
+/// The journal: the application's store and the channel its writes are
+/// announced on.
+pub struct Journal {
+    store: Arc<Store>,
+    notes: (flume::Sender<Note>, flume::Receiver<Note>),
+}
+
+impl std::fmt::Debug for Journal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Journal").finish_non_exhaustive()
+    }
+}
+
+impl Journal {
+    pub fn new(store: Arc<Store>) -> Arc<Journal> {
+        Arc::new(Journal {
+            store,
+            notes: flume::unbounded(),
+        })
+    }
+
+    /// The database the journal is in — where a rewrite's template rows
+    /// are read from too.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// The channel every write is announced on. One reader: the main
+    /// window.
+    pub fn notes(&self) -> flume::Receiver<Note> {
+        self.notes.1.clone()
+    }
+
+    fn say(&self, note: Note) {
+        let _ = self.notes.0.send(note);
+    }
+
+    /// Add a row; its id. Blocking. A database that will not take it is a
+    /// warning and `None`: the work goes on without its status.
+    pub fn record(&self, row: &NewRow) -> Option<i64> {
+        match self.store.journal().insert(row) {
+            Ok(id) => {
+                self.say(Note::Changed);
+                Some(id)
+            }
+            Err(error) => {
+                tracing::warn!(%error, action = row.action, "the journal could not take a row");
+                None
+            }
+        }
+    }
+
+    /// Change row `id` unless it has ended or names another item than
+    /// `change.item`. Blocking.
+    pub fn change_open(&self, id: i64, change: &Change) {
+        match self.store.journal().update_open(id, change) {
+            Ok(true) => self.say(Note::Changed),
+            Ok(false) => {}
+            Err(error) => tracing::warn!(%error, id, "the journal could not change a row"),
+        }
+    }
+
+    /// Change row `id` while it still names `change.item` — the end of an
+    /// item, written after the row was read, over nothing the row was moved
+    /// on to since: a clean pressed the moment the table heard the end
+    /// stands. Blocking.
+    pub fn change_item(&self, id: i64, change: &Change) {
+        match self.store.journal().update_item(id, change) {
+            Ok(true) => self.say(Note::Changed),
+            Ok(false) => tracing::info!(
+                id,
+                item = change.item,
+                "an item's end found its row moved on, and is not written over it"
+            ),
+            Err(error) => tracing::warn!(%error, id, "the journal could not change a row"),
+        }
+    }
+
+    /// Change row `id`. Blocking.
+    pub fn change(&self, id: i64, change: &Change) {
+        match self.store.journal().update(id, change) {
+            Ok(_) => self.say(Note::Changed),
+            Err(error) => tracing::warn!(%error, id, "the journal could not change a row"),
+        }
+    }
+
+    /// Every row, oldest first. Blocking.
+    pub fn rows(&self) -> Vec<JournalRow> {
+        self.store.journal().rows().unwrap_or_else(|error| {
+            tracing::warn!(%error, "the journal could not be read");
+            Vec::new()
+        })
+    }
+
+    /// Mark row `id`'s result as saved, edited, at `at` — `outcome.edited`
+    /// and nothing else of the row (D417) — while the row's last action is
+    /// `action` (D442). Blocking.
+    pub fn mark_edited(&self, id: i64, at: i64, action: Action) {
+        match self.store.journal().mark_edited(id, at, action.as_str()) {
+            Ok(true) => self.say(Note::Changed),
+            Ok(false) => {
+                tracing::info!(
+                    id,
+                    action = action.as_str(),
+                    "an edit mark found no entry of its action to land on"
+                );
+            }
+            Err(error) => tracing::warn!(%error, id, "the journal could not mark an edit"),
+        }
+    }
+
+    /// Forget row `id`. Blocking.
+    pub fn remove(&self, id: i64) {
+        if self.store.journal().remove(id).is_ok() {
+            self.say(Note::Changed);
+        }
+    }
+
+    /// The keep period: rows that ended more than `days` ago. Never one
+    /// that has not ended. Blocking.
+    ///
+    /// The batch queue items the swept rows named are returned, for the
+    /// caller to remove too: a result whose only home was the row goes
+    /// with the row (В4).
+    pub fn sweep(&self, days: u32, now: i64) -> Vec<ItemId> {
+        let cutoff = now - i64::from(days) * 24 * 60 * 60 * 1000;
+        let items: HashMap<i64, i64> = self
+            .rows()
+            .into_iter()
+            .filter_map(|row| Some((row.id, row.item?)))
+            .collect();
+        match self.store.journal().sweep(cutoff) {
+            Ok(removed) => {
+                if !removed.is_empty() {
+                    tracing::info!(rows = removed.len(), days, "the journal's old rows went");
+                    self.say(Note::Changed);
+                }
+                removed
+                    .iter()
+                    .filter_map(|id| items.get(id).map(|item| ItemId(*item)))
+                    .collect()
+            }
+            Err(error) => {
+                tracing::warn!(%error, "the journal could not be swept");
+                Vec::new()
+            }
+        }
+    }
+
+    /// `PRAGMA data_version` — moves when another process writes.
+    pub fn data_version(&self) -> Option<i64> {
+        self.store.data_version().ok()
+    }
+
+    /// A writer for a window: one thread, writes in the order asked.
+    pub fn writer(self: &Arc<Self>) -> Writer {
+        let (commands, inbox) = flume::unbounded::<Command>();
+        let journal = Arc::clone(self);
+        let spawned = std::thread::Builder::new()
+            .name("wipemark-journal".to_owned())
+            .spawn(move || {
+                let mut ids: HashMap<u64, i64> = HashMap::new();
+                for command in inbox.iter() {
+                    match command {
+                        Command::Record { key, row } => {
+                            let new = NewRow {
+                                origin: row.origin.as_str(),
+                                action: row.action.as_str(),
+                                state: row.phase.as_str(),
+                                item: row.item,
+                                arrived: row.arrived,
+                                ended: row.ended,
+                                entry: &row.entry.to_json(),
+                            };
+                            // Said as `Recorded` alone: the window that
+                            // asked knows the row already, and a `Changed`
+                            // first would have it read back a row of its
+                            // own it cannot yet name.
+                            match journal.store.journal().insert(&new) {
+                                Ok(id) => {
+                                    ids.insert(key, id);
+                                    journal.say(Note::Recorded { key, id });
+                                }
+                                Err(error) => tracing::warn!(
+                                    %error,
+                                    "the journal could not take a window's row"
+                                ),
+                            }
+                        }
+                        Command::Adopt { key, id } => {
+                            ids.insert(key, id);
+                        }
+                        Command::Change { key, row } => {
+                            let Some(&id) = ids.get(&key) else {
+                                continue;
+                            };
+                            journal.change(
+                                id,
+                                &Change {
+                                    action: row.action.as_str(),
+                                    state: row.phase.as_str(),
+                                    item: row.item,
+                                    ended: row.ended,
+                                    entry: &row.entry.to_json(),
+                                },
+                            );
+                        }
+                        Command::Queue { key, row, push } => {
+                            // The row names its item before the item can
+                            // start: an end the bookkeeper writes always
+                            // finds it, and nothing written here can land
+                            // after that end (D358).
+                            if let Some(&id) = ids.get(&key) {
+                                journal.change(
+                                    id,
+                                    &Change {
+                                        action: row.action.as_str(),
+                                        state: row.phase.as_str(),
+                                        item: row.item,
+                                        ended: row.ended,
+                                        entry: &row.entry.to_json(),
+                                    },
+                                );
+                            }
+                            push();
+                        }
+                        Command::Forget { key } => {
+                            if let Some(id) = ids.remove(&key) {
+                                journal.remove(id);
+                            }
+                        }
+                        Command::Edited { key, at, action } => {
+                            if let Some(&id) = ids.get(&key) {
+                                journal.mark_edited(id, at, action);
+                            }
+                        }
+                        Command::Flushed(done) => {
+                            let _ = done.send(());
+                        }
+                        Command::IdOf { key, answer } => {
+                            let _ = answer.send(ids.get(&key).copied());
+                        }
+                        #[cfg(test)]
+                        Command::Gate(gate) => {
+                            let _ = gate.recv();
+                        }
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::error!(%error, "the journal's writer could not start");
+        }
+        Writer { commands }
+    }
+}
+
+/// What a window writes for one of its rows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Written {
+    pub origin: Origin,
+    pub action: Action,
+    pub phase: Phase,
+    pub item: Option<i64>,
+    pub arrived: i64,
+    pub ended: Option<i64>,
+    pub entry: Entry,
+}
+
+enum Command {
+    Record {
+        key: u64,
+        row: Box<Written>,
+    },
+    Adopt {
+        key: u64,
+        id: i64,
+    },
+    Change {
+        key: u64,
+        row: Box<Written>,
+    },
+    /// Write row `key`, then push its item — in that order, on the writer's
+    /// thread (D358).
+    Queue {
+        key: u64,
+        row: Box<Written>,
+        push: Box<dyn FnOnce() + Send>,
+    },
+    Forget {
+        key: u64,
+    },
+    /// Row `key`'s result — of `action` — was saved, edited, at `at`
+    /// (D417, D442).
+    Edited {
+        key: u64,
+        at: i64,
+        action: Action,
+    },
+    /// Everything asked before this is written: say so (D440).
+    Flushed(flume::Sender<()>),
+    /// Which journal row `key` is, once everything asked before this is
+    /// written (D637).
+    IdOf {
+        key: u64,
+        answer: flume::Sender<Option<i64>>,
+    },
+    /// Wait for the test to say go: the writer held still, so a test can
+    /// see what lands while it is.
+    #[cfg(test)]
+    Gate(flume::Receiver<()>),
+}
+
+/// The windows' road to the journal: asked from the GPUI thread, written
+/// on the writer's own, in order.
+#[derive(Clone)]
+pub struct Writer {
+    commands: flume::Sender<Command>,
+}
+
+impl Writer {
+    /// Add row `key`.
+    pub fn record(&self, key: u64, row: Written) {
+        let _ = self.commands.send(Command::Record {
+            key,
+            row: Box::new(row),
+        });
+    }
+
+    /// Row `key` is journal row `id`, read back at launch.
+    pub fn adopt(&self, key: u64, id: i64) {
+        let _ = self.commands.send(Command::Adopt { key, id });
+    }
+
+    /// Row `key` is now `row`.
+    pub fn change(&self, key: u64, row: Written) {
+        let _ = self.commands.send(Command::Change {
+            key,
+            row: Box::new(row),
+        });
+    }
+
+    /// Row `key` is now `row`, which names an item; `push` puts the item in
+    /// the batch queue once the row is written, never before (D358) — so
+    /// an item that ends at once still finds its row, and its end is never
+    /// written over by the "queued" that announced it.
+    pub fn queue(&self, key: u64, row: Written, push: impl FnOnce() + Send + 'static) {
+        let _ = self.commands.send(Command::Queue {
+            key,
+            row: Box::new(row),
+            push: Box::new(push),
+        });
+    }
+
+    /// Hold the writer until the answer is sent (or dropped) — for a test.
+    #[cfg(test)]
+    pub fn gate(&self) -> flume::Sender<()> {
+        let (go, gate) = flume::bounded(1);
+        let _ = self.commands.send(Command::Gate(gate));
+        go
+    }
+
+    /// Row `key` is gone.
+    pub fn forget(&self, key: u64) {
+        let _ = self.commands.send(Command::Forget { key });
+    }
+
+    /// Row `key`'s result was saved from the Compare window, edited, at
+    /// `at` (milliseconds since the epoch): a mark in its outcome, written
+    /// in its turn after everything asked before it (D417) — and only
+    /// while the row's last action is still `action` (D442).
+    pub fn edited(&self, key: u64, at: i64, action: Action) {
+        let _ = self.commands.send(Command::Edited { key, at, action });
+    }
+
+    /// Which journal row the window's row `key` is, answered **in order**
+    /// — after every row asked of this writer before it is written (D637).
+    /// What a result of the row's own is named by: a clean or a rewrite of
+    /// a row the window recorded a moment ago asks this, and is answered
+    /// once that row has its id. `None` when the journal would not take
+    /// the row; a writer whose thread is gone answers nothing, and the
+    /// receiver disconnects.
+    pub fn id_of(&self, key: u64) -> flume::Receiver<Option<i64>> {
+        let (answer, answered) = flume::bounded(1);
+        let _ = self.commands.send(Command::IdOf { key, answer });
+        answered
+    }
+
+    /// The tag a result of row `key`'s own is named by, asked of this
+    /// writer when the result is written ([`Tag::Asked`]).
+    pub fn tag(&self, key: u64) -> Tag {
+        Tag::Asked {
+            writer: self.clone(),
+            key,
+            read: Arc::default(),
+        }
+    }
+
+    /// Answered once everything asked of this writer before it is written
+    /// — what a window's quit awaits, inside GPUI's budget, so a mark sent
+    /// at quit is in the database before the process ends (D440). A writer
+    /// whose thread is gone answers at once: the receiver disconnects.
+    pub fn flushed(&self) -> flume::Receiver<()> {
+        let (done, flushed) = flume::bounded(1);
+        let _ = self.commands.send(Command::Flushed(done));
+        flushed
+    }
+}
+
+/// What a result of a row's own is named by, when its plain name is taken
+/// (D635, D637): `name.cleaned-<id>.ext`, `name.rewritten-<id>.ext`, the
+/// `<id>` the **journal's** — the one the table's ID column shows, the one
+/// an agent names the document by, and unique for the life of the database
+/// (`AUTOINCREMENT`), so two rows can never claim one name and the file
+/// names its row for whoever reads it.
+///
+/// A window knows its row's journal id only once the writer has said which
+/// ([`Note::Recorded`]), and a clean or a rewrite may be asked for before
+/// that — `--clean=`, a drop processed on arrival, the panel's Clean, which
+/// records its row a moment after it asks. So the tag is asked of the
+/// writer that recorded the row, through that writer's own line
+/// ([`Writer::id_of`]), **when the result is about to be written** — on
+/// the background, long after the window's turn that recorded the row has
+/// ended: the answer comes after the row's insert, never before.
+#[derive(Clone)]
+pub enum Tag {
+    /// Known already: the row's journal id.
+    Id(i64),
+    /// To be asked of the row's writer under the window's number `key` —
+    /// which is also the answer when the journal has no row for it (a
+    /// database that would not take one, a writer that is gone).
+    Asked {
+        writer: Writer,
+        key: u64,
+        /// The answer once read — every clone of the tag reads the same.
+        read: Arc<OnceLock<String>>,
+    },
+    /// No journal at all: the window's own number for the row.
+    Number(u64),
+}
+
+impl std::fmt::Debug for Tag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Tag::Id(id) => f.debug_tuple("Id").field(id).finish(),
+            Tag::Asked { key, read, .. } => f
+                .debug_struct("Asked")
+                .field("key", key)
+                .field("read", &read.get())
+                .finish_non_exhaustive(),
+            Tag::Number(number) => f.debug_tuple("Number").field(number).finish(),
+        }
+    }
+}
+
+impl Tag {
+    /// How long a tag waits for the writer — a database that hangs must not
+    /// hang a clean with it. Past it, the row's own number.
+    const PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
+
+    /// The tag of row `key`: its journal id when the window knows it, asked
+    /// of `writer` when there is one, the window's number otherwise.
+    pub fn of(key: u64, entry: Option<i64>, writer: Option<&Writer>) -> Tag {
+        match (entry, writer) {
+            (Some(id), _) => Tag::Id(id),
+            (None, Some(writer)) => writer.tag(key),
+            (None, None) => Tag::Number(key),
+        }
+    }
+
+    /// The tag as a file name spells it. **Blocking**, for [`Tag::Asked`]:
+    /// called on the background, where the result is written.
+    pub fn resolve(&self) -> String {
+        match self {
+            Tag::Id(id) => id.to_string(),
+            Tag::Number(number) => number.to_string(),
+            Tag::Asked { writer, key, read } => read
+                .get_or_init(|| match writer.id_of(*key).recv_timeout(Self::PATIENCE) {
+                    Ok(Some(id)) => id.to_string(),
+                    _ => key.to_string(),
+                })
+                .clone(),
+        }
+    }
+}
+
+impl PartialEq for Tag {
+    /// Two tags are one when they would name a row alike as far as can be
+    /// told without asking: the same id, or the same window number.
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Tag::Id(a), Tag::Id(b)) => a == b,
+            (Tag::Number(a), Tag::Number(b)) => a == b,
+            (Tag::Asked { key: a, .. }, Tag::Asked { key: b, .. }) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Tag {}
+
+/// The batch queue and the journal, as everything that rewrites reaches
+/// them: the main window, the panel, the MCP server.
+#[derive(Clone)]
+pub struct Work {
+    pub queue: Arc<Queue>,
+    pub journal: Arc<Journal>,
+    /// The engine on duty — what a window prices a rewrite by (D61).
+    pub engine: crate::engine_host::EngineHandle,
+    /// Where the duty sends a document now, as the main window last worked
+    /// it out from the preferences — what a push records as its consent
+    /// (D361). Never what the consent is checked against: the queue asks
+    /// the engine it is handed where that engine sends a document (D370).
+    pub whereto: Going,
+}
+
+/// Where a rewrite on duty would send a document now: this machine, an
+/// endpoint's origin, or `None` — nothing on duty, or not worked out yet
+/// (D361). Set on the GPUI thread whenever the preferences change, and
+/// read there: it words the window and tells it when to wake the queue.
+#[derive(Clone, Default)]
+pub struct Going(Arc<Mutex<Option<Whereto>>>);
+
+impl Going {
+    pub fn set(&self, now: Option<Whereto>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = now;
+    }
+
+    pub fn get(&self) -> Option<Whereto> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+/// The application's work as a GPUI global, for the windows.
+pub struct Working(pub Work);
+
+impl gpui::Global for Working {}
+
+/// The application's work, as a window reaches it — `None` in a test that
+/// built no work.
+pub fn working(cx: &gpui::App) -> Option<Work> {
+    cx.try_global::<Working>().map(|working| working.0.clone())
+}
+
+static WORK: OnceLock<Work> = OnceLock::new();
+
+/// Set the application's work once, at startup, before the MCP server can
+/// be asked for anything.
+pub fn install(work: Work) {
+    if WORK.set(work).is_err() {
+        tracing::warn!("the application's work was installed twice; the first stands");
+    }
+}
+
+/// The application's work, once installed.
+pub fn installed() -> Option<Work> {
+    WORK.get().cloned()
+}
+
+/// Whether a rewrite is a **caller's call** (D730): an agent's or the
+/// command line's, whose caller waits for its item, takes the text back
+/// and writes the row's end itself — rather than an action somebody started
+/// in a window, whose result goes where the Retention page says and whose
+/// end the bookkeeper writes.
+///
+/// A row's origin says who handed the document over, never who asked for
+/// this run of it: Rewrite again pressed in the table on a row the command
+/// line made (D703) is the person's, and its result goes over the row's own
+/// (`Row::written`), never "to the caller", who is gone. What tells the two
+/// apart is the batch-queue item: every window push records where the
+/// person agreed the document may go (D361, D393), and a caller's item
+/// carries no such consent. `consented` is whether the item does.
+pub fn callers_call(origin: Option<Origin>, consented: bool) -> bool {
+    matches!(origin, Some(Origin::Agent | Origin::Cli)) && !consented
+}
+
+/// Whether batch-queue item `item` was pushed with a window's consent
+/// (D361) — the person's action — as the queue lists it now. An item the
+/// queue no longer lists carries none that can be read: a caller's item is
+/// removed the moment its answer goes back (D313), while a window's stays
+/// until its row goes. Blocking only as long as the queue's list is locked.
+pub fn consented(queue: &Queue, item: ItemId) -> bool {
+    queue
+        .items()
+        .iter()
+        .any(|view| view.id == item && view.consent.is_some())
+}
+
+/// Start the bookkeeper: every queued rewrite's start written into its row,
+/// whichever surface pushed it, and the end of every rewrite a window asked
+/// for — on any row, a command line's or an agent's included (D730). Reads
+/// the queue's own first channel, which has buffered every event since the
+/// queue opened — so an item that ended before any window was there is
+/// still written down. A caller's end ([`callers_call`]) is written by the
+/// call that waits for it, before it answers, so that the command line's
+/// own change to the row (the file it wrote) comes after it.
+pub fn keep_books(work: &Work) {
+    let events = work.queue.events();
+    let journal = Arc::clone(&work.journal);
+    let queue = Arc::clone(&work.queue);
+    let spawned = std::thread::Builder::new()
+        .name("wipemark-bookkeeper".to_owned())
+        .spawn(move || {
+            for event in events.iter() {
+                book(&journal, &event, &|item| consented(&queue, item));
+            }
+        });
+    if let Err(error) = spawned {
+        tracing::error!(%error, "the journal's bookkeeper could not start");
+    }
+}
+
+/// One queue event, into the row of the item it is about. `consented` says
+/// whether an item was pushed with a window's consent ([`consented`]), which
+/// is what makes its end this function's to write ([`callers_call`]).
+pub fn book(journal: &Journal, event: &QueueEvent, consented: &dyn Fn(ItemId) -> bool) {
+    let (item, phase, end) = match event {
+        QueueEvent::Started { item } => (*item, Phase::Running, None),
+        QueueEvent::Interrupted { item } => (*item, Phase::Queued, None),
+        QueueEvent::Ended { item, end } => {
+            let phase = match end {
+                End::Done(_) | End::Delivered { .. } => Phase::Done,
+                End::Failed(_) => Phase::Failed,
+                End::Cancelled => Phase::Cancelled,
+            };
+            (*item, phase, Some(end))
+        }
+        _ => return,
+    };
+    let Some(row) = journal
+        .rows()
+        .into_iter()
+        .rev()
+        .find(|row| row.item == Some(item.0))
+    else {
+        return;
+    };
+    let mut entry = Entry::from_json(&row.entry);
+    let Some(end) = end else {
+        // A start or an interruption heard after the end was written — by
+        // the waiting call, a thread of its own — must not reopen the row.
+        journal.change_open(
+            row.id,
+            &Change {
+                action: &row.action,
+                state: phase.as_str(),
+                item: row.item,
+                ended: None,
+                entry: &row.entry,
+            },
+        );
+        return;
+    };
+    // A caller's text went back to whoever asked, and the waiting call
+    // writes its end; a window's went where the Retention page said — on a
+    // command line's or an agent's row too, when the person asked (D730).
+    if callers_call(Origin::parse(&row.origin), consented(item)) {
+        return;
+    }
+    let (outcome, delivered) = rewrite_end(end, false);
+    entry.outcome = Some(outcome);
+    entry.result = delivered.or(entry.result);
+    // Only while the row still names the item: the window's writer may have
+    // moved it on since it was read — a Clean pressed the moment the table
+    // said *Not rewritten* (D720) — and that stands.
+    journal.change_item(
+        row.id,
+        &Change {
+            action: &row.action,
+            state: phase.as_str(),
+            item: row.item,
+            ended: Some(now_ms()),
+            entry: &entry.to_json(),
+        },
+    );
+}
+
+/// What a rewrite's end comes to, for its row: the outcome, and where the
+/// result went — the caller, for a caller's call (`caller`, [`callers_call`]).
+///
+/// A job that rewrote nothing — every chunk kept its source — is
+/// `not-rewritten` (D711), never `partly`, with the rejection most of its
+/// attempts were thrown away for as its reason — and nothing was
+/// delivered, whoever asked (D712, the owner): the batch queue writes no
+/// file and keeps no text for such a job, and the MCP tool answers it as
+/// an error with no text.
+pub fn rewrite_end(end: &End, caller: bool) -> (Outcome, Option<Delivered>) {
+    match end {
+        End::Done(done) => {
+            let totals = done.report.totals();
+            let nothing = done.report.nothing_rewritten();
+            let verdict = if nothing.is_some() {
+                "not-rewritten"
+            } else if totals.kept_source > 0 {
+                "partly"
+            } else {
+                "rewritten"
+            };
+            let outcome = Outcome {
+                verdict: verdict.to_owned(),
+                reason: nothing.as_ref().map(|nothing| nothing.reason.clone()),
+                attempts: nothing.as_ref().map(|nothing| nothing.attempts),
+                reason_count: nothing.as_ref().map(|nothing| nothing.count),
+                findings: Some(done.report.before.findings.len() as u64),
+                kept: Some(done.report.before.kept.len() as u64),
+                chunks: Some(totals.chunks),
+                rewritten: Some(totals.rewritten),
+                kept_source: Some(totals.kept_source),
+                model: Some(done.report.engine.model_id.clone()),
+                // The template profile the job's report names (E4-9, D516):
+                // an id, never a template's text (D312).
+                profile: Some(done.report.profile.clone()),
+                ..Outcome::default()
+            };
+            let delivered = if nothing.is_some() {
+                Delivered::Nowhere
+            } else if caller {
+                Delivered::Caller
+            } else {
+                match &done.written {
+                    Some(written) => Delivered::File {
+                        path: written.path.to_string_lossy().into_owned(),
+                        original: written
+                            .original
+                            .as_ref()
+                            .map(|path| path.to_string_lossy().into_owned()),
+                        replaced: false,
+                    },
+                    None => Delivered::Row,
+                }
+            };
+            (outcome, Some(delivered))
+        }
+        End::Delivered { written } => (
+            Outcome {
+                verdict: "rewritten".to_owned(),
+                ..Outcome::default()
+            },
+            Some(match written {
+                Some(written) => Delivered::File {
+                    path: written.path.to_string_lossy().into_owned(),
+                    original: written
+                        .original
+                        .as_ref()
+                        .map(|path| path.to_string_lossy().into_owned()),
+                    replaced: false,
+                },
+                None => Delivered::Nowhere,
+            }),
+        ),
+        End::Failed(failure) => {
+            let reason = match failure.as_ref() {
+                wipemark_queue::Failure::Undelivered(undelivered) => undelivered.reason(),
+                other => other.kind(),
+            };
+            (
+                Outcome {
+                    verdict: "failed".to_owned(),
+                    reason: Some(reason.to_owned()),
+                    ..Outcome::default()
+                },
+                None,
+            )
+        }
+        End::Cancelled => (
+            Outcome {
+                verdict: "cancelled".to_owned(),
+                ..Outcome::default()
+            },
+            Some(Delivered::Nowhere),
+        ),
+    }
+}
+
+/// Intake's kind as the journal spells it. A format.
+pub fn kind_id(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Text => "text",
+        Kind::Image => "image",
+        Kind::Document => "document",
+        Kind::Archive => "archive",
+        Kind::Media => "media",
+        Kind::Data => "data",
+        Kind::Folder => "folder",
+        Kind::Unknown => "unknown",
+    }
+}
+
+/// The kind a journal row names, or `Unknown`.
+pub fn kind_of(id: Option<&str>) -> Kind {
+    [
+        Kind::Text,
+        Kind::Image,
+        Kind::Document,
+        Kind::Archive,
+        Kind::Media,
+        Kind::Data,
+        Kind::Folder,
+    ]
+    .into_iter()
+    .find(|kind| Some(kind_id(*kind)) == id)
+    .unwrap_or(Kind::Unknown)
+}
+
+/// What a row says about a thing that arrived, before anything happened to
+/// it: its name, its file, what it is and how big — never what it says.
+pub fn entry_of(arrival: &Arrival) -> Entry {
+    let intake = &arrival.intake;
+    Entry {
+        name: intake.name.clone(),
+        path: match &arrival.handed {
+            Handed::Path(path) => Some(path.to_string_lossy().into_owned()),
+            Handed::Text(_) | Handed::Bytes { .. } => intake
+                .path
+                .as_ref()
+                .filter(|_| intake.arrived == Arrived::AsText)
+                .map(|path| path.to_string_lossy().into_owned()),
+        },
+        said_path: None,
+        kind: Some(kind_id(intake.kind).to_owned()),
+        format: intake.format.map(|format| format.name().to_owned()),
+        encoding: intake.encoding.map(|encoding| encoding.name().to_owned()),
+        size: intake.size.or(match &arrival.handed {
+            Handed::Text(text) => Some(text.len() as u64),
+            Handed::Bytes { bytes, .. } => Some(bytes.len() as u64),
+            Handed::Path(_) => None,
+        }),
+        outcome: None,
+        result: None,
+    }
+}
+
+/// What a caller handed over with its call (D750): the characters of a
+/// text tool's `text`, or the bytes of a picture tool's `data`.
+#[derive(Debug, Clone, Copy)]
+pub enum Called<'a> {
+    Text(&'a str),
+    Bytes(&'a [u8]),
+}
+
+/// A caller's row as its call starts it (D750, D751): the name and the path
+/// the caller gave, and what the thing is by the look a window's row of the
+/// same thing has — the same recogniser over the same input — so its Kind,
+/// its Format cell and its Size never depend on who handed it over (F28).
+///
+/// * The path the caller named (`said_path`), when it names a **regular
+///   file** on this side — absolute, nothing under `/dev` or `/proc`
+///   ([`named_file`], D729), `metadata` before any open (D356) — is the
+///   input, looked at as an import of that file is (`of_path`): its kind,
+///   format, encoding and size are the file's. It is the file the row has
+///   behind it from then on (D729); the text the caller sent was decoded
+///   from it, and says nothing of how it is stored. Its head is read here
+///   and goes to nobody.
+/// * Otherwise what the call handed over is the input: characters as a
+///   paste of them is looked at, but as characters only, with no path looked
+///   for inside them (`of_characters`, D751) — the tool cleans or rewrites
+///   the characters, never a file a line of them names; bytes as a picture
+///   pasted with no file behind it is (`of_bytes`), under the caller's
+///   name. The size is the caller's word when it gave one.
+///
+/// Blocking: a `stat`, and at most `HEAD` bytes of a regular file — on the
+/// caller's own connection thread, never the GPUI thread.
+pub fn caller_entry(
+    name: Option<&str>,
+    said_path: Option<&str>,
+    size: Option<u64>,
+    called: Called,
+) -> Entry {
+    let said = Entry {
+        said_path: said_path.map(str::to_owned),
+        ..Entry::default()
+    };
+    // `metadata` follows a link, as a drop's look does: a link to a regular
+    // file is the file. A folder, a FIFO, a device or nothing at all is no
+    // file of this call's.
+    let file = named_file(&said).filter(|path| std::fs::metadata(path).is_ok_and(|m| m.is_file()));
+    let (intake, size) = match (file, called) {
+        (Some(path), _) => {
+            let intake = wipemark_intake::of_path(&path);
+            let size = intake.size.or(size);
+            (intake, size)
+        }
+        (None, Called::Text(text)) => {
+            let intake = wipemark_intake::of_characters(text);
+            let size = size.or(intake.size);
+            (intake, size)
+        }
+        (None, Called::Bytes(bytes)) => {
+            let intake = wipemark_intake::of_bytes(bytes, name);
+            let size = size.or(intake.size);
+            (intake, size)
+        }
+    };
+    Entry {
+        name: name.map(str::to_owned),
+        kind: Some(kind_id(intake.kind).to_owned()),
+        format: intake.format.map(|format| format.name().to_owned()),
+        encoding: intake.encoding.map(|encoding| encoding.name().to_owned()),
+        size,
+        ..said
+    }
+}
+
+/// The file a journal row names — what [`arrival_of`] looks at: its
+/// recorded `path`, else its caller's `said_path` when that can name a file
+/// on this side at all (D729): absolute, and not under `/dev` or `/proc`
+/// (D356). Whether it is still there, and a file, is not asked here: this
+/// reads nothing.
+pub fn named_file(entry: &Entry) -> Option<PathBuf> {
+    match (&entry.path, &entry.said_path) {
+        (Some(recorded), _) => Some(PathBuf::from(recorded)),
+        (None, Some(named)) => Some(PathBuf::from(named)).filter(|path| {
+            path.is_absolute() && !path.starts_with("/dev") && !path.starts_with("/proc")
+        }),
+        (None, None) => None,
+    }
+}
+
+/// The thing a row names, read again from its file — what a row from an
+/// earlier session or another surface can still be opened, compared,
+/// cleaned or rewritten from.
+///
+/// The file is the row's `path`, one this machine's own surfaces recorded,
+/// or else its `said_path`, the path a caller named in `_meta` (D729): a
+/// named path is looked at like any other, so a row the command line or an
+/// agent made behaves as a window's row whenever the same file is on disk.
+/// A named path that is not absolute names nothing here — it was the
+/// caller's, relative to a directory this side never knew — and neither
+/// does a name under `/dev` or `/proc`, the command line's own rule for its
+/// rows (D356): `/dev/fd/N` and `/proc/self/…` named by another process
+/// would be read here as this application's own descriptors and files.
+///
+/// `None` when the row names no file, and when its path is not a regular
+/// file (or a folder) any more: a FIFO with no writer, a terminal's
+/// `/dev/stdin`, a device, a socket. Opening one of those to read its head
+/// blocks for as long as nobody writes, and a read of the journal must
+/// never wait on a row (D356) — so `metadata` decides first, and nothing
+/// else is ever opened. Blocking: it reads the head of the file, and is
+/// called in a look-up task of its own, off the GPUI thread.
+pub fn arrival_of(entry: &Entry) -> Option<Arrival> {
+    let path = named_file(entry)?;
+    // `metadata` follows a link: a link to a regular file is the file.
+    let meta = std::fs::metadata(&path).ok()?;
+    if !(meta.is_file() || meta.is_dir()) {
+        return None;
+    }
+    let intake = wipemark_intake::of_path(&path);
+    Some(Arrival {
+        handed: Handed::Path(path),
+        intake,
+    })
+}
+
+/// The action a clean of `intake` is: a picture's, or a text's.
+pub fn clean_action(intake: &Intake) -> Action {
+    match clean::cleanable(intake) {
+        clean::Cleanable::Picture(_) => Action::CleanImage,
+        _ => Action::Clean,
+    }
+}
+
+/// What a clean came to, for its row.
+pub fn clean_end(outcome: &clean::Outcome) -> (Phase, Outcome, Delivered) {
+    let (phase, reason) = match &outcome.verdict {
+        Verdict::NothingFound | Verdict::Cleaned | Verdict::Partly(_) => (Phase::Done, None),
+        Verdict::NotCleaned(refusal) => (Phase::Done, Some(refusal_id(refusal))),
+        Verdict::Failed(failure) => (Phase::Failed, Some(failure_id(failure))),
+    };
+    let (findings, kept) = match &outcome.report {
+        Some(clean::Report::Text(report)) => (
+            Some(report.findings.len() as u64),
+            Some(report.kept.len() as u64),
+        ),
+        _ => (None, None),
+    };
+    let delivered = match (&outcome.written, &outcome.text) {
+        (Some(path), _) => Delivered::File {
+            path: path.to_string_lossy().into_owned(),
+            original: outcome
+                .set_aside
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
+            replaced: outcome.replaced,
+        },
+        // A text with no file behind it went back as text — to the
+        // clipboard's Copy, to Compare — and nowhere on disk.
+        (None, Some(_)) => Delivered::Caller,
+        (None, None) => Delivered::Nowhere,
+    };
+    (
+        phase,
+        Outcome {
+            verdict: outcome.verdict.id().to_owned(),
+            reason: reason.map(str::to_owned),
+            findings,
+            kept,
+            // A Save from the Compare window that cleaned: the result is
+            // the person's text, and the row says so — when, never what
+            // (D417).
+            edited: outcome.edited.then(now_ms),
+            ..Outcome::default()
+        },
+        delivered,
+    )
+}
+
+/// A refusal's id, for a row. A format.
+fn refusal_id(refusal: &Refusal) -> &'static str {
+    match refusal {
+        Refusal::NotCleanable(_) => "not-cleanable",
+        Refusal::TooBig { .. } => "too-big",
+        Refusal::Unreadable(_) => "unreadable",
+        Refusal::Undecodable { .. } => "undecodable",
+        Refusal::Picture(_) => "picture",
+        Refusal::StillMarked { .. } => "still-marked",
+        Refusal::Exists(_) => "exists",
+        Refusal::OriginalExists(_) => "original-exists",
+        Refusal::SameFile(_) => "same-file",
+        Refusal::Link(_) => "link",
+        Refusal::Nowhere => "nowhere",
+    }
+}
+
+fn failure_id(failure: &clean::Failure) -> &'static str {
+    match failure {
+        clean::Failure::Write { .. } => "write",
+        clean::Failure::SetAside { .. } => "set-aside",
+        clean::Failure::Stranded { .. } => "stranded",
+        clean::Failure::Panicked => "panicked",
+    }
+}
+
+/// What the launch does to rows an earlier run left mid-way (D317):
+///
+/// * a window's clean that was queued or running is waiting again — or,
+///   with no file behind it, gone, because its text was never kept;
+/// * a waiting row with no file behind it is gone for the same reason;
+/// * a caller's rewrite still in the queue — an agent's or the command
+///   line's own call ([`callers_call`]) — is cancelled and its queue row
+///   removed: whoever asked is gone, and its text is not kept for nobody
+///   (В4);
+/// * a window's rewrite stays: the queue takes it up again — a Rewrite
+///   again the person pressed on a command line's or an agent's row too
+///   (D730) — and a row whose item the queue no longer has failed.
+///
+/// Pure over the rows and the queue's items — each with whether a window's
+/// consent came with it (D361) — so the rule is checked without a database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Settle {
+    Waiting(i64),
+    Forget(i64),
+    /// Cancel the queue's item and end the row as cancelled.
+    Abandon {
+        row: i64,
+        item: i64,
+    },
+    /// End the row as failed: its item is gone.
+    Lost(i64),
+}
+
+pub fn settle(rows: &[JournalRow], items: &[(ItemId, bool)]) -> Vec<Settle> {
+    let mut settled = Vec::new();
+    for row in rows {
+        let Some(phase) = Phase::parse(&row.state) else {
+            continue;
+        };
+        if phase.is_end() {
+            continue;
+        }
+        let entry = Entry::from_json(&row.entry);
+        let has_file = entry.path.is_some();
+        let action = Action::parse(&row.action);
+        let origin = Origin::parse(&row.origin);
+        match (action, row.item) {
+            (Some(Action::Rewrite), Some(item)) => {
+                let held = items.iter().find(|(id, _)| id.0 == item);
+                let known = held.is_some();
+                let caller = callers_call(origin, held.is_some_and(|(_, consented)| *consented));
+                if caller && known {
+                    settled.push(Settle::Abandon { row: row.id, item });
+                } else if !known {
+                    settled.push(Settle::Lost(row.id));
+                }
+            }
+            _ => {
+                if !has_file {
+                    settled.push(Settle::Forget(row.id));
+                } else if phase != Phase::Waiting {
+                    settled.push(Settle::Waiting(row.id));
+                }
+            }
+        }
+    }
+    settled
+}
+
+/// Carry out [`settle`]'s answer. Blocking.
+pub fn settle_at_launch(work: &Work) {
+    let rows = work.journal.rows();
+    let items: Vec<(ItemId, bool)> = work
+        .queue
+        .items()
+        .iter()
+        .map(|view| (view.id, view.consent.is_some()))
+        .collect();
+    for settled in settle(&rows, &items) {
+        let row = |id: i64| rows.iter().find(|row| row.id == id);
+        match settled {
+            Settle::Forget(id) => work.journal.remove(id),
+            Settle::Waiting(id) => {
+                if let Some(row) = row(id) {
+                    work.journal.change(
+                        id,
+                        &Change {
+                            action: &row.action,
+                            state: Phase::Waiting.as_str(),
+                            item: row.item,
+                            ended: None,
+                            entry: &row.entry,
+                        },
+                    );
+                }
+            }
+            Settle::Abandon { row: id, item } => {
+                work.queue.remove(ItemId(item));
+                end_as(&work.journal, row(id), Phase::Cancelled, "interrupted");
+            }
+            Settle::Lost(id) => end_as(&work.journal, row(id), Phase::Failed, "lost"),
+        }
+    }
+}
+
+fn end_as(journal: &Journal, row: Option<&JournalRow>, phase: Phase, reason: &str) {
+    let Some(row) = row else {
+        return;
+    };
+    let mut entry = Entry::from_json(&row.entry);
+    entry.outcome = Some(Outcome {
+        verdict: if phase == Phase::Cancelled {
+            "cancelled"
+        } else {
+            "failed"
+        }
+        .to_owned(),
+        reason: Some(reason.to_owned()),
+        ..Outcome::default()
+    });
+    journal.change(
+        row.id,
+        &Change {
+            action: &row.action,
+            state: phase.as_str(),
+            item: row.item,
+            ended: Some(now_ms()),
+            entry: &entry.to_json(),
+        },
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A row's tag is its journal id, read through the writer that
+    /// recorded it **after** the row is in — even when the tag was made
+    /// before the window asked the row to be recorded, as the panel's Clean
+    /// makes it (D637); a row the journal has not got is named by the
+    /// window's own number; a tag read twice reads the same. Ask the
+    /// writer when the tag is made rather than when it is read and the
+    /// panel's tag is the number, not the id: red.
+    #[test]
+    fn a_tag_is_the_rows_journal_id_asked_in_order() {
+        let journal = Journal::new(Arc::new(Store::in_memory().expect("memory")));
+        let writer = journal.writer();
+        let gate = writer.gate();
+        let early = writer.tag(41);
+        writer.record(
+            41,
+            Written {
+                origin: Origin::Panel,
+                action: Action::Clean,
+                phase: Phase::Queued,
+                item: None,
+                arrived: 1,
+                ended: None,
+                entry: Entry::default(),
+            },
+        );
+        drop(gate);
+        let resolved = early.resolve();
+        let _ = writer.flushed().recv();
+        let id = journal.rows().first().map(|row| row.id).expect("the row");
+        assert_ne!(id, 41, "the test cannot tell the id from the number");
+        assert_eq!(resolved, id.to_string());
+        assert_eq!(
+            early.clone().resolve(),
+            resolved,
+            "read twice, read two ways"
+        );
+        assert_eq!(
+            writer.tag(99).resolve(),
+            "99",
+            "a row the journal has not got"
+        );
+        assert_eq!(Tag::of(7, Some(12), Some(&writer)).resolve(), "12");
+        assert_eq!(Tag::of(7, None, None).resolve(), "7");
+    }
+
+    fn row(
+        id: i64,
+        origin: Origin,
+        action: Action,
+        phase: Phase,
+        item: Option<i64>,
+        path: bool,
+    ) -> JournalRow {
+        JournalRow {
+            id,
+            origin: origin.as_str().to_owned(),
+            action: action.as_str().to_owned(),
+            state: phase.as_str().to_owned(),
+            item,
+            arrived: 1,
+            ended: phase.is_end().then_some(2),
+            entry: Entry {
+                path: path.then(|| "/notes/a.md".to_owned()),
+                ..Entry::default()
+            }
+            .to_json(),
+        }
+    }
+
+    /// What a launch does to what an earlier run left mid-way: a clean
+    /// that was running waits again, a paste nobody acted on is gone, an
+    /// agent's rewrite is abandoned with its queue row, a window's rewrite
+    /// is left for the queue, one whose item is gone failed, and nothing
+    /// that ended is touched.
+    #[test]
+    fn a_launch_settles_what_the_last_run_left() {
+        let rows = vec![
+            row(1, Origin::Window, Action::Clean, Phase::Running, None, true),
+            row(
+                2,
+                Origin::Window,
+                Action::Clean,
+                Phase::Waiting,
+                None,
+                false,
+            ),
+            row(
+                3,
+                Origin::Agent,
+                Action::Rewrite,
+                Phase::Running,
+                Some(7),
+                false,
+            ),
+            row(
+                4,
+                Origin::Window,
+                Action::Rewrite,
+                Phase::Queued,
+                Some(8),
+                true,
+            ),
+            row(
+                5,
+                Origin::Window,
+                Action::Rewrite,
+                Phase::Queued,
+                Some(9),
+                true,
+            ),
+            row(6, Origin::Cli, Action::Clean, Phase::Done, None, true),
+            row(7, Origin::Window, Action::Clean, Phase::Waiting, None, true),
+        ];
+        // The agent's own item carries no window's consent; the window's does.
+        let items = [(ItemId(7), false), (ItemId(8), true)];
+        assert_eq!(
+            settle(&rows, &items),
+            vec![
+                Settle::Waiting(1),
+                Settle::Forget(2),
+                Settle::Abandon { row: 3, item: 7 },
+                Settle::Lost(5),
+            ]
+        );
+    }
+
+    /// D730: what a launch abandons is a caller's rewrite — its item pushed
+    /// with no window's consent — never a rewrite because of its row's
+    /// origin. Rewrite again pressed in the table on a command line's or an
+    /// agent's row and still in the queue at quit is the person's: left for
+    /// the queue, as a window row's is. The caller's own item on the same
+    /// kind of row is abandoned as before. Read "a caller's" off the origin,
+    /// as before, and the person's redo is cancelled at the next launch:
+    /// red.
+    #[test]
+    fn a_launch_leaves_a_redo_from_the_window_to_the_queue() {
+        let rows = vec![
+            row(
+                1,
+                Origin::Cli,
+                Action::Rewrite,
+                Phase::Queued,
+                Some(7),
+                true,
+            ),
+            row(
+                2,
+                Origin::Agent,
+                Action::Rewrite,
+                Phase::Running,
+                Some(8),
+                true,
+            ),
+            row(
+                3,
+                Origin::Cli,
+                Action::Rewrite,
+                Phase::Queued,
+                Some(9),
+                false,
+            ),
+        ];
+        let items = [(ItemId(7), true), (ItemId(8), true), (ItemId(9), false)];
+        assert_eq!(
+            settle(&rows, &items),
+            vec![Settle::Abandon { row: 3, item: 9 }],
+            "a redo the person asked for on a caller's row was abandoned"
+        );
+    }
+
+    #[test]
+    fn every_kind_reads_back_as_itself() {
+        for kind in [
+            Kind::Text,
+            Kind::Image,
+            Kind::Document,
+            Kind::Archive,
+            Kind::Media,
+            Kind::Data,
+            Kind::Folder,
+            Kind::Unknown,
+        ] {
+            assert_eq!(kind_of(Some(kind_id(kind))), kind);
+        }
+        assert_eq!(kind_of(None), Kind::Unknown);
+    }
+
+    /// `arrival_of` on a thread of its own, waited for at most five seconds:
+    /// a check that opened a FIFO would wait for a writer for ever, and the
+    /// test says so rather than hang the suite.
+    fn arrival_in_time(entry: Entry) -> Option<Option<Handed>> {
+        let (answer, answered) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = answer.send(arrival_of(&entry).map(|arrival| arrival.handed));
+        });
+        answered
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .ok()
+    }
+
+    /// D729: a row's file is its recorded `path`, else the path its caller
+    /// named — `said_path`, which is all a row of the command line or of an
+    /// agent has — looked at like a recorded one. A regular file named is
+    /// an `Arrival` handed as that path; a recorded path wins over a named
+    /// one; a named path that is not absolute is nothing. And D356 holds
+    /// for a named path exactly: a FIFO with no writer, `/dev/stdin` and a
+    /// device are nothing behind the row, answered at once. Read
+    /// `entry.path` alone, as before, and the named file is no arrival:
+    /// red. Take the `metadata` check out and the FIFO and the devices are
+    /// files behind their rows — or, should intake ever read their heads,
+    /// never answer: red either way, in five seconds at most.
+    #[test]
+    fn a_named_path_is_looked_at_like_a_recorded_one() {
+        let scratch = std::env::temp_dir().join(format!("wipemark-d729-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch");
+        let named = scratch.join("a10-rewrite.md");
+        let recorded = scratch.join("recorded.md");
+        for path in [&named, &recorded] {
+            std::fs::write(path, "A note.\n").expect("a file");
+        }
+        let said = |path: &std::path::Path| Entry {
+            said_path: Some(path.to_string_lossy().into_owned()),
+            ..Entry::default()
+        };
+
+        assert_eq!(
+            arrival_in_time(said(&named)),
+            Some(Some(Handed::Path(named.clone()))),
+            "a file the command line named is nothing behind its row"
+        );
+        let both = Entry {
+            path: Some(recorded.to_string_lossy().into_owned()),
+            ..said(&named)
+        };
+        assert_eq!(
+            arrival_in_time(both),
+            Some(Some(Handed::Path(recorded.clone()))),
+            "a named path won over the recorded one"
+        );
+        // `Cargo.toml` is a file in the directory the suite runs in: a
+        // relative name the caller meant in its own is never looked for
+        // in this one.
+        assert_eq!(
+            arrival_in_time(said(std::path::Path::new("Cargo.toml"))),
+            Some(None),
+            "a relative name was looked for in the application's own directory"
+        );
+
+        #[cfg(unix)]
+        {
+            let fifo = scratch.join("pipe");
+            let made = std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .expect("mkfifo runs");
+            assert!(made.success());
+            for nothing in [
+                fifo.as_path(),
+                std::path::Path::new("/dev/stdin"),
+                std::path::Path::new("/dev/null"),
+            ] {
+                assert_eq!(
+                    arrival_in_time(said(nothing)),
+                    Some(None),
+                    "{} is a file behind the row, or was opened to find out",
+                    nothing.display()
+                );
+            }
+            // A caller's `/dev/fd/N` names its own descriptor; here it is
+            // this process's — a regular file this test holds open, which
+            // must not become the caller's document.
+            use std::os::fd::AsRawFd as _;
+            let held = std::fs::File::open(&recorded).expect("open");
+            let own = std::path::PathBuf::from(format!("/dev/fd/{}", held.as_raw_fd()));
+            assert!(
+                std::fs::metadata(&own).is_ok_and(|meta| meta.is_file()),
+                "the test cannot name a descriptor of its own as a file"
+            );
+            assert_eq!(
+                arrival_in_time(said(&own)),
+                Some(None),
+                "a caller's /dev/fd name was read as this process's own file"
+            );
+            drop(held);
+        }
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// What a row says a thing is: its kind, format, encoding and size.
+    type Looked = (Option<String>, Option<String>, Option<String>, Option<u64>);
+
+    /// `caller_entry` on a thread of its own, waited for at most five
+    /// seconds — a look that opened a FIFO would wait for a writer for ever
+    /// on the caller's connection thread.
+    fn caller_in_time(
+        said: Option<std::path::PathBuf>,
+        size: Option<u64>,
+        called: String,
+    ) -> Option<Looked> {
+        let (answer, answered) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let said = said.map(|path| path.to_string_lossy().into_owned());
+            let entry = caller_entry(
+                Some("notes.md"),
+                said.as_deref(),
+                size,
+                Called::Text(&called),
+            );
+            assert_eq!(
+                entry.said_path, said,
+                "the named path is not the row's said_path"
+            );
+            assert_eq!(
+                entry.path, None,
+                "a caller's path was recorded as this side's"
+            );
+            let _ = answer.send((entry.kind, entry.format, entry.encoding, entry.size));
+        });
+        answered
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .ok()
+    }
+
+    /// D750, D751: a caller's row says what its document is as a window's
+    /// row of the same thing does. A regular file the caller named is the
+    /// input — a UTF-16 Markdown file is "Markdown, UTF-16LE" at the file's
+    /// size, whatever text was sent; anything else it names is not, and the
+    /// characters sent are looked at as a paste of them is, at the size the
+    /// caller gave: a relative name, a folder, a file that went, a FIFO with
+    /// no writer and `/dev/null` (answered at once, nothing opened), and a
+    /// caller's `/dev/fd/N`, which here is this process's own regular file.
+    /// A text that is itself a path is characters, never the file (D751); a
+    /// picture's bytes are a PNG. Look at `said_path` without the
+    /// `metadata` check and the folder and the FIFO are looked at as files:
+    /// red. Without `named_file`'s filters the relative name and the
+    /// descriptor are read here: red. With `of_text` for the characters the
+    /// path-text is the file: red.
+    #[test]
+    fn a_callers_row_looks_at_the_file_it_names_and_nothing_else() {
+        let scratch = std::env::temp_dir().join(format!("wipemark-d750-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch");
+        let wide = scratch.join("wide.md");
+        let bytes: Vec<u8> = [0xFF_u8, 0xFE]
+            .into_iter()
+            .chain(
+                "# Notes\n"
+                    .encode_utf16()
+                    .flat_map(|unit| unit.to_le_bytes()),
+            )
+            .collect();
+        std::fs::write(&wide, &bytes).expect("a file");
+        let owned = |text: &str| Some(text.to_owned());
+        let characters = Some((owned("text"), owned("Text"), owned("UTF-8"), Some(7)));
+
+        let decoded = || "decoded".to_owned();
+        assert_eq!(
+            caller_in_time(Some(wide.clone()), Some(7), decoded()),
+            Some((
+                owned("text"),
+                owned("Markdown"),
+                owned("UTF-16LE"),
+                Some(bytes.len() as u64)
+            )),
+            "the file the caller named is not what its row says"
+        );
+        #[cfg(unix)]
+        let (unix, held) = {
+            let fifo = scratch.join("pipe");
+            let made = std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .expect("mkfifo runs");
+            assert!(made.success());
+            use std::os::fd::AsRawFd as _;
+            let held = std::fs::File::open(&wide).expect("open");
+            let own = std::path::PathBuf::from(format!("/dev/fd/{}", held.as_raw_fd()));
+            assert!(
+                std::fs::metadata(&own).is_ok_and(|meta| meta.is_file()),
+                "the test cannot name a descriptor of its own as a file"
+            );
+            (vec![fifo, std::path::PathBuf::from("/dev/null"), own], held)
+        };
+        #[cfg(not(unix))]
+        let unix: Vec<std::path::PathBuf> = Vec::new();
+        let not_files = [
+            std::path::PathBuf::from("Cargo.toml"),
+            scratch.clone(),
+            scratch.join("gone.md"),
+        ]
+        .into_iter()
+        .chain(unix);
+        for named in not_files {
+            assert_eq!(
+                caller_in_time(Some(named.clone()), Some(7), decoded()),
+                characters,
+                "{} was looked at as the caller's file, or never answered",
+                named.display()
+            );
+        }
+        #[cfg(unix)]
+        drop(held);
+
+        // No path at all: the characters, at their own length.
+        let line = wide.to_string_lossy().into_owned();
+        assert_eq!(
+            caller_in_time(None, None, line.clone()),
+            Some((
+                owned("text"),
+                owned("Text"),
+                owned("UTF-8"),
+                Some(line.len() as u64)
+            )),
+            "a caller's text that is a path was read as the file"
+        );
+        let png = caller_entry(
+            None,
+            None,
+            None,
+            Called::Bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"),
+        );
+        assert_eq!(
+            (png.kind.as_deref(), png.format.as_deref(), png.encoding),
+            (Some("image"), Some("PNG"), None)
+        );
+        assert_eq!(png.size, Some(20));
+        std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// A row never carries the document: what a pasted text says is not in
+    /// its entry, only how long it is.
+    #[test]
+    fn an_entry_never_carries_the_text() {
+        let text = "a secret paste\u{200B}";
+        let arrival = Arrival {
+            handed: Handed::Text(text.to_owned()),
+            intake: wipemark_intake::of_text(text),
+        };
+        let json = entry_of(&arrival).to_json();
+        assert!(!json.contains("secret"), "{json}");
+        assert!(json.contains(&format!("\"size\":{}", text.len())), "{json}");
+    }
+}

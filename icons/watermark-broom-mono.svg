@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  Menu-bar silhouette of the Wipemark mark.
+
+  Not a recolouring of watermark-broom.svg: at 18 pt the photo card, the
+  half-erased "WM" and the sparkles collapse into noise, so this is the
+  broom alone, at the same 30° lean, drawn on its own framing — the
+  colour icon's margin is generous because a Dock icon wants one, and a
+  menu-bar glyph that keeps it renders two thirds the size of every
+  glyph beside it.
+
+  Black ink on transparency, and only black: macOS draws a template
+  image from its alpha channel and ignores the colour entirely, and
+  create-icons.sh derives the white variant for Windows and Linux by
+  substituting this one string. A second colour, an opacity or a
+  gradient would be invisible here and wrong there.
+
+  Detail is punched out with a mask rather than drawn in a lighter
+  shade, for the same reason: a cut-out is transparent in the template
+  and reads on any menu-bar background, where a grey stroke is a black
+  stroke once alpha is all that survives.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512"
+     role="img" aria-label="Wipemark">
+  <defs>
+    <!-- Coordinates are the broom's own, not the canvas's: the mask is
+         referenced from inside the transform below, so it lands with
+         the ink no matter how the framing is retuned. -->
+    <mask id="cutout" maskUnits="userSpaceOnUse" x="-400" y="-400" width="800" height="800">
+      <rect x="-400" y="-400" width="800" height="800" fill="#ffffff" />
+      <!-- the seam where the ferrule grips the straw -->
+      <rect x="-38" y="-8" width="76" height="14" fill="#000000" />
+      <!-- three striations: enough to read as bristles, few enough to
+           still be a pixel wide each at 18 pt -->
+      <g fill="none" stroke="#000000" stroke-width="10" stroke-linecap="round">
+        <path d="M -13,58 C -36,98 -66,124 -92,148" />
+        <path d="M 0,58 C -5,110 -11,152 -15,190" />
+        <path d="M 13,58 C 32,102 54,134 74,158" />
+      </g>
+    </mask>
+  </defs>
+  <!-- Framing, outside-in: put the broom's centre on the canvas centre,
+       lean it, then scale until the ink fills ~90% of the height. -->
+  <g transform="translate(283.5,241.6) rotate(30) scale(1.231) translate(10,-3)">
+    <g fill="#000000" mask="url(#cutout)">
+      <!-- handle: fatter than the colour icon's 22 units, which is a
+           third of a pixel once the whole broom is 18 pt tall -->
+      <rect x="-18" y="-200" width="36" height="166" rx="18" />
+      <!-- straw: the colour icon's own path, unedited -->
+      <path d="m -24,15 c -16,25 -76,65 -106,105 10,15 30,40 40,58 20,12 40,27 60,27 20,5 50,5 78,-9 22,-10 48,-36 52,-64 C 90,100 52,60 24,15 Z" />
+      <!-- ferrule -->
+      <rect x="-32" y="-44" width="64" height="60" rx="12" />
+    </g>
+  </g>
+</svg>

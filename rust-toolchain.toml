@@ -1,0 +1,15 @@
+# Pinned, not "stable": a floating channel means CI and every developer
+# can be on a different compiler, and a clippy lint added upstream turns
+# a green branch red with no commit to blame.
+#
+# `components` is load-bearing — with `profile = "minimal"` and no
+# component list, `cargo fmt` / `cargo clippy` are simply absent on a
+# fresh CI runner and the gate step fails with "no such subcommand"
+# rather than a lint (Heretic CI lesson #455).
+#
+# NOTE: `cargo fmt` must still be run through nightly — rustfmt.toml uses
+# unstable options. See .woodpecker/gate.yaml.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

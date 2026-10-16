@@ -1,0 +1,3 @@
+Rewrite the natural-language parts of the code between the markers (comments, docstrings and string literals) with different wording, in the language they are written in. Rename local variables, function parameters and private helper names to names with the same meaning.
+
+{TEXT}

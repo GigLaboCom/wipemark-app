@@ -1,0 +1,16 @@
+# The harness `../kit-shots.sh` builds and runs: gpui-kit's editor spacers
+# example and its Editor Diff story drawn into PNGs with no display (E7-11).
+# Its own workspace, so the repository's never builds it; no part of the
+# product. The kit comes from the submodule as this branch pins it.
+[package]
+name = "e7-11-kit-shots"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+gpui-kit = { path = "../../../../vendor/gpui-component/crates/kit", features = ["test-support", "tree-sitter-rust"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "x11", "wayland", "runtime_shaders", "test-support"] }
+png = "0.17"

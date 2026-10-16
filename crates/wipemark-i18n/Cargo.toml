@@ -1,0 +1,42 @@
+[package]
+name = "wipemark-i18n"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Wipemark — message catalogues, language negotiation and the localized string API"
+
+[dependencies]
+fluent-bundle.workspace = true
+fluent-langneg.workspace = true
+unic-langid.workspace = true
+sys-locale.workspace = true
+rust-embed.workspace = true
+tracing.workspace = true
+
+[build-dependencies]
+# The same parser the runtime uses, so a catalogue that builds is a
+# catalogue Fluent can actually load. build.rs walks the fallback
+# catalogue's AST to generate the `Message` enum.
+fluent-syntax.workspace = true
+
+[dev-dependencies]
+# The catalogue gates compare each translation's AST against the
+# fallback's. Renaming a `$variable` in a translation renders perfectly
+# and silently drops the value, so the check has to read the syntax
+# rather than the output.
+fluent-syntax.workspace = true
+# Only for the honesty gate: the third shelf of `wipemark-core`'s report
+# must have a translation in every language, and adding a fourth item
+# there must turn this suite red rather than silently print English.
+# Direction is preserved — core is the leaf everything may depend on.
+wipemark-core.workspace = true
+# The same gate for a picture report: its shelf leads with
+# `invisible-pixel-marks`, which `wipemark-pixels` defines, and a picture
+# report in German must not say it in English. Dev only, like core.
+wipemark-pixels.workspace = true
+
+[lints]
+workspace = true

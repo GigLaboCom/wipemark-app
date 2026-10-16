@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "profiles": [
+    {
+      "id": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "mark": "sparkle",
+      "observed": { "from": null, "until": "2026-05" },
+      "status": "stable",
+      "blend": { "model": "encoded", "logo": [252.1, 253.5, 252.8], "logo_map": null },
+      "opaque_above": 0.95,
+      "alpha": [
+        { "id": "gemini-v1-48", "asset": "gemini-v1-48.wma", "sha256": "b32ca0dc3d0f4357d18bc6ab20da18ca38351791c4fd9d34375796962f74a563", "size": [48, 48] },
+        { "id": "gemini-v1-96", "asset": "gemini-v1-96.wma", "sha256": "3fa762cb5d3eb50063ebc9a39a4415c8e46b5bc1b8a18165bdb6921883c30712", "size": [96, 96] },
+        { "id": "gemini-v1-96-measured", "asset": "gemini-v1-96-measured.wma", "sha256": "07b4bec41466b967f3c47776bcdac31a06d1ffaad64bf9dec56d2b68a51dda84", "size": [96, 96], "fitted": true }
+      ],
+      "placements": [
+        { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [64, 64], "alpha": "gemini-v1-96-measured" },
+        { "when": {}, "corner": "bottom-right", "margin": [32, 32], "alpha": "gemini-v1-48" }
+      ],
+      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v1-96-measured", "gain": [ { "under": 64, "window": [0.96, 1.06] }, { "window": [1.02, 1.06] } ] },
+      "detect": { "min_ncc": 0.70 },
+      "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 },
+      "source": { "from": "allenk/GeminiWatermarkTool", "commit": "7c6a99f", "licence": "MIT", "copyright": "Copyright (c) 2024 AllenK (Kwyshell)" }
+    },
+    {
+      "id": "gemini-sparkle-v2",
+      "vendor": "google",
+      "product": "gemini",
+      "mark": "sparkle",
+      "observed": { "from": "2026-05", "until": null },
+      "status": "stable",
+      "blend": { "model": "encoded", "logo": [255, 255, 255], "logo_map": null },
+      "opaque_above": 0.95,
+      "alpha": [
+        { "id": "gemini-v2-36", "asset": "gemini-v2-36.wma", "sha256": "6f35dfec8fd71c641098f5c5d4844951fc1aeb023662fc47b6f820d66fedd50c", "size": [36, 36] },
+        { "id": "gemini-v2-96", "asset": "gemini-v2-96.wma", "sha256": "0df84d4b3002e98abb35e3ed974f69bc0968ca2985a87b3b14d2ab66de8ada41", "size": [96, 96] }
+      ],
+      "placements": [
+        { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [192, 192], "alpha": "gemini-v2-96" },
+        { "when": { "width": 1024, "height": 1024 }, "corner": "bottom-right", "margin": [71, 71], "alpha": "gemini-v2-36" },
+        { "when": { "width": 848, "height": 1264 }, "rect": [716, 1132, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1264, "height": 848 }, "rect": [1132, 716, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 896, "height": 1200 }, "rect": [770, 1074, 42, 42], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1200, "height": 896 }, "rect": [1074, 770, 42, 42], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 928, "height": 1152 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 1152, "height": 928 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 768, "height": 1376 }, "rect": [624, 1232, 48, 48], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1376, "height": 768 }, "rect": [1232, 624, 48, 48], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1584, "height": 672 }, "rect": [1424, 512, 53, 53], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 832, "height": 1248 }, "rect": [701, 1117, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1248, "height": 832 }, "rect": [1117, 701, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 864, "height": 1184 }, "rect": [740, 1060, 41, 41], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1184, "height": 864 }, "rect": [1060, 740, 41, 41], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 896, "height": 1152 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 1152, "height": 896 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 768, "height": 1344 }, "rect": [627, 1203, 47, 47], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1344, "height": 768 }, "rect": [1203, 627, 47, 47], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1536, "height": 672 }, "rect": [1380, 516, 52, 52], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1024, "height": 559 }, "corner": "bottom-right", "margin": [70, 70], "alpha": "gemini-v2-36" }
+      ],
+      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v2-96", "gain": [ { "under": 64, "window": [0.96, 1.06] }, { "window": [1.02, 1.06] } ] },
+      "detect": { "min_ncc": 0.70 },
+      "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 },
+      "source": { "from": "allenk/GeminiWatermarkTool", "commit": "7c6a99f", "licence": "MIT", "copyright": "Copyright (c) 2024 AllenK (Kwyshell)" }
+    },
+    {
+      "id": "grok-x-dark",
+      "vendor": "xai",
+      "product": "grok",
+      "mark": "wordmark",
+      "observed": { "from": "2026-10", "until": null },
+      "status": "provisional",
+      "blend": { "model": "encoded", "logo": [0, 0, 0], "logo_map": null },
+      "opaque_above": 0.95,
+      "alpha": [
+        { "id": "grok-x-dark-1728x1152", "asset": "grok-x-dark-1728x1152.wma", "sha256": "946d4c9718b687c7b21738c2016b0faf70d78b494fadcd68f8c51e1448166ad2", "size": [148, 59], "fitted": true },
+        { "id": "grok-x-dark-1152x1712", "asset": "grok-x-dark-1152x1712.wma", "sha256": "4f6c1eb26ff055b22de6851d07999789d5e82e6496255c3d9dbd3a6caaabcd67", "size": [101, 42], "fitted": true },
+        { "id": "grok-x-dark-1600x1200", "asset": "grok-x-dark-1600x1200.wma", "sha256": "85c359121d4ff2818150ab6da2d1de6240b450d3736c9b3ad277aecb83e75bba", "size": [138, 55], "fitted": true },
+        { "id": "grok-x-dark-1792x1008", "asset": "grok-x-dark-1792x1008.wma", "sha256": "b3e5cba49531304431f4db66e9a3b08ac0b88e10acb86f48f7f30e818e4ac5db", "size": [149, 57], "fitted": true },
+        { "id": "grok-x-dark-1168x784", "asset": "grok-x-dark-1168x784.wma", "sha256": "ce04771c6d9b7d9db2feac9747a43a040b90dae1351e3b2761d1f7301bd16acd", "size": [102, 42], "fitted": true },
+        { "id": "grok-x-dark-784x1168", "asset": "grok-x-dark-784x1168.wma", "sha256": "0a06e77477c865d1b6a3afe28302f6ade5be57e7466b8f1b2b0411907c334ae5", "size": [69, 29], "fitted": true }
+      ],
+      "placements": [
+        { "when": { "width": 1728, "height": 1152 }, "corner": "bottom-right", "margin": [7, 9], "alpha": "grok-x-dark-1728x1152" },
+        { "when": { "width": 1152, "height": 1712 }, "corner": "bottom-right", "margin": [8, 9], "alpha": "grok-x-dark-1152x1712" },
+        { "when": { "width": 1600, "height": 1200 }, "corner": "bottom-right", "margin": [7, 9], "alpha": "grok-x-dark-1600x1200" },
+        { "when": { "width": 1792, "height": 1008 }, "corner": "bottom-right", "margin": [9, 11], "alpha": "grok-x-dark-1792x1008" },
+        { "when": { "width": 1168, "height": 784 }, "corner": "bottom-right", "margin": [8, 9], "alpha": "grok-x-dark-1168x784" },
+        { "when": { "width": 784, "height": 1168 }, "corner": "bottom-right", "margin": [9, 10], "alpha": "grok-x-dark-784x1168" }
+      ],
+      "search": { "corner": "bottom-right", "within": [320, 160], "sizes": [32, 216], "alpha": "grok-x-dark-1792x1008" },
+      "detect": { "min_ncc": 0.70 },
+      "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 },
+      "source": { "from": "the owner's pictures from Grok on X, measured by scripts/grok/fit-maps.py (crates/wipemark-pixels/marks/grok/README.md)", "commit": null, "licence": null, "copyright": null }
+    },
+    {
+      "id": "grok-x-light",
+      "vendor": "xai",
+      "product": "grok",
+      "mark": "wordmark",
+      "observed": { "from": "2026-10", "until": null },
+      "status": "provisional",
+      "blend": { "model": "encoded", "logo": [255, 255, 255], "logo_map": null },
+      "opaque_above": 0.95,
+      "alpha": [
+        { "id": "grok-x-light-1728x1152", "asset": "grok-x-light-1728x1152.wma", "sha256": "92c03fc61986f4889fc035e8937b02e678b92916e7385c9b4eff6cccd165a7be", "size": [148, 59], "fitted": true },
+        { "id": "grok-x-light-1152x1712", "asset": "grok-x-light-1152x1712.wma", "sha256": "9e4730dc3382920c5fbc998fe0caf9098e84100f5bc260e07a5be4fb5e3a96f4", "size": [101, 42], "fitted": true },
+        { "id": "grok-x-light-1600x1200", "asset": "grok-x-light-1600x1200.wma", "sha256": "b688c3d1299d27d41885356fa3f2db16a60c49b631fdcbd444ea54cd97664fc3", "size": [138, 55], "fitted": true },
+        { "id": "grok-x-light-1792x1008", "asset": "grok-x-light-1792x1008.wma", "sha256": "39da3d3d190003b4aeb671fabafc52aebd89cb7c0dd8b6856f2ec874699f0548", "size": [149, 57], "fitted": true },
+        { "id": "grok-x-light-1168x784", "asset": "grok-x-light-1168x784.wma", "sha256": "bfc5def135fa26fb715c54add1d04326519fc47eb3bddff049ff7b1ffa35221e", "size": [102, 42], "fitted": true },
+        { "id": "grok-x-light-784x1168", "asset": "grok-x-light-784x1168.wma", "sha256": "20f91e85fcd7564eec6bf702257ee406fae7516ab98ab92399cd18dcfdffc7bb", "size": [69, 29], "fitted": true }
+      ],
+      "placements": [
+        { "when": { "width": 1728, "height": 1152 }, "corner": "bottom-right", "margin": [7, 9], "alpha": "grok-x-light-1728x1152" },
+        { "when": { "width": 1152, "height": 1712 }, "corner": "bottom-right", "margin": [8, 9], "alpha": "grok-x-light-1152x1712" },
+        { "when": { "width": 1600, "height": 1200 }, "corner": "bottom-right", "margin": [7, 9], "alpha": "grok-x-light-1600x1200" },
+        { "when": { "width": 1792, "height": 1008 }, "corner": "bottom-right", "margin": [9, 11], "alpha": "grok-x-light-1792x1008" },
+        { "when": { "width": 1168, "height": 784 }, "corner": "bottom-right", "margin": [8, 9], "alpha": "grok-x-light-1168x784" },
+        { "when": { "width": 784, "height": 1168 }, "corner": "bottom-right", "margin": [9, 10], "alpha": "grok-x-light-784x1168" }
+      ],
+      "search": { "corner": "bottom-right", "within": [320, 160], "sizes": [32, 216], "alpha": "grok-x-light-1792x1008" },
+      "detect": { "min_ncc": 0.70 },
+      "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 },
+      "source": { "from": "the owner's pictures from Grok on X, measured by scripts/grok/fit-maps.py (crates/wipemark-pixels/marks/grok/README.md)", "commit": null, "licence": null, "copyright": null }
+    }
+  ]
+}

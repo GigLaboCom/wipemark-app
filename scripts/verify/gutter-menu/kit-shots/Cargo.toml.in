@@ -1,0 +1,17 @@
+# The harness `../kit-shots.sh` builds and runs: gpui-kit's editor gutter menu
+# example drawn into PNGs with no display. `kit-shots.sh` writes Cargo.toml
+# from this file with @KIT@ set to the gpui-kit checkout to draw, because the
+# submodule does not hold the example yet. Its own workspace, so the
+# repository's never builds it; no part of the product.
+[package]
+name = "gutter-menu-shots"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+gpui-kit = { path = "@KIT@/crates/kit", features = ["test-support"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "x11", "wayland", "runtime_shaders", "test-support"] }
+png = "0.17"

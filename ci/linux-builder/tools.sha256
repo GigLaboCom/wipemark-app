@@ -1,0 +1,28 @@
+# The tools the Linux builder image downloads, each pinned by sha256 (D601).
+#
+# Who asked: the owner, 2026-10-12 — "package Wipemark as an AppImage the way
+# MnemoVi is packaged". MnemoVi's ci/linux-builder/appimage-tools.sha256 is
+# the model: the hash is the version, and a tool whose bytes moved is a
+# refusal, never a quiet rebuild against something else.
+#
+# Unlike MnemoVi's, these come from VERSIONED release URLs, not `continuous`:
+# appimagetool 1.9.1, the type-2 runtime 20251108, rustup-init 1.28.2. A
+# versioned URL can still be re-uploaded, which is why the hash is checked
+# after every download (ci/linux-builder/fetch-tools.sh) and again inside the
+# image (Dockerfile). The two GitHub hashes were read off the downloaded
+# files on 2026-10-12 and match the `digest` GitHub's release API reports for
+# each asset; rustup-init's matches the `.sha256` file published beside it.
+#
+# No linuxdeploy (D601): Wipemark bundles four libraries of its own and one of
+# the toolchain's, by an explicit policy (scripts/release/linux/
+# excludelist-policy) — a tool whose built-in excludelist decides silently is
+# the thing MnemoVi spent an arc working around.
+#
+# To move a tool: change the URL and the hash here in one commit, rebuild the
+# image (its tag is derived from this file), run the gates, and say in the
+# commit message what was re-tested.
+#
+# format: <sha256>  <file name>  <url>
+ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool-x86_64.AppImage  https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d  runtime-x86_64  https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c  rustup-init  https://static.rust-lang.org/rustup/archive/1.28.2/x86_64-unknown-linux-gnu/rustup-init

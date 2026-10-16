@@ -1,0 +1,1 @@
+Each placeholder of the form ⟦n⟧ stands for protected content such as code or a link. Put every one of them into your answer exactly once, unchanged.

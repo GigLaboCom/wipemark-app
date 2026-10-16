@@ -1,0 +1,7 @@
+Write the complete text from the outline between the markers, in natural, varied prose, as its author would. Use every bullet point; add nothing that is not in the outline. Avoid formulaic transitions.
+
+{PREV_CONTEXT}
+
+{TEXT}
+
+Output only the finished text. Do not repeat the outline, and add no heading or label such as "Outline" or "Text".

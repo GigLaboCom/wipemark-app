@@ -1,0 +1,3 @@
+# Error types are moved through Result on every call; 256 bytes is the
+# point past which that copy starts to matter.
+large-error-threshold = 256

@@ -1,0 +1,6 @@
+Rewrite the text between the markers so that its wording differs substantially at the level of individual words: change the order of clauses, the connectors and the transition words; vary where sentences begin and end and how long they are; replace both content words and function words wherever the meaning allows.
+{INTENSITY}
+
+{PREV_CONTEXT}
+
+{TEXT}

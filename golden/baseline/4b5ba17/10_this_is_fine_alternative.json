@@ -1,0 +1,195 @@
+{
+ "id": "10_this_is_fine_alternative",
+ "class": "recon-png",
+ "variant": "png",
+ "input_sha256": "5325ef6936c618bbf7194ff750203b240680432a326c2b44d374945bb8a79853",
+ "inspect": {
+  "exit": 1,
+  "json": {
+   "container": "png",
+   "ai_metadata": true,
+   "c2pa": true,
+   "findings": [
+    {
+     "kind": "c2pa",
+     "chunk": "caBX",
+     "key": null,
+     "offset": 33,
+     "length": 7791,
+     "ai": true,
+     "c2pa": true,
+     "evidence": [
+      {
+       "signal": "c2pa-manifest",
+       "generator": null,
+       "source_type": null,
+       "field": "C2PA",
+       "matched": "caBX"
+      }
+     ]
+    }
+   ],
+   "visible": {
+    "examined": true,
+    "restorable": true,
+    "found": [
+     {
+      "profile": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "pass": 1,
+      "rect": {
+       "x": 1888.0,
+       "y": 1888.0,
+       "size": 96.0
+      },
+      "pixels": {
+       "x": 1888,
+       "y": 1888,
+       "width": 96,
+       "height": 96
+      },
+      "placed": "row",
+      "row": 0,
+      "kernel": "area",
+      "ncc": 0.99978644,
+      "verdict": "verified",
+      "refusal": null,
+      "scores": {
+       "gain": 1.0,
+       "edge_ratio": 0.019028712,
+       "out_of_range": 0.0,
+       "holes": 0
+      },
+      "also_tried": []
+     }
+    ],
+    "restored": []
+   },
+   "not_established": [
+    "invisible-pixel-marks",
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes"
+   ]
+  }
+ },
+ "clean": {
+  "exit": 1,
+  "json": {
+   "report": {
+    "container": "png",
+    "still_has_ai_metadata": false,
+    "still_has_c2pa": false,
+    "removed": [
+     {
+      "kind": "c2pa",
+      "chunk": "caBX",
+      "key": null,
+      "offset": 33,
+      "length": 7791,
+      "ai": true,
+      "c2pa": true,
+      "evidence": [
+       {
+        "signal": "c2pa-manifest",
+        "generator": null,
+        "source_type": null,
+        "field": "C2PA",
+        "matched": "caBX"
+       }
+      ]
+     }
+    ],
+    "kept": [],
+    "orientation_removed": null,
+    "visible": {
+     "examined": true,
+     "restorable": true,
+     "found": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "vendor": "google",
+       "product": "gemini",
+       "pass": 1,
+       "rect": {
+        "x": 1888.0,
+        "y": 1888.0,
+        "size": 96.0
+       },
+       "pixels": {
+        "x": 1888,
+        "y": 1888,
+        "width": 96,
+        "height": 96
+       },
+       "placed": "row",
+       "row": 0,
+       "kernel": "area",
+       "ncc": 0.99978644,
+       "verdict": "verified",
+       "refusal": null,
+       "scores": {
+        "gain": 1.0,
+        "edge_ratio": 0.019028712,
+        "out_of_range": 0.0,
+        "holes": 0
+       },
+       "also_tried": []
+      }
+     ],
+     "restored": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "rect": {
+        "x": 1888,
+        "y": 1888,
+        "width": 96,
+        "height": 96
+       },
+       "changed": 3442,
+       "holes": 0,
+       "clamped": 0,
+       "outline": 0.0013801807,
+       "steps": [
+        0.41763714,
+        -0.21946196,
+        0.38101566
+       ],
+       "step": 0.03948511,
+       "chroma": 0.33150932,
+       "outline_left": false,
+       "texture": 2.0500836,
+       "texture_around": 1.8726103,
+       "texture_left": false,
+       "noise": false,
+       "lossy": false,
+       "fitted": true,
+       "resampled": false,
+       "searched": false,
+       "exact": false
+      }
+     ]
+    },
+    "encoding": {
+     "kind": "png",
+     "colour_changed": false,
+     "interlace_dropped": false
+    },
+    "marks_left": false,
+    "not_established": [
+     "invisible-pixel-marks",
+     "vendor-detector-evasion",
+     "human-authorship",
+     "unknown-mark-schemes"
+    ]
+   },
+   "written": true
+  },
+  "output_sha256": "c156705351b24ff333a9445df5aab791fece1489d9f1b6863f5d521c18dc08b4"
+ },
+ "time_s": {
+  "inspect": 0.4925,
+  "clean": 2.3397
+ }
+}

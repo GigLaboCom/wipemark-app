@@ -1,0 +1,52 @@
+[package]
+name = "wipemark-pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Job state machine, chunking, candidate/round selection, scorers and the batch queue."
+
+[features]
+default = []
+# Forwarded so `cargo build --features local-llama` works from the app
+# and the CLI without either of them naming the engine crate's feature.
+# `local-llama` is the local engine over a shim (no C++ toolchain);
+# `llama-native` builds llama.cpp into it.
+local-llama = ["wipemark-engine/local-llama"]
+llama-native = ["local-llama", "wipemark-engine/llama-native"]
+
+[dependencies]
+wipemark-core.workspace = true
+wipemark-engine.workspace = true
+flume.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio-util.workspace = true
+# The job's log lines (E4-3): counts, seeds, tactics and rejection kinds,
+# never a chunk or a candidate. Libraries emit and install nothing
+# (CLAUDE.md, "Diagnostics go to a file").
+tracing.workspace = true
+# Markdown structure for preparing the text (E4-1, D69): every event carries
+# its byte range in the source, which is what lets everything that is not
+# rewritten come back from the source's own bytes. `default-features =
+# false` drops the HTML renderer and the `getopts` binary — only the
+# parser is wanted. Pinned here rather than in the workspace table because
+# nothing else in the workspace parses Markdown.
+pulldown-cmark = { version = "0.13", default-features = false }
+
+# The prompt bench (E4-5, `docs/architecture/prompt-bench.md`): a
+# development tool over the local engine or an endpoint. `local-llama` is
+# what it needs to compile (over the shim it refuses at load);
+# `llama-native` is what it needs to run a GGUF.
+[[example]]
+name = "bench"
+path = "examples/bench/main.rs"
+required-features = ["local-llama"]
+
+[lints]
+workspace = true

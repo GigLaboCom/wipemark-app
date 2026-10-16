@@ -1,0 +1,5 @@
+Übersetze den Text zwischen den Markierungen ins Deutsche, so natürlich, wie ein Muttersprachler schreiben würde. Behalte Sinn, Fakten, Zahlen und Namen bei.
+
+{PREV_CONTEXT}
+
+{TEXT}

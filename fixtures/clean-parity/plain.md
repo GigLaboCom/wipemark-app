@@ -1,0 +1,3 @@
+# Plain
+
+Nothing to find.

@@ -1,0 +1,43 @@
+# The windows' clean against the CLI's, one input per line (W9, D285).
+# Read by two tests that share no code:
+#   apps/wipemark-cli/tests/parity.rs runs `wipemark-cli clean <input> -o <out>`
+#     and holds its exit code and whether it wrote to the cli_* columns, and
+#     its bytes to the library at the CLI's defaults;
+#   apps/wipemark-app/src/clean.rs, `the_windows_clean_to_the_clis_table`,
+#     runs `clean::clean_one` and holds the CLI exit its outcome comes to and
+#     whether it wrote to the same row, its own verdict (`Verdict::id()`) to
+#     app_verdict, and its bytes to the same library.
+# Which side reads which column: cli_exit both; cli_writes the CLI's alone;
+# app_writes and app_verdict the window's alone (the CLI's test reads past
+# them); the last column is for a person.
+# place: `fresh`, nothing where the result goes — the CLI runs with
+#   `-o <out>` into an empty folder, a window beside the input; or
+#   `taken`, a file already where the result goes beside the input —
+#   both sides run beside and leave that file byte for byte. The CLI
+#   refuses before the read (2, nothing written; D362, D598); a window
+#   writes the row's own `name.cleaned-<id>.ext` beside it (D635, the
+#   declared deviation), so on a taken row cli_writes says whether the CLI
+#   wrote at all and app_writes whether the window wrote its own result.
+#   A taken row's cli_exit is the CLI's alone: the window's test holds its
+#   clean to the exit of the same input's fresh row, which must come above.
+#   A taken place with nothing to find is no row: the CLI refuses before
+#   the read (2), a window reads, finds nothing and writes nothing (D260).
+# A change to either side's rule turns that side's test red until this
+# table is changed — and then the other side's, until it follows.
+# input is relative to fixtures/. Columns are separated by one tab.
+#
+# input	place	cli_exit	cli_writes	app_writes	app_verdict	why the app differs
+clean-parity/marked.md	fresh	1	yes	yes	cleaned	-
+clean-parity/plain.md	fresh	0	yes	no	nothing-found	D260: nothing found, nothing written
+clean-parity/utf16.txt	fresh	1	yes	yes	cleaned	-
+clean-parity/softhyphen.txt	fresh	0	yes	yes	cleaned	-
+clean-parity/homoglyph.txt	fresh	1	yes	no	partly	D263: a kept homoglyph changes nothing
+clean-parity/scan.tif	fresh	2	no	no	not-cleaned	-
+image/gemini/torch-1025.png	fresh	1	yes	yes	cleaned	-
+image/gemini/crying-1025.png	fresh	3	yes	yes	partly	-
+image/gemini/crying-transparent-1025.png	fresh	3	yes	no	partly	D262: an output identical to its input
+image/gemini/cut-out-confetti-256.webp	fresh	0	yes	no	nothing-found	D260: nothing found, nothing written
+image/c2pa-jumbf.jpg	fresh	1	yes	yes	cleaned	-
+image/xmp-provenance.jpg	fresh	1	yes	yes	cleaned	-
+clean-parity/marked.md	taken	2	no	yes	cleaned	D635: a window writes the row's own marked.cleaned-<id>.md beside the taken file; the CLI refuses (D362, D598)
+image/gemini/torch-1025.png	taken	2	no	yes	cleaned	D635: a window writes the row's own torch-1025.cleaned-<id>.png beside the taken file; the CLI refuses (D362, D598)

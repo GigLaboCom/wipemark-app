@@ -1,0 +1,80 @@
+{
+ "commit": "34b4c2c9216390bf4d8b943db5743b5b944ea075",
+ "checks": [
+  {
+   "check": "D250: texture at q95 4:4:4 (11_crying left out)",
+   "want": [
+    8.59,
+    9.22
+   ],
+   "got": [
+    2.7227,
+    2.9786
+   ],
+   "n": 20,
+   "ok": false
+  },
+  {
+   "check": "D250: q95 4:4:4 restores all, exit 3, texture_left",
+   "want": "21 of 21",
+   "got": 0,
+   "ok": false
+  },
+  {
+   "check": "D247: chroma at q95 4:2:0 (11_crying left out)",
+   "want": [
+    7.4,
+    8.37
+   ],
+   "got": [
+    0.3695,
+    0.6268
+   ],
+   "n": 20,
+   "ok": false
+  },
+  {
+   "check": "D247: q95 4:2:0 refuses none, exit 3, outline_left",
+   "want": "21 of 21",
+   "got": 1,
+   "ok": false
+  },
+  {
+   "check": "D252: q90 4:2:0 refused out of range",
+   "want": "10 of 21",
+   "got": "0 of 21",
+   "ok": false
+  },
+  {
+   "check": "D252: the refused shares at q90 4:2:0, in %",
+   "ok": null,
+   "why": "not in the corpus"
+  },
+  {
+   "check": "D252: the 1040 crop is the 2048 file to the hundredth at q95 4:2:0",
+   "want": "21 of 21",
+   "got": "21 of 21",
+   "off": [],
+   "ok": true
+  },
+  {
+   "check": "D252: the 1040 crop is the 2048 file to the hundredth at q90 4:2:0",
+   "want": "21 of 21",
+   "got": "21 of 21",
+   "off": [],
+   "ok": true
+  },
+  {
+   "check": "S11: a 1024 crop finds nothing",
+   "want": "63 of 63",
+   "got": "63 of 63",
+   "ok": true
+  },
+  {
+   "check": "frames: 1025 and 1040 are found",
+   "want": "126 of 126",
+   "got": "126 of 126",
+   "ok": true
+  }
+ ]
+}

@@ -1,0 +1,52 @@
+[package]
+name = "wipemark-models"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Model catalogue, on-disk layout, host fit, and the resumable verifying downloader."
+
+# Deliberately does NOT depend on wipemark-engine. The manifest
+# describes files on disk; nothing here loads a model. Enforced by
+# scripts/check-dep-direction.sh.
+
+[dependencies]
+wipemark-core.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+directories.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+# The downloader. Blocking, on a caller-owned thread — see
+# src/store.rs and docs/architecture/model-downloads.md.
+ureq.workspace = true
+sha2.workspace = true
+hex.workspace = true
+# Total RAM (src/host.rs) and free disk space (src/store.rs).
+sysinfo.workspace = true
+# A download reports progress the same way every long operation in this
+# product does. See `Downloads::spawn`.
+flume.workspace = true
+
+# Windows reads its proxy configuration from the registry rather than
+# from `HTTPS_PROXY`, and a desktop behind a corporate proxy that cannot
+# reach Hugging Face is indistinguishable, from the user's side, from a
+# downloader that does not work. Declared per-target because the feature
+# pulls a crate that only exists on Windows.
+[target.'cfg(windows)'.dependencies]
+ureq = { workspace = true, features = ["win-system-proxy"] }
+
+# `O_NONBLOCK`, by target, for the one open of a model file this crate
+# reads (`store::open_regular`, D455): an open of a pipe for reading
+# returns at once with it, and waits for a writer without it. The constant
+# only — no call into libc, so `forbid(unsafe_code)` holds.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

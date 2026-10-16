@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wipemark — remove AI provenance marks from your own text and pictures</title>
+  <meta name="description" content="Wipemark removes invisible characters, AI provenance metadata and visible marks from your own text and pictures, on your own machine, and reports what it did.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="__SITE_ORIGIN__/">
+
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Wipemark">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="Wipemark — remove AI provenance marks from your own text and pictures">
+  <meta property="og:description" content="Invisible characters, provenance metadata and visible marks, removed on your own machine — with a report of what was found, what was removed and what could not be established.">
+  <meta property="og:url" content="__SITE_ORIGIN__/">
+  <meta property="og:image" content="__SITE_ORIGIN__/og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The Wipemark icon, a broom sweeping a mark off a picture, beside the words: Wipemark — remove AI provenance marks from your own text and pictures, on your machine.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Wipemark — remove AI provenance marks from your own text and pictures">
+  <meta name="twitter:description" content="Invisible characters, provenance metadata and visible marks, removed on your own machine, with a report of what it did.">
+  <meta name="twitter:image" content="__SITE_ORIGIN__/og-image.png">
+  <meta name="twitter:image:alt" content="The Wipemark icon beside the product's name and one-line description.">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Wipemark",
+    "softwareVersion": "0.1.0",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "macOS 12 or later on Apple Silicon; Linux x86_64 with glibc 2.39 or later",
+    "description": "Removes invisible characters, AI provenance metadata and visible marks from your own text and pictures, on your own machine, and reports what it did.",
+    "url": "__SITE_ORIGIN__/",
+    "downloadUrl": "__RELEASES_URL__",
+    "license": "__SITE_ORIGIN__/legal/LICENSE.txt",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "copyrightHolder": [
+      { "@type": "Organization", "name": "GigLabo" },
+      { "@type": "Person", "name": "Denis Esakov" }
+    ]
+  }
+  </script>
+  <script src="site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to the content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="#top" aria-label="Wipemark, back to the top">
+        <img src="icon-192.png" alt="" width="30" height="30">
+        <span>Wipemark</span>
+      </a>
+      <nav class="site-nav" aria-label="Sections">
+        <a href="#removes">What it removes</a>
+        <a href="#how">How it works</a>
+        <a href="#where">Where you use it</a>
+        <a href="#download">Download</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <a class="header-link" href="https://github.com/GigLaboCom/wipemark-app">Source</a>
+      <a class="btn btn-primary header-cta" href="#download">Download</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ── Hero ─────────────────────────────────────────────────── -->
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="container">
+        <p class="eyebrow"><span class="dot" aria-hidden="true"></span> Version 0.1.0 · free · macOS and Linux</p>
+        <h1 id="hero-title">Take the AI marks out of your own text and pictures.</h1>
+        <p class="lead">
+          AI tools can leave marks in what you make with them without asking you:
+          invisible characters in text, provenance metadata and visible logos in
+          pictures. Wipemark finds them, removes what it can prove is there, and
+          tells you exactly what it did. It runs on your machine.
+        </p>
+        <div class="actions">
+          <a class="btn btn-primary" href="__RELEASES_URL__">
+            <svg class="icon" aria-hidden="true"><use href="icons.svg#i-download"></use></svg>
+            Download for macOS (Apple&nbsp;Silicon)
+          </a>
+          <a class="btn btn-secondary" href="__RELEASES_URL__">Linux (AppImage&nbsp;/&nbsp;.deb)</a>
+        </div>
+        <p class="hero-meta">
+          macOS 12 or later on Apple Silicon · Linux x86_64 with glibc 2.39 or later
+          (Ubuntu 24.04, Debian 13, Fedora 40 or newer) · Windows is not in this version.
+        </p>
+        <p class="hero-links">
+          <a href="#intro">Watch the intro</a>
+          <a href="#download">Install and requirements</a>
+          <a href="https://github.com/GigLaboCom/wipemark-app">Source on GitHub</a>
+        </p>
+
+        <figure class="shot hero-shot">
+          <span class="shot-frame">
+            <picture>
+              <source srcset="assets/screenshots/main-window-dark.png" media="(prefers-color-scheme: dark)">
+              <img src="assets/screenshots/main-window.png" alt="The Wipemark main window: one list of files, pictures and pasted texts, each row saying what was found and what was done." fetchpriority="high">
+            </picture>
+          </span>
+        </figure>
+
+        <ul class="facts" aria-label="In short">
+          <li><svg class="icon" aria-hidden="true"><use href="icons.svg#i-hard-drive"></use></svg>Runs on your machine</li>
+          <li><svg class="icon" aria-hidden="true"><use href="icons.svg#i-check"></use></svg>Cleaning works offline</li>
+          <li><svg class="icon" aria-hidden="true"><use href="icons.svg#i-check"></use></svg>No account, no telemetry</li>
+          <li><svg class="icon" aria-hidden="true"><use href="icons.svg#i-check"></use></svg>Results go beside the original</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ── Intro video ──────────────────────────────────────────── -->
+    <section class="section" id="intro" aria-labelledby="intro-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">See it work</span>
+          <h2 id="intro-title">The intro</h2>
+        </div>
+        <figure class="video">
+          <div class="video-frame">
+            <video controls preload="none" playsinline poster="assets/video/wipemark-intro-poster.png" aria-describedby="intro-caption">
+              <source src="assets/video/wipemark-intro.mp4" type="video/mp4">
+              <p>Your browser does not play this video. <a href="assets/video/wipemark-intro.mp4">Download it (MP4)</a>.</p>
+            </video>
+          </div>
+          <figcaption id="intro-caption">A short tour of Wipemark 0.1.0.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ── What it removes ──────────────────────────────────────── -->
+    <section class="section section-soft" id="removes" aria-labelledby="removes-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">What it removes</span>
+          <h2 id="removes-title">Three kinds of marks, each removed only once it is shown to be there</h2>
+          <p>
+            Wipemark looks before it changes anything, and every change it makes
+            is listed. What it cannot settle, it says it cannot settle.
+          </p>
+        </div>
+
+        <div class="grid">
+          <article class="card">
+            <div class="card-icon" aria-hidden="true"><svg class="icon"><use href="icons.svg#i-paragraph"></use></svg></div>
+            <h3>Invisible characters in text</h3>
+            <ul class="tags" aria-label="Properties">
+              <li>Deterministic</li><li>No model</li><li>Offline</li>
+            </ul>
+            <p>
+              Zero-width characters, bidirectional controls, tag characters,
+              variation selectors, soft hyphens, private-use and noncharacter
+              code points — recognised by the properties Unicode&nbsp;18.0 gives
+              every character. The same text gives the same result on every
+              machine, and every finding has a position you can check.
+            </p>
+            <p class="note">
+              Characters that belong to the text stay: the joiner inside an emoji,
+              the non-joiner inside a Persian word. A look-alike letter from another
+              alphabet, such as a Cyrillic “а” in an English word, is reported and
+              kept; the command line replaces it only when asked.
+            </p>
+          </article>
+
+          <article class="card">
+            <div class="card-icon" aria-hidden="true"><svg class="icon"><use href="icons.svg#i-image"></use></svg></div>
+            <h3>Provenance metadata in pictures</h3>
+            <ul class="tags" aria-label="Formats">
+              <li>PNG</li><li>JPEG</li><li>WebP</li>
+            </ul>
+            <p>
+              C2PA manifests; XMP and IPTC fields that declare a picture made by
+              a model; generation parameters and the generator signatures that
+              tools such as Stable Diffusion WebUI, ComfyUI, InvokeAI, NovelAI,
+              Midjourney, OpenAI, Adobe Firefly, Google and Microsoft write into
+              a file.
+            </p>
+            <p class="note">
+              The file is cut into its blocks and only the provenance blocks are
+              dropped: the pixels are not re-encoded. Camera data, orientation
+              and the colour profile stay.
+            </p>
+          </article>
+
+          <article class="card">
+            <div class="card-icon" aria-hidden="true"><svg class="icon"><use href="icons.svg#i-eye"></use></svg></div>
+            <h3>Visible marks</h3>
+            <ul class="tags" aria-label="Marks">
+              <li>Gemini</li><li>Grok on X</li>
+            </ul>
+            <p>
+              Gemini’s sparkle, in its earlier and its current form, and Grok’s
+              wordmark, white or black, on pictures saved from X. A mark comes off
+              only after Wipemark has proved it is there. A mark over solid,
+              opaque content is reported and left alone.
+            </p>
+            <p class="note">
+              Taking a mark off means writing the picture again: a JPEG is saved
+              at quality&nbsp;95, a lossy WebP as lossless.
+            </p>
+          </article>
+        </div>
+
+        <article class="card card-wide">
+          <div class="card-icon" aria-hidden="true"><svg class="icon"><use href="icons.svg#i-pen"></use></svg></div>
+          <div>
+            <h3>Optional: rewrite a text with a model</h3>
+            <p>
+              Some marks live in word choice rather than in characters, and no
+              character filter reaches them. Wipemark can rewrite a text paragraph
+              by paragraph with a model on your machine — llama.cpp, on Metal on a
+              Mac and on Vulkan on Linux — or with an endpoint you choose: Ollama,
+              or any OpenAI-compatible server.
+            </p>
+          </div>
+          <div>
+            <p>
+              A rewritten paragraph that fails a check is never used; the original
+              paragraph is kept. A rewrite is best-effort and the report says so —
+              read it in Compare before you use it.
+            </p>
+            <p class="muted small">Cleaning needs no model. Rewriting is never required.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ── How it works ─────────────────────────────────────────── -->
+    <section class="section" id="how" aria-labelledby="how-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">How it works</span>
+          <h2 id="how-title">Look first, change only what is proved, say what happened</h2>
+        </div>
+
+        <ol class="steps">
+          <li>
+            <h3>Hand it over</h3>
+            <p>Drop files, pictures or text on the main window or the panel, paste, or import. Everything lands in one list.</p>
+          </li>
+          <li>
+            <h3>It looks first</h3>
+            <p>Each row says what was found before anything is changed.</p>
+          </li>
+          <li>
+            <h3>Clean, or rewrite</h3>
+            <p>The result goes beside the original as <code>name.cleaned.ext</code> or <code>name.rewritten.ext</code>. Nothing is written over.</p>
+          </li>
+          <li>
+            <h3>Read the report</h3>
+            <p>It lists what was removed and where, and what could not be established.</p>
+          </li>
+        </ol>
+
+        <div class="split">
+          <div>
+            <h3>Every report has three shelves</h3>
+            <ul class="shelves">
+              <li><strong>Removed</strong><span>What was taken out, counted, with its position.</span></li>
+              <li><strong>Done by a model</strong><span>What a rewrite changed, when there was one.</span></li>
+              <li><strong>Not established</strong><span>What no check here can settle — whether a vendor’s own detector still flags the result, whether a text was written by a person, and marks in schemes this version does not implement. This shelf is never empty.</span></li>
+            </ul>
+            <figure class="shot">
+              <a class="shot-frame" href="assets/screenshots/report.png">
+                <img src="assets/screenshots/report.png" alt="A Wipemark report with its three shelves: removed, done by a model, and not established." loading="lazy">
+              </a>
+              <figcaption><strong>The report.</strong> It can be copied as Markdown.</figcaption>
+            </figure>
+          </div>
+
+          <div id="privacy">
+            <h3>Local by default</h3>
+            <ul class="checklist">
+              <li><svg class="icon" aria-hidden="true"><use href="icons.svg#i-hard-drive"></use></svg>
+                Cleaning text and pictures runs on your machine and never needs a network.</li>
+              <li><svg class="icon" aria-hidden="true"><use href="icons.svg#i-microchip"></use></svg>
+                A rewrite runs on your machine with a model you downloaded, unless you choose an endpoint.</li>
+              <li><svg class="icon" aria-hidden="true"><use href="icons.svg#i-plug"></use></svg>
+                An endpoint on another machine is refused until you turn on
+                <em>Allow a remote endpoint</em> in Settings › Engine. An API key is never
+                sent over plain <code>http</code> to another machine.</li>
+              <li><svg class="icon" aria-hidden="true"><use href="icons.svg#i-check"></use></svg>
+                Keys live in the system’s credential store — the Keychain on macOS,
+                the Secret Service on Linux — never in a file.</li>
+              <li><svg class="icon" aria-hidden="true"><use href="icons.svg#i-check"></use></svg>
+                Wipemark goes online only to download a model you pick, checked
+                against its published hash, to reach an endpoint you set up, and —
+                if you turn it on — to ask once a day which version is newest. That
+                check sends nothing about you or your documents. There is no
+                telemetry and no account.</li>
+              <li><svg class="icon" aria-hidden="true"><use href="icons.svg#i-check"></use></svg>
+                Its list of documents keeps names, paths and what was done — never
+                the text of a file. A pasted text is kept, with its rewrite, until
+                you remove its row. Logs never contain a document.</li>
+            </ul>
+            <figure class="shot">
+              <a class="shot-frame" href="assets/screenshots/settings-engine.png">
+                <img src="assets/screenshots/settings-engine.png" alt="Settings, the Engine page: who rewrites, the endpoint, and the switch that allows a remote endpoint." loading="lazy">
+              </a>
+              <figcaption><strong>Settings › Engine.</strong> Who rewrites, and whether a document may leave this machine.</figcaption>
+            </figure>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Where you use it ─────────────────────────────────────── -->
+    <section class="section section-soft" id="where" aria-labelledby="where-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Where you use it</span>
+          <h2 id="where-title">Windows, a panel, a command line and an MCP server — one list</h2>
+          <p>
+            Whatever arrives — from the main window, the panel, the command line
+            or an agent — joins the same list in the main window.
+          </p>
+        </div>
+
+        <div class="grid">
+          <article class="card surface">
+            <h3><svg class="icon" aria-hidden="true"><use href="icons.svg#i-table-cells-large"></use></svg>The main window</h3>
+            <p>Drop, paste or import files and texts. Clean or rewrite one row, or all of them; a rewrite survives a restart and resumes where it stopped.</p>
+          </article>
+          <article class="card surface">
+            <h3><svg class="icon" aria-hidden="true"><use href="icons.svg#i-window-restore"></use></svg>The panel</h3>
+            <p>A small window for a quick drop, called up by a shortcut you can change: <kbd>⌘</kbd><kbd>⌥</kbd><kbd>D</kbd> on a Mac, <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>D</kbd> elsewhere.</p>
+          </article>
+          <article class="card surface">
+            <h3><svg class="icon" aria-hidden="true"><use href="icons.svg#i-code-compare"></use></svg>Compare</h3>
+            <p>A text and its result side by side, with the differences marked. Edit the result there and save it.</p>
+          </article>
+          <article class="card surface">
+            <h3><svg class="icon" aria-hidden="true"><use href="icons.svg#i-bars"></use></svg>Menu bar and tray</h3>
+            <p>Show the window or the panel, unload a model, switch the appearance, open Settings or quit.</p>
+          </article>
+          <article class="card surface">
+            <h3><svg class="icon" aria-hidden="true"><use href="icons.svg#i-broom"></use></svg>The command line</h3>
+            <p><code>wipemark-cli</code> with <code>inspect</code>, <code>clean</code>, <code>audit</code>, <code>rewrite</code> and <code>models</code>. Exit codes a script can act on: <code>0</code> clean, <code>1</code> findings, <code>2</code> refusal, <code>3</code> partial.</p>
+<pre><code>wipemark-cli inspect draft.md
+wipemark-cli clean draft.md
+wipemark-cli audit notes/ --sarif</code></pre>
+            <p class="small">The second line writes <code>draft.cleaned.md</code> beside the file; <code>audit</code> walks a folder and answers in text, JSON or SARIF.</p>
+          </article>
+          <article class="card surface">
+            <h3><svg class="icon" aria-hidden="true"><use href="icons.svg#i-plug"></use></svg>MCP, for agents</h3>
+            <p>Off by default. Turned on in Settings › MCP, it listens on <code>127.0.0.1:5056</code> and offers <code>inspect</code>, <code>clean</code>, <code>rewrite</code>, <code>inspect_image</code> and <code>clean_image</code>, so an agent can check its own output. Settings has a snippet for Claude Code, Claude Desktop or n8n.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Screenshots ──────────────────────────────────────────── -->
+    <section class="section" id="screenshots" aria-labelledby="screenshots-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Screenshots</span>
+          <h2 id="screenshots-title">A closer look</h2>
+          <p>Select a picture to open it at full size.</p>
+        </div>
+
+        <div class="gallery">
+          <figure class="shot">
+            <a class="shot-frame" href="assets/screenshots/compare.png">
+              <img src="assets/screenshots/compare.png" alt="The Compare window: an original text and its result side by side, with the changed lines marked." loading="lazy">
+            </a>
+            <figcaption><strong>Compare.</strong> The original and the result side by side; the result can be edited and saved.</figcaption>
+          </figure>
+          <figure class="shot">
+            <a class="shot-frame" href="assets/screenshots/panel.png">
+              <img src="assets/screenshots/panel.png" alt="The Wipemark panel, a small window that takes a drop and cleans it." loading="lazy">
+            </a>
+            <figcaption><strong>The panel.</strong> Called up by a shortcut; what you drop on it joins the main list.</figcaption>
+          </figure>
+          <figure class="shot">
+            <a class="shot-frame" href="assets/screenshots/picture-before-after.png">
+              <img src="assets/screenshots/picture-before-after.png" alt="A picture before and after Wipemark removed a visible mark from it." loading="lazy">
+            </a>
+            <figcaption><strong>A picture, before and after.</strong> The mark comes off once it is proved to be there.</figcaption>
+          </figure>
+          <figure class="shot">
+            <a class="shot-frame" href="assets/screenshots/cli.png">
+              <img src="assets/screenshots/cli.png" alt="wipemark-cli at work in a terminal." loading="lazy">
+            </a>
+            <figcaption><strong>The command line.</strong> The same checks, for scripts, hooks and CI.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Download ─────────────────────────────────────────────── -->
+    <section class="section section-soft" id="download" aria-labelledby="download-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Download</span>
+          <h2 id="download-title">Wipemark 0.1.0</h2>
+          <p>Free to use, with no account. The interface is in English, German and Russian.</p>
+        </div>
+
+        <div class="grid">
+          <article class="card platform">
+            <h3>macOS <span class="muted">Apple Silicon</span></h3>
+            <ul class="files">
+              <li><code>Wipemark-0.1.0-arm64.dmg</code></li>
+            </ul>
+            <p class="muted">A Mac with Apple Silicon (M1 or later) and macOS 12 or later. There is no build for Intel Macs.</p>
+            <a class="btn btn-primary" href="__RELEASES_URL__">
+              <svg class="icon" aria-hidden="true"><use href="icons.svg#i-download"></use></svg>
+              Download for macOS
+            </a>
+            <h4>Install</h4>
+            <p>Open the <code>.dmg</code> and drag <strong>Wipemark</strong> onto <strong>Applications</strong>.</p>
+            <!-- OWNER: this build is not notarized (docs/release/0.1.0.md, README).
+                 If 0.1.0 ships signed with a Developer ID and notarized, delete this
+                 <details> block. -->
+            <details>
+              <summary>The first time you open it</summary>
+              <p>This build is not notarized by Apple, so macOS blocks it the first time and says it could not verify Wipemark. To open it:</p>
+              <ol>
+                <li>Click <strong>Done</strong> (not Move to Trash).</li>
+                <li>Open <strong>System Settings › Privacy &amp; Security</strong>.</li>
+                <li>Under <strong>Security</strong>, where it says Wipemark was blocked, click <strong>Open Anyway</strong>.</li>
+                <li>Confirm with your password, then click <strong>Open</strong>.</li>
+              </ol>
+              <p>You only do this once.</p>
+            </details>
+            <details>
+              <summary>The command line on a Mac</summary>
+              <p><code>wipemark-cli</code> is inside the app. Link it into a folder on your <code>PATH</code>:</p>
+<pre><code>mkdir -p ~/.local/bin
+ln -s /Applications/Wipemark.app/Contents/MacOS/wipemark-cli \
+      ~/.local/bin/wipemark-cli</code></pre>
+            </details>
+          </article>
+
+          <article class="card platform">
+            <h3>Linux <span class="muted">x86_64</span></h3>
+            <ul class="files">
+              <li><code>Wipemark-0.1.0-x86_64.AppImage</code></li>
+              <li><code>wipemark_0.1.0_amd64.deb</code> for Ubuntu and Debian</li>
+            </ul>
+            <p class="muted">glibc 2.39 or newer — Ubuntu 24.04, Debian 13, Fedora 40 or newer — with GTK&nbsp;3 and a Vulkan driver. The command line needs none of the desktop.</p>
+            <a class="btn btn-primary" href="__RELEASES_URL__">
+              <svg class="icon" aria-hidden="true"><use href="icons.svg#i-download"></use></svg>
+              Download for Linux
+            </a>
+            <h4>AppImage</h4>
+<pre><code>chmod +x Wipemark-0.1.0-x86_64.AppImage
+./Wipemark-0.1.0-x86_64.AppImage</code></pre>
+            <h4>.deb</h4>
+<pre><code>sudo apt install ./wipemark_0.1.0_amd64.deb</code></pre>
+            <details>
+              <summary>The tray icon and Wayland</summary>
+              <p>The tray icon needs <code>libayatana-appindicator3</code>; on GNOME it also needs the AppIndicator extension, which Ubuntu has on by default. Without a tray, closing the main window quits Wipemark.</p>
+              <p>On a Wayland desktop the windows run through XWayland, so the panel opens where you place it. <code>WIPEMARK_WAYLAND=1</code> runs them as native Wayland windows instead.</p>
+            </details>
+          </article>
+        </div>
+
+        <div class="callout">
+          <svg class="icon" aria-hidden="true"><use href="icons.svg#i-circle-info"></use></svg>
+          <p><strong>Windows</strong> is not in this version, and neither is Linux on ARM. A new version is offered, never forced: with the daily check turned on, Wipemark says when one is out, checks its signature, and on macOS and in an AppImage installs it when you say so; a <code>.deb</code> is updated with apt.</p>
+        </div>
+
+        <div class="models">
+          <h3 id="models">Models for rewriting (optional)</h3>
+          <p class="muted">
+            Cleaning needs no model. To rewrite on your machine, the first launch
+            looks at its memory and graphics and suggests one model from this
+            catalogue, then downloads it. Every download is checked against its
+            published hash, and an interrupted one resumes. A GGUF model you
+            already have can be added instead.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <caption class="visually-hidden">The models Wipemark can download, with their sizes</caption>
+              <thead>
+                <tr><th scope="col">Model</th><th scope="col">Download</th><th scope="col">Memory it needs</th><th scope="col">Licence</th></tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Qwen3 4B Instruct 2507</th><td class="num">2.5 GB</td><td class="num">about 4.5 GB</td><td>Apache 2.0</td></tr>
+                <tr><th scope="row">Gemma 4 12B Instruct (QAT)</th><td class="num">6.7 GB</td><td class="num">about 8.5 GB</td><td>Gemma terms</td></tr>
+                <tr><th scope="row">Gemma 3 12B Instruct (QAT)</th><td class="num">7.4 GB</td><td class="num">about 9 GB</td><td>Gemma terms</td></tr>
+                <tr><th scope="row">Qwen3.8 27B</th><td class="num">12 GB</td><td class="num">about 14 GB</td><td>Apache 2.0</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="muted small">
+            On a Mac the model runs on Metal. On Linux it runs on the graphics card
+            through Vulkan and has to fit in the card’s memory: an 8&nbsp;GB card holds
+            Qwen3 4B, not the larger ones. The weights are downloaded from Hugging
+            Face, not shipped with Wipemark, and come under their own licences.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── FAQ ──────────────────────────────────────────────────── -->
+    <section class="section" id="faq" aria-labelledby="faq-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Questions</span>
+          <h2 id="faq-title">Frequently asked</h2>
+        </div>
+
+        <div class="faq">
+          <details>
+            <summary>Is Wipemark free?<svg class="icon" aria-hidden="true"><use href="icons.svg#i-chevron-down"></use></svg></summary>
+            <div class="answer">
+              <p>Yes. Version 0.1.0 is free to use: no account, no trial, no activation, nothing locked.</p>
+              <p>
+                Its licence is the <strong>Functional Source License 1.1, with Apache 2.0
+                as the future licence</strong> (FSL-1.1-ALv2). In plain words: the source
+                is public, and you may use, copy, change and share it for any purpose
+                except offering it, or something built from it, as a commercial product
+                or service that competes with it. Two years after each version is
+                released, that version also becomes available under the Apache License
+                2.0. The <a href="legal/LICENSE.txt">licence text</a> is what binds.
+              </p>
+            </div>
+          </details>
+
+          <details>
+            <summary>What is it for?<svg class="icon" aria-hidden="true"><use href="icons.svg#i-chevron-down"></use></svg></summary>
+            <div class="answer">
+              <p>
+                For removing marks that software put into <strong>your own</strong> files
+                without asking: a hidden character carried over from a chat into your notes,
+                a manifest a generator attached to a picture you made for your own page.
+              </p>
+              <p>
+                It is not a way to claim you wrote something you did not, and it does not
+                try to be one: every report says that human authorship is not established
+                by anything Wipemark checks.
+              </p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Does it guarantee that a file is free of marks?<svg class="icon" aria-hidden="true"><use href="icons.svg#i-chevron-down"></use></svg></summary>
+            <div class="answer">
+              <p>
+                No. It removes what it can prove is there and says what it could not
+                establish. Every report ends with that list: whether a vendor’s own
+                detector still flags the result (not tested — there is nothing here to
+                test it against), whether a text was written by a person (not
+                established by any check), and marks in schemes this version does not
+                implement (not searched for).
+              </p>
+              <p>
+                A rewrite is best-effort, and the report says what the model changed.
+                Marks hidden inside a picture’s pixels, which no eye sees, are neither
+                looked for nor removed.
+              </p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Does it work offline?<svg class="icon" aria-hidden="true"><use href="icons.svg#i-chevron-down"></use></svg></summary>
+            <div class="answer">
+              <p>
+                Yes. Cleaning text and pictures never needs a network. Rewriting on your
+                machine works offline once a model is downloaded. Wipemark goes online
+                only to download a model you choose, to reach an endpoint you set up,
+                and — if you turn it on — to ask once a day which version is newest.
+                It has no telemetry.
+              </p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Which files does it take?<svg class="icon" aria-hidden="true"><use href="icons.svg#i-chevron-down"></use></svg></summary>
+            <div class="answer">
+              <p>
+                <strong>Text:</strong> plain text, Markdown, HTML, XML, JSON, CSV and RTF, in
+                UTF-8, UTF-16 or UTF-32, and text you paste or drop.
+                <strong>Pictures:</strong> PNG, JPEG and WebP.
+              </p>
+              <p>
+                TIFF, HEIC and AVIF are recognised and refused in this version; Word
+                documents, PDFs and other formats are not read. What a file is, Wipemark
+                decides from its bytes, not from its name. Compare is for texts only.
+              </p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Does it change my original file?<svg class="icon" aria-hidden="true"><use href="icons.svg#i-chevron-down"></use></svg></summary>
+            <div class="answer">
+              <p>
+                Not unless you ask it to. A result is written beside the original as
+                <code>name.cleaned.ext</code> or <code>name.rewritten.ext</code>, or into a results
+                folder you choose on the Retention page. If that name is taken, the windows
+                add the row’s number (<code>name.cleaned-12.ext</code>) and the command line
+                refuses. Nothing is written over.
+              </p>
+              <p>
+                You can choose to replace the file instead, on the Retention page or with
+                <code>wipemark-cli clean --in-place</code>; the original is then kept beside it as
+                <code>name.original.ext</code>. Only the command line’s <code>--no-original</code> keeps no copy.
+              </p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Which models can it use?<svg class="icon" aria-hidden="true"><use href="icons.svg#i-chevron-down"></use></svg></summary>
+            <div class="answer">
+              <p>
+                The four open-weight models in its catalogue (see <a href="#models">Models</a>),
+                any GGUF model you already have, or a server: Ollama, or any
+                OpenAI-compatible endpoint. On your machine the model runs through
+                llama.cpp — on Metal on a Mac, on Vulkan on Linux. Cleaning needs none of them.
+              </p>
+            </div>
+          </details>
+
+          <details>
+            <summary>What about Windows?<svg class="icon" aria-hidden="true"><use href="icons.svg#i-chevron-down"></use></svg></summary>
+            <div class="answer">
+              <p>
+                Not in this version. 0.1.0 is for Macs with Apple Silicon and for Linux on
+                x86_64. There is no build for Intel Macs or for Linux on ARM yet, and none
+                for glibc older than 2.39.
+              </p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Where does it keep my data?<svg class="icon" aria-hidden="true"><use href="icons.svg#i-chevron-down"></use></svg></summary>
+            <div class="answer">
+              <p>Everything Wipemark keeps is in one folder:</p>
+              <ul>
+                <li>macOS: <code>~/Library/Application Support/com.GigLabo.wipemark</code></li>
+                <li>Linux: <code>~/.local/share/wipemark</code> (or <code>$XDG_DATA_HOME/wipemark</code>)</li>
+              </ul>
+              <p>
+                It holds your settings; the list of documents — names, paths and what was
+                done, never the text of a file (a pasted text stays until you remove its
+                row); the downloaded models, which the Models page can move anywhere; and
+                logs, which never contain a document. Results go beside the file they came
+                from; a picture dragged out of a browser goes to your Downloads folder
+                unless the Retention page names another. API keys are in the Keychain on
+                macOS and the Secret Service on Linux.
+              </p>
+            </div>
+          </details>
+
+          <details>
+            <summary>How do I uninstall it?<svg class="icon" aria-hidden="true"><use href="icons.svg#i-chevron-down"></use></svg></summary>
+            <div class="answer">
+              <p>
+                Quit it from the menu bar or tray icon (<strong>Quit Wipemark</strong>), then remove
+                the program: on a Mac, drag <code>Wipemark.app</code> to the Trash; on Linux, run
+                <code>sudo apt remove wipemark</code> or delete the AppImage.
+              </p>
+              <p>
+                Removing the program leaves your data folder (with the models), your
+                results and your keys alone. To remove them too:
+              </p>
+<pre><code># macOS
+rm -rf ~/Library/Application\ Support/com.GigLabo.wipemark
+security delete-generic-password -s com.GigLabo.wipemark   # once per saved key
+
+# Linux
+rm -rf ~/.local/share/wipemark
+secret-tool clear service com.GigLabo.wipemark</code></pre>
+              <p>
+                On GNOME, the panel’s shortcut is one of GNOME’s own: remove
+                “Wipemark — panel” in Settings › Keyboard › Custom Shortcuts. The release
+                notes on the download page list every file, including the AppImage’s menu
+                entry and icons.
+              </p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div>
+        <a class="brand" href="#top">
+          <img src="icon-192.png" alt="" width="24" height="24">
+          <span>Wipemark</span>
+        </a>
+        <p>© 2026 GigLabo and Denis Esakov. Licensed under FSL-1.1-ALv2.</p>
+        <p>“Wipemark” and its logo are trademarks of GigLabo and Denis Esakov.</p>
+        <p>Icons from Font Awesome Free, CC BY 4.0.</p>
+      </div>
+      <ul class="footer-links" aria-label="Project">
+        <li><a href="legal/LICENSE.txt">Licence</a></li>
+        <li><a href="https://github.com/GigLaboCom/wipemark-app">Source on GitHub</a></li>
+        <li><a href="https://github.com/GigLaboCom/wipemark-app/blob/main/NOTICE">Third-party notices</a></li>
+        <li><a href="__RELEASES_URL__">Releases</a></li>
+      </ul>
+    </div>
+  </footer>
+</body>
+</html>

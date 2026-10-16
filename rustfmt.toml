@@ -1,0 +1,6 @@
+# Same three options as heretic-amuse-merge, so code moves between the
+# two repos without a formatting diff. All three are nightly-only, hence
+# `cargo +nightly fmt` everywhere.
+reorder_imports = true
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"

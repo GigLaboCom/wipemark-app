@@ -1,0 +1,73 @@
+[package]
+name = "wipemark-picture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "A picture file through the pixels pass: decode, restore a verified mark, encode, reframe — one writer."
+
+# The one crate that decodes and encodes a picture. Below it: the
+# container cutter that never decodes (`wipemark-image`) and the maths that
+# never sees a file (`wipemark-pixels`); keeping the codecs here is what
+# lets both of those stay what they promise. Enforced by
+# scripts/check-dep-direction.sh.
+
+[dependencies]
+wipemark-image.workspace = true
+wipemark-pixels.workspace = true
+thiserror.workspace = true
+# The decoders and encoders, all already in the lock through gpui's image
+# stack, all pure Rust. PNG both ways; WebP both ways, lossless out
+# (`image-webp` has no lossy encoder — which is the owner's answer to Q-V3
+# anyway); JPEG in through `zune-jpeg`.
+png = "0.18"
+image-webp = "0.2"
+zune-jpeg = { workspace = true }
+# JPEG out (Q-V2: decode, restore, re-encode at high quality): `image`'s own
+# encoder, pure Rust, its `jpeg` feature alone.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
+[features]
+# The blend past one logo colour (E12-R9, D497/D502/D500 proposed): the
+# catalogue reads a profile's `bias`, `logo_map` and `linear-light`, which
+# it refuses without it (`wipemark-pixels`' feature of the same name). A
+# release CLI built with `--features wipemark-picture/blend-preview` and a
+# catalogue carrying R4's measured values is what the regression's host run
+# (R1, `--route model`) measures; `recon_bench`'s `R9a`, `R9b` and `R9c`
+# exist only in such a build. The coordinator removes the feature once the
+# decisions land.
+blend-preview = ["wipemark-pixels/blend-preview"]
+
+[dev-dependencies]
+# The pixels suite's generators are borrowed by `#[path]`, and they pin
+# their synthetic maps by sha256.
+sha2.workspace = true
+# The restoration bench (`examples/recon_bench.rs`, E12-R5) reads its
+# manifest and a case's `meta.json`, and writes one JSON line per result.
+# Already in the lock through `wipemark-pixels`.
+serde_json.workspace = true
+
+# The bench's metrics (PSNR, SSIM, CIEDE2000) and its generator are held to
+# known values by tests of their own, which `cargo test -p wipemark-picture`
+# runs: an example's tests are not run unless it says so.
+[[example]]
+name = "recon_bench"
+test = true
+
+# The clean-picture measures (E12-R12 §4.1): its rectangles, their map and
+# its summary's arithmetic are held by tests of its own.
+[[example]]
+name = "measure_clean"
+test = true
+
+# The restoration's crops from a real file, for R10's model evaluation
+# (E12-R10, `scripts/model-eval/`): its rectangles and its runs of holes are
+# held by tests of its own.
+[[example]]
+name = "export_crops"
+test = true
+
+[lints]
+workspace = true
