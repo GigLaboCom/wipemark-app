@@ -1095,7 +1095,9 @@ const PANEL_FLAG: &str = "--panel";
 /// `--show`. On its own it starts the application as a plain launch does;
 /// its point is the second launch — the command GNOME's custom shortcut for
 /// [`hotkey::Action::Show`] runs — which hands the request to the running
-/// instance rather than starting a second one (D646).
+/// instance rather than starting a second one (D646). Since D792 a launch
+/// that asks for nothing at all asks for the same, so the flag names what
+/// a bare launch does and changes nothing in [`Launch`].
 const SHOW_FLAG: &str = "--show";
 
 /// The flag that puts a file in the queue at startup.
@@ -1163,15 +1165,6 @@ struct Launch {
     profile: Option<String>,
     /// Whether the panel was asked for.
     panel: bool,
-    /// Whether the main window was asked for by name (`--show`).
-    #[cfg_attr(
-        not(target_os = "linux"),
-        allow(
-            dead_code,
-            reason = "only a Linux launch hands it to a running instance"
-        )
-    )]
-    show: bool,
     /// Whether the setup walk-through was asked for.
     setup: bool,
     /// Whether only the version was asked for.
@@ -1186,13 +1179,15 @@ struct Launch {
     compare: Vec<PathBuf>,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 impl Launch {
     /// What this launch would hand a running instance, if all it asks for
-    /// is a summons — `--panel` or `--show` and nothing else. A launch that
-    /// asks for anything more (a file, a page, a profile, the walk-through)
-    /// starts as it always did (D646). The panel wins over the window: it
-    /// is the one a shortcut is for.
+    /// is a summons — `--panel`, `--show`, or nothing at all, which is a
+    /// second double-click's way of asking for the window (D792). A launch
+    /// that asks for anything more (a file, a page, a profile, the
+    /// walk-through) is `None`: it starts, or — with the data directory
+    /// held — it ends (D646). The panel wins over the window: it is the one
+    /// a shortcut is for.
     fn summons(&self) -> Option<instance::Summons> {
         let only_a_summons = self.settings.is_none()
             && self.profile.is_none()
@@ -1204,13 +1199,11 @@ impl Launch {
         if !only_a_summons {
             return None;
         }
-        if self.panel {
-            Some(instance::Summons::Panel)
-        } else if self.show {
-            Some(instance::Summons::Show)
+        Some(if self.panel {
+            instance::Summons::Panel
         } else {
-            None
-        }
+            instance::Summons::Show
+        })
     }
 }
 
@@ -1231,7 +1224,8 @@ fn launch_from(arguments: impl IntoIterator<Item = String>) -> Launch {
             continue;
         }
         if argument == SHOW_FLAG {
-            launch.show = true;
+            // The window, which a launch that asks for nothing else gets
+            // anyway (D792): recognised, and nothing to record.
             continue;
         }
         if argument == SETUP_FLAG {
@@ -1412,7 +1406,7 @@ fn open_work(
     work
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
     // Before anything else, while this is the only thread (D650): no XIM.
     // GPUI's X11 client asks the input method named by `XMODIFIERS` for
     // every keystroke, and `zed-xim` panics on a commit it cannot convert
@@ -1443,38 +1437,48 @@ fn main() {
     if launch.version {
         // A format, read by scripts: never localized.
         println!("wipemark {}", env!("CARGO_PKG_VERSION"));
-        return;
+        return std::process::ExitCode::SUCCESS;
     }
 
-    // Where this data directory's running instance listens, and — for a
-    // launch that only summons — the summons handed to it, before anything
-    // opens the database or a window: answered, this process has done its
-    // job (D646). Linux only: GNOME's shortcut is the launch this is for,
-    // and macOS keeps one instance through LaunchServices.
-    #[cfg(target_os = "linux")]
-    let socket = layout.as_ref().ok().and_then(|layout| {
-        instance::socket_path(
-            layout.root(),
-            std::env::var_os("XDG_RUNTIME_DIR")
-                .as_deref()
-                .map(std::path::Path::new),
-        )
-    });
-    #[cfg(target_os = "linux")]
-    if let (Some(summons), Some(path)) = (launch.summons(), socket.as_deref()) {
-        match instance::forward(path, summons) {
-            Ok(()) => {
+    // One process per data directory (D646, D790–D794), decided before
+    // anything opens the database, the queue or a window. A launch that
+    // only summons — `--panel`, `--show`, or nothing at all — knocks on the
+    // running instance's socket first: answered, this process has done its
+    // job. Otherwise it asks for the data directory's lock: held, it binds
+    // its own socket and starts; taken, it hands over what it can and
+    // ends, so two processes never run one queue (F33). On Linux and on
+    // macOS alike: LaunchServices keeps one instance only for a launch that
+    // goes through it, never for the executable started by name.
+    #[cfg(unix)]
+    let listening = {
+        let root = layout.as_ref().ok().map(Layout::root);
+        let runtime = instance::runtime_dir();
+        let socket = root.and_then(|root| instance::socket_path(root, runtime.as_deref()));
+        match instance::admit(
+            launch.summons(),
+            root,
+            socket.as_deref(),
+            instance::PATIENCE,
+        ) {
+            instance::Admission::HandedOver(summons) => {
                 tracing::info!(
                     summons = summons.word(),
                     "handed to the running instance; this launch ends here"
                 );
-                return;
+                return std::process::ExitCode::SUCCESS;
             }
-            Err(error) => {
-                tracing::info!(%error, "no running instance took the summons; starting");
+            instance::Admission::Refused(refusal) => {
+                refuse_second_launch(refusal, layout.as_ref().ok());
+                return std::process::ExitCode::from(2);
+            }
+            instance::Admission::Start(start) => {
+                if let Some(held) = start.held {
+                    held.for_the_life_of_the_process();
+                }
+                start.listening
             }
         }
-    }
+    };
 
     // Opened before the app starts, and after logging, so that the one
     // warning a missing or unopenable database earns lands in the log
@@ -1575,7 +1579,8 @@ fn main() {
             // First, so a signal at any moment from here on quits through
             // every `on_app_quit` handler rather than ending the process
             // where it stands (D717). Not before `run`: `--version` and a
-            // handed-over summons have returned by now (D719).
+            // handed-over summons have returned by now (D719), and so has a
+            // second launch on a held data directory (D792).
             #[cfg(unix)]
             signals::quit_on_signals(cx);
             // Under X11 — XWayland included — the monitors, the pointer and
@@ -1710,9 +1715,9 @@ fn main() {
             install_tray(preference, window, preferences.clone(), cx);
             install_hotkeys(window, preferences.clone(), cx);
             take_beacon_at_quit(beacon_at_quit, cx);
-            #[cfg(target_os = "linux")]
-            if let Some(path) = socket.as_deref() {
-                answer_summonses(path, window, preferences.clone(), cx);
+            #[cfg(unix)]
+            if let Some(listening) = listening {
+                answer_summonses(listening, window, preferences.clone(), cx);
             }
 
             // Kept copies past their period go once a launch, by the
@@ -1769,6 +1774,39 @@ fn main() {
                 );
             }
         });
+    std::process::ExitCode::SUCCESS
+}
+
+/// Say why this launch ends without starting, on standard error and in the
+/// log: another Wipemark holds the data directory (D792).
+///
+/// In the person's own language, read from the holder's database without
+/// writing to it — the one thing a refused launch opens there. The log
+/// line is for a machine and is not localized.
+#[cfg(unix)]
+fn refuse_second_launch(refusal: instance::Refusal, layout: Option<&Layout>) {
+    let language = layout
+        .and_then(|layout| {
+            wipemark_store::Store::open_read_only(layout.db_path())
+                .ok()
+                .flatten()
+        })
+        .map(|store| config::read_language(&store))
+        .unwrap_or_default();
+    wipemark_i18n::init(&language, Rendering::PlainText);
+    let sentence = match refusal {
+        instance::Refusal::MoreThanASummons => {
+            tracing::warn!("another instance holds this data directory and was brought forward; this launch ends here");
+            t(Message::LaunchAlreadyRunning)
+        }
+        instance::Refusal::NoAnswer => {
+            tracing::warn!(
+                "another instance holds this data directory and did not answer; this launch ends here"
+            );
+            t(Message::LaunchNotAnswering)
+        }
+    };
+    eprintln!("{sentence}");
 }
 
 /// Make `secondary-,` — ⌘, on macOS, Ctrl+, elsewhere — open the
@@ -1911,23 +1949,23 @@ impl Following {
 }
 
 /// Answer a second launch's summons — the GNOME shortcut's `wipemark
-/// --panel`, or `--show` — for as long as the application runs (D646).
+/// --panel`, `--show`, or a plain second launch — for as long as the
+/// application runs (D646, D790).
 ///
-/// The socket is listened on by a thread of its own; a summons crosses
-/// here over a channel and is performed the way the X11 or Carbon
-/// shortcut's press is: the panel toggled, or the main window brought
-/// forward. The socket file is taken away at quit when it is still ours,
-/// so the next launch does not first knock on a door nobody answers.
-#[cfg(target_os = "linux")]
+/// The socket was bound before the database was opened (D793), by a thread
+/// of its own; a summons that came while the application started has
+/// waited on the channel, and every summons crosses here and is performed
+/// the way the X11 or Carbon shortcut's press is: the panel toggled, or
+/// the main window brought forward. The socket file is taken away at quit
+/// when it is still ours, so the next launch does not first knock on a
+/// door nobody answers.
+#[cfg(unix)]
 fn answer_summonses(
-    path: &std::path::Path,
+    (listening, summonses): (instance::Listening, flume::Receiver<instance::Summons>),
     window: WindowHandle<Root>,
     preferences: Entity<Preferences>,
     cx: &App,
 ) {
-    let Some((listening, summonses)) = instance::listen(path) else {
-        return;
-    };
     cx.on_app_quit(move |_| {
         listening.remove();
         async {}
@@ -2216,13 +2254,13 @@ mod tests {
         assert_eq!(launch(&["--profile"]).profile, None);
     }
 
-    /// `--setup` is what a fresh install does by itself, on demand — so
-    /// a check of the first launch does not start by clearing a row.
     /// D646: a launch whose whole request is a summons hands it to a
-    /// running instance; one that asks for anything more starts as it
-    /// always did — a file to import must not be handed away as "show the
-    /// window". Red with `summons` ignoring the other flags.
-    #[cfg(target_os = "linux")]
+    /// running instance; one that asks for anything more is not a summons
+    /// — a file to import must not be handed away as "show the window".
+    /// D792: a launch that asks for nothing at all — a second double-click
+    /// — asks for the window, on Linux and macOS alike. Red with `summons`
+    /// ignoring the other flags, or a bare launch not a summons.
+    #[cfg(unix)]
     #[test]
     fn only_a_launch_that_only_summons_is_handed_over() {
         use crate::instance::Summons;
@@ -2239,7 +2277,9 @@ mod tests {
             launch(&["-psn_0_1234", "--panel"]).summons(),
             Some(Summons::Panel)
         );
-        assert_eq!(launch(&[]).summons(), None);
+        assert_eq!(launch(&[]).summons(), Some(Summons::Show));
+        assert_eq!(launch(&["-psn_0_1234"]).summons(), Some(Summons::Show));
+        assert_eq!(launch(&["--show"]), launch(&[]), "the flag names it");
         for more in [
             "--settings",
             "--settings=placement",
@@ -2253,6 +2293,8 @@ mod tests {
         }
     }
 
+    /// `--setup` is what a fresh install does by itself, on demand — so
+    /// a check of the first launch does not start by clearing a row.
     #[test]
     fn the_walk_through_can_be_asked_for_on_the_command_line() {
         assert!(launch(&["--setup"]).setup);

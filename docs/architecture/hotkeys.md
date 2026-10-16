@@ -14,7 +14,7 @@ behind it, rebuilt on gpui-component parts.
 | `config.rs` → `hotkey.<action>` | one row per `hotkey::Action`, the chord as text, `""` for none |
 | `main.rs` → `install_hotkeys` | registers what is stored, follows every change, performs a press |
 | `apps/wipemark-app/src/gnome.rs` | GNOME's own custom keyboard shortcuts as the registrar on GNOME: the accelerator, the command, the list edit, who already holds the keys (D641–D647) |
-| `apps/wipemark-app/src/instance.rs` | one Wipemark per data directory: a second launch's `--panel` or `--show` handed to the running one (D646) |
+| `apps/wipemark-app/src/instance.rs` | one Wipemark per data directory: `<data dir>/wipemark.lock` held by one process, and a second launch's `--panel`, `--show` or bare launch handed to it, on Linux and macOS (D646, D790–D794; "One Wipemark per data directory" below) |
 
 | action | what a press does | shipped chord |
 |---|---|---|
@@ -327,7 +327,9 @@ whose whole request is `--panel` or `--show` first connects to
 too long for a socket — and, answered `ok`, exits 0: the running instance
 toggles its panel (or brings the main window forward), the way the
 Carbon or X11 press does. With nothing running the launch starts, and its
-`--panel` opens the panel. Not MCP, which is off by default.
+`--panel` opens the panel. Not MCP, which is off by default. The same
+holds on macOS and for every other second launch: see "One Wipemark per
+data directory" below.
 
 **Why GNOME's road under X11 too** (D647): a grab of a key mutter already
 holds is refused with a bare `BadAccess`, where GNOME's lists let the row
@@ -343,3 +345,89 @@ as Show desktop's, `--panel` handed over in ~20 ms, the binding left at
 quit, the recorder's order driven with XTest — and the owner's own
 `dconf dump` of the media keys and the window manager's keybindings
 compared before and after.
+
+## One Wipemark per data directory (D646, D790–D794)
+
+A data directory has one application process, whoever starts the
+second. Two of them on one `wipemark.db` would each read the batch
+queue's rows at launch and each run its next job, each write the
+journal and each serve MCP — on macOS `wipemark --panel` did exactly
+that, and both processes rewrote the same queued document (acceptance
+F33).
+
+**The hold** (D791). Before the database, the queue, the journal, the
+MCP server or a window, `main` asks `instance::hold` for an exclusive,
+non-blocking lock (`flock`, through `File::try_lock`) on
+`<data dir>/wipemark.lock`, mode 0600. Held, the file says the process's
+pid, and the lock is kept for the life of the process
+(`Held::for_the_life_of_the_process`): the kernel lets go however the
+process ends, `kill -9` and a crash included, so there is never a stale
+lock to clear. The file is never removed — a lock file removed while
+another process opens it makes two holders. The lock is the file's, not
+the path's, so two spellings of one directory are still one holder. The
+command line never takes it.
+
+**The knock** (D646, D790, D793). `instance::admit` decides, in this
+order:
+
+1. A launch whose whole request is a summons — `--panel`, `--show`, or
+   **nothing at all** — connects to the socket first. Answered `ok`, it
+   exits 0 before anything else opens.
+2. Otherwise it asks for the hold. Held, it binds the socket at once,
+   before the database (D793), so a summons that arrives while it starts
+   is answered and waits on the channel until the main window is up;
+   then it starts.
+3. Taken, it knocks again every 100 ms for up to five seconds
+   (`instance::PATIENCE`), handing over its summons — or `show`, for a
+   launch that asked for more. A holder that answers ends the launch
+   (D792); a holder that lets go — a quit still unloading a model — lets
+   it start.
+
+**Each kind of second launch** (D792), on a data directory another
+process holds:
+
+| launch | what happens | exit |
+|---|---|---|
+| `--version` | prints `wipemark <version>`; never asks for anything | 0 |
+| `--panel` | the holder toggles its panel | 0 |
+| `--show`, or no flag at all (a second double-click, LaunchServices' `-psn_…`) | the holder brings its main window forward | 0 |
+| `--import=`, `--clean=`, `--compare=`, `--settings[=…]`, `--profile=`, `--setup`, with or without a summons | the holder brings its main window forward; the launch says on stderr that Wipemark is already running and that these are taken only by the launch that starts it (`launch-already-running`) | 2 |
+| any, while the holder does not answer for five seconds | `launch-not-answering` on stderr | 2 |
+| any, with no data directory, or a lock the filesystem refuses | starts, as before D791; a warning in the log (D794) | — |
+
+The sentence is in the person's language, read from the holder's
+database without writing to it; the log line beside it is for a machine.
+The files a second launch names are not handed over: a wire format for
+paths would be a protocol for flags that exist for checks, and
+LaunchServices drops a running application's `--args` anyway.
+
+**On macOS** (D790) the handover is the same as on Linux. LaunchServices
+keeps one instance only for a launch that goes through it — the Finder,
+the Dock, `open -a Wipemark` — so a second double-click never reaches
+this code. The bundle's own executable started by name
+(`Wipemark.app/Contents/MacOS/wipemark --panel`, from a terminal, a
+script, a launcher, or `open -n`) is a second process, and it is the one
+that knocks. A socket's path is held to 103 bytes there (`sun_path` is
+104), 107 on Linux; past that, the socket goes to the per-user `$TMPDIR`
+on macOS and `$XDG_RUNTIME_DIR` on Linux, as `wipemark-<fnv of the data
+directory>.sock` (`instance::runtime_dir`, `socket_path`).
+
+**The command line** is unchanged (D794): it finds the application by its
+beacon (`mcp.json`, loopback only) and lets the application's queue run a
+rewrite; alone, it loads its own model and writes only its own journal
+row, through SQLite. It never runs the queue, so it never asks for the
+hold.
+
+Tests: `instance::tests` — `one_process_holds_a_data_directory`,
+`a_second_launch_hands_over_or_ends_and_never_starts`,
+`a_launch_waits_for_a_holder_that_is_letting_go`,
+`a_socket_that_does_not_fit_beside_goes_to_the_runtime_directory`; in
+`main`, `only_a_launch_that_only_summons_is_handed_over`; and
+`tests/second_launch.rs`, which runs the built binary on a data
+directory the test holds — `--panel`, `--show` and a bare launch handed
+over with exit 0, `--import=` refused with exit 2 — and kills it, failing,
+should it start instead. The live check is
+`scripts/verify/f33/second-launch.py`: a real instance on a scratch data
+directory whose socket path is 104 bytes, then `--panel` twice, a bare
+launch and `--import=`, each exit code, what the instance heard, and
+whether its panel is on screen.

@@ -1673,3 +1673,8 @@ queue-action-why-no-result = Es gibt noch kein Ergebnis.
 queue-action-why-to-caller = Das Ergebnis ging an den zurück, der es angefordert hat; hier wurde nichts geschrieben.
 queue-action-why-no-file = Kam ohne Datei.
 queue-action-why-nothing-written = Dafür wurde nichts geschrieben; der Status sagt, warum.
+
+## Ein zweiter Start auf einem Datenordner, den schon ein anderes
+## { -brand-name } hält (D792).
+launch-already-running = { -brand-name } läuft bereits mit diesem Datenordner; sein Fenster wurde nach vorn geholt. --import=, --clean=, --compare=, --settings, --profile= und --setup nimmt nur der Start an, der es startet: Verwenden Sie dieses Fenster, oder beenden Sie { -brand-name } und führen Sie den Befehl erneut aus.
+launch-not-answering = { -brand-name } läuft bereits mit diesem Datenordner und hat nicht geantwortet. Warten Sie, bis es fertig gestartet ist, oder beenden Sie es, und führen Sie den Befehl erneut aus.
