@@ -30,6 +30,7 @@ use gpui_component::{Disableable as _, Sizable as _};
 use wipemark_i18n::{args, t, t_args, Message};
 
 use crate::engine_host::{EngineHost, UnloadOffer, Use};
+use crate::hover::Tip as _;
 use crate::icon::IconName;
 
 /// How the button looks (D804): the theme's primary button. Its fill and
@@ -51,7 +52,7 @@ pub fn button(host: &Entity<EngineHost>, cx: &App) -> Option<AnyElement> {
             .with_variant(LOOK)
             .icon(IconName::Microchip)
             .label(SharedString::from(t(Message::StatusUnload)))
-            .tooltip(SharedString::from(tooltip))
+            .tip(tooltip)
             .disabled(offer != UnloadOffer::Ready)
             .on_click(move |_: &ClickEvent, _, cx| {
                 // A press the policy refuses changes nothing; the host's
