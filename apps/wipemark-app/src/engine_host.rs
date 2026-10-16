@@ -1415,6 +1415,12 @@ impl EngineHost {
         &self.loaded
     }
 
+    /// How many jobs run on the engine now — an update's gate (D788): a
+    /// rewrite, an agent's, a Check.
+    pub fn busy(&self) -> usize {
+        self.handle.busy()
+    }
+
     /// How much of the weights the load under way has read, from 0 to 1 —
     /// `None` while no load is under way (F1). A load a Check or a job
     /// asked for counts as much as one the policy asked for.

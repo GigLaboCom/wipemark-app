@@ -19,6 +19,12 @@
 //! A wizard that kept a second copy of a preference would be a second
 //! place for the two to disagree.
 //!
+//! The last step also asks the one question that is not about the engine:
+//! whether the application may ask once a day which version is newest
+//! (D784). A switch, off unless the row already says yes; **Finish** writes
+//! it through the General page's own `update::Updates`, and Skip leaves the
+//! row as it was.
+//!
 //! # The recommendation is the machine's
 //!
 //! `mnemoria-lvkb`'s first-run flow is a card tour; its *recommendation*
@@ -67,6 +73,7 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::radio::Radio;
 use gpui_component::stepper::{Stepper, StepperItem};
+use gpui_component::switch::Switch;
 use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable as _, Sizable as _, StyledExt as _};
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_models::host::{default_for_role, fit, Fit, Host};
@@ -342,6 +349,10 @@ pub struct Setup {
     /// Escape are three roads to one place, and a walk-through reached
     /// by two of them at once must end once.
     armed: bool,
+    /// The last step's switch: whether the application may check for new
+    /// versions once a day (D784). What the row says as the walk-through
+    /// opens — off on a fresh install — and written by Finish alone.
+    updates: bool,
     /// Repaint whenever the preferences move: the machine probe lands,
     /// a download reports, the Engine page is edited beside this.
     _preferences: Subscription,
@@ -358,6 +369,7 @@ impl Setup {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let watched = cx.observe(&preferences, |_, _, cx| cx.notify());
+        let updates = crate::update::hosted(cx).is_some_and(|updates| updates.read(cx).on());
         Self {
             preferences,
             focus,
@@ -365,6 +377,7 @@ impl Setup {
             reached: Step::Welcome,
             choice: None,
             armed: true,
+            updates,
             _preferences: watched,
         }
     }
@@ -425,7 +438,17 @@ impl Setup {
         }
         match self.step.next() {
             Some(step) => self.go(step, cx),
-            None => self.end(SetupEvent::Finished, cx),
+            None => {
+                // Finish answers the last step's question, whatever the
+                // switch says; Skip answers nothing (D784).
+                if self.armed {
+                    let on = self.updates;
+                    if let Some(updates) = crate::update::hosted(cx) {
+                        updates.update(cx, |updates, cx| updates.answer_setup(on, cx));
+                    }
+                }
+                self.end(SetupEvent::Finished, cx);
+            }
         }
     }
 
@@ -896,6 +919,23 @@ impl Setup {
             .gap_3()
             .child(self.duty_banner(cx))
             .child(Self::paragraph(t(Message::SetupDoneBody), cx))
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(Switch::new("setup-updates").checked(self.updates).on_click(
+                                cx.listener(|setup, on: &bool, _, cx| {
+                                    setup.updates = *on;
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(Self::paragraph(t(Message::SetupDoneUpdates), cx)),
+                    )
+                    .child(Self::aside(t(Message::SettingsUpdatesDescription), cx)),
+            )
     }
 
     /// The Engine page's own banner: who is on duty, why the other side

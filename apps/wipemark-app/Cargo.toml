@@ -54,6 +54,11 @@ base64 = "0.22"
 # wipemark.db; a credential goes to the operating system's own store.
 # See src/engine.rs and docs/architecture/engine-settings.md.
 wipemark-secret.workspace = true
+# Whether a newer version exists, proved, and the swap where this copy may
+# replace itself (D780–D789, src/update.rs). `semver` for the versions it
+# hands back, already in the lock through it.
+wipemark-update.workspace = true
+semver = "1"
 anyhow.workspace = true
 toml.workspace = true
 # The Settings window's remembered rectangle, which goes into the store
@@ -114,6 +119,10 @@ gpui = { workspace = true, features = ["test-support"] }
 # ignored, run by `scripts/verify/e7-11/shots.sh`). The feature turns on
 # crates already in the tree (`image`), nothing new.
 gpui_platform = { workspace = true, features = ["test-support"] }
+# The loopback server, the run-time key pair and the signed manifest the
+# update's tests are made against. A dev-dependency feature: no build that
+# ships carries it.
+wipemark-update = { workspace = true, features = ["test-support"] }
 
 # macOS-only, and these are affordances rather than features: the Dock
 # icon of an unbundled dev build (src/dock_icon.rs), the window moves and

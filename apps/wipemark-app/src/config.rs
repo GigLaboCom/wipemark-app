@@ -367,6 +367,79 @@ pub const JOURNAL_DAYS: [u32; 4] = [1, 7, 30, 90];
 /// batch, short enough that the journal is not an archive.
 pub const JOURNAL_KEEP_DAYS_DEFAULT: u32 = 7;
 
+// ## D780–D789 — new versions.
+
+/// Whether the application asks the release service once a day which
+/// version is newest (D784). `false` until the person says yes — on the
+/// walk-through's last step, in the one-time notice, or on the General
+/// page — because it is the first connection the person did not start.
+/// `updates.` and not `ui.`: the day the check runs there is no window in
+/// its call path.
+pub const UPDATES_CHECK_KEY: &str = "updates.check";
+
+/// When the last automatic or asked-for check **succeeded**, as RFC 3339.
+/// State, not a preference — observed, never asked for — so outside
+/// [`PERSISTED`] and outside Settings, as window geometry is
+/// (`window_state`). The 24 h gate is measured from it.
+pub const UPDATES_LAST_CHECK_KEY: &str = "updates.last_check";
+
+/// The version the person skipped: an automatic check does not offer it,
+/// a check the person asks for does. State, like the one above.
+pub const UPDATES_SKIPPED_KEY: &str = "updates.skipped";
+
+/// Whether the person has been asked about the automatic check — on the
+/// walk-through's last step or in the one-time notice. Either answer ends
+/// the asking. State, like the two above.
+pub const UPDATES_ASKED_KEY: &str = "updates.asked";
+
+/// The update rows as a launch reads them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UpdateRows {
+    /// [`UPDATES_CHECK_KEY`]: absent or unreadable is off.
+    pub check: bool,
+    /// [`UPDATES_LAST_CHECK_KEY`], as written.
+    pub last_check: Option<String>,
+    /// [`UPDATES_SKIPPED_KEY`], as written.
+    pub skipped: Option<String>,
+    /// [`UPDATES_ASKED_KEY`]: absent is not asked.
+    pub asked: bool,
+}
+
+/// Read the update rows. A value that cannot be read is the default and
+/// stays in its row, as every row here does.
+pub fn read_updates(store: &Store) -> UpdateRows {
+    UpdateRows {
+        check: read_json::<bool>(store, UPDATES_CHECK_KEY).unwrap_or(false),
+        last_check: read_string(store, UPDATES_LAST_CHECK_KEY),
+        skipped: read_string(store, UPDATES_SKIPPED_KEY),
+        asked: read_json::<bool>(store, UPDATES_ASKED_KEY).unwrap_or(false),
+    }
+}
+
+/// Persist whether the application checks on its own.
+pub fn write_updates_check(store: &Store, on: bool) -> Result<()> {
+    store.settings().set(UPDATES_CHECK_KEY, &on)?;
+    Ok(())
+}
+
+/// Persist when a check last succeeded.
+pub fn write_updates_last_check(store: &Store, at: &str) -> Result<()> {
+    store.settings().set(UPDATES_LAST_CHECK_KEY, at)?;
+    Ok(())
+}
+
+/// Persist the version skipped.
+pub fn write_updates_skipped(store: &Store, version: &str) -> Result<()> {
+    store.settings().set(UPDATES_SKIPPED_KEY, version)?;
+    Ok(())
+}
+
+/// Persist that the person was asked.
+pub fn write_updates_asked(store: &Store) -> Result<()> {
+    store.settings().set(UPDATES_ASKED_KEY, &true)?;
+    Ok(())
+}
+
 // ## E4-6c — the Prompts section's key.
 
 /// The pivot of `back_translate` (D60): a language id as a JSON string,
@@ -455,7 +528,7 @@ pub fn model_key(role: Role) -> &'static str {
 /// below name their own key — and `-D warnings` fails a bin target on
 /// dead code. Same idiom as `TrayCommand::ALL`.
 #[cfg(test)]
-pub const PERSISTED: [&str; 41] = [
+pub const PERSISTED: [&str; 42] = [
     THEME_KEY,
     LANGUAGE_KEY,
     WINDOW_SCREEN_KEY,
@@ -501,6 +574,8 @@ pub const PERSISTED: [&str; 41] = [
     REWRITE_PIVOT_KEY,
     // E4-9
     REWRITE_PROFILE_KEY,
+    // D784
+    UPDATES_CHECK_KEY,
 ];
 
 /// Everything one launch reads before there is a window to show it in.
@@ -563,6 +638,9 @@ pub struct Stored {
     pub on_arrival: OnArrival,
     /// How many days a finished journal row is kept.
     pub journal_keep_days: u32,
+    /// Whether the application checks for new versions, and what it
+    /// remembers of its checks (D784).
+    pub updates: UpdateRows,
 }
 
 /// Read every preference this build starts from.
@@ -608,6 +686,7 @@ pub fn read_all(store: &Store) -> Stored {
         comparison: read_comparison(store),
         on_arrival: read_on_arrival(store),
         journal_keep_days: read_journal_keep_days(store),
+        updates: read_updates(store),
     }
 }
 
@@ -3558,5 +3637,76 @@ mod tests {
         let store = open(None);
         write_theme(&store, ThemePreference::Dark).expect("write");
         assert_eq!(read_theme(&store), ThemePreference::Dark);
+    }
+}
+
+/// The update rows (D784).
+#[cfg(test)]
+mod update_rows {
+    use wipemark_store::Store;
+
+    use super::{
+        read_updates, write_updates_asked, write_updates_check, write_updates_last_check,
+        write_updates_skipped, UpdateRows, PERSISTED, UPDATES_ASKED_KEY, UPDATES_CHECK_KEY,
+        UPDATES_LAST_CHECK_KEY, UPDATES_SKIPPED_KEY,
+    };
+
+    fn store() -> (std::path::PathBuf, Store) {
+        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "wipemark-config-updates-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        let store = Store::open(dir.join("wipemark.db")).expect("open");
+        (dir, store)
+    }
+
+    /// Off until the person says yes; every row read back as written.
+    #[test]
+    fn the_check_is_off_until_asked_for() {
+        let (_dir, store) = store();
+        assert_eq!(read_updates(&store), UpdateRows::default());
+        write_updates_check(&store, true).expect("write");
+        write_updates_last_check(&store, "2026-10-16T12:00:00+00:00").expect("write");
+        write_updates_skipped(&store, "0.2.1").expect("write");
+        write_updates_asked(&store).expect("write");
+        assert_eq!(
+            read_updates(&store),
+            UpdateRows {
+                check: true,
+                last_check: Some("2026-10-16T12:00:00+00:00".to_owned()),
+                skipped: Some("0.2.1".to_owned()),
+                asked: true,
+            }
+        );
+        // A row this build cannot read is off, and stays as it was.
+        store
+            .settings()
+            .set(UPDATES_CHECK_KEY, "yes")
+            .expect("write");
+        assert!(!read_updates(&store).check);
+        assert_eq!(
+            store
+                .settings()
+                .get::<String>(UPDATES_CHECK_KEY)
+                .expect("read"),
+            Some("yes".to_owned())
+        );
+    }
+
+    /// The switch is a preference with a row in Settings; what the check
+    /// observes is state, and never one.
+    #[test]
+    fn an_update_state_row_is_never_a_preference_row() {
+        assert!(PERSISTED.contains(&UPDATES_CHECK_KEY));
+        for key in [
+            UPDATES_LAST_CHECK_KEY,
+            UPDATES_SKIPPED_KEY,
+            UPDATES_ASKED_KEY,
+        ] {
+            assert!(!PERSISTED.contains(&key), "{key} is state");
+        }
     }
 }

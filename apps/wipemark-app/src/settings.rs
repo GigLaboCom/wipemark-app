@@ -364,6 +364,9 @@ pub enum Setting {
     Language,
     ShortcutShow,
     ShortcutPanel,
+    /// D784: whether the application asks once a day which version is
+    /// newest; Check now and the last check's line under it.
+    Updates,
     Setup,
     WindowScreen,
     CloseAfterDrop,
@@ -455,11 +458,13 @@ impl Setting {
     /// *move*: a reader opens the window for the marks. Where the line
     /// numbers sit comes straight after, because it too is about what a
     /// pane shows rather than how it moves.
-    pub const ALL: [Setting; 42] = [
+    pub const ALL: [Setting; 43] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
         Self::ShortcutPanel,
+        // D784: before Setup, which stays the page's last row.
+        Self::Updates,
         Self::Setup,
         // ## E4-6b
         Self::ProcessArrivals,
@@ -514,6 +519,7 @@ impl Setting {
             | Self::Language
             | Self::ShortcutShow
             | Self::ShortcutPanel
+            | Self::Updates
             | Self::Setup => Section::General,
             Self::WindowScreen | Self::CloseAfterDrop | Self::PanelClearAfter => Section::Placement,
             Self::CompareGrain
@@ -557,6 +563,7 @@ impl Setting {
             Self::Language => Message::SettingsLanguageTitle,
             Self::ShortcutShow => hotkey::Action::Show.title(),
             Self::ShortcutPanel => hotkey::Action::Panel.title(),
+            Self::Updates => Message::SettingsUpdatesTitle,
             Self::Setup => Message::SettingsSetupTitle,
             Self::WindowScreen => Message::SettingsPlacementScreenTitle,
             Self::CloseAfterDrop => Message::SettingsPlacementCloseTitle,
@@ -614,6 +621,7 @@ impl Setting {
             Self::Language => Message::SettingsLanguageDescription,
             Self::ShortcutShow => hotkey::Action::Show.description(),
             Self::ShortcutPanel => hotkey::Action::Panel.description(),
+            Self::Updates => Message::SettingsUpdatesDescription,
             Self::Setup => Message::SettingsSetupDescription,
             Self::WindowScreen => Message::SettingsPlacementScreenDescription,
             Self::CloseAfterDrop => Message::SettingsPlacementCloseDescription,
@@ -683,6 +691,7 @@ impl Setting {
             Self::Language => Storage::Row(config::LANGUAGE_KEY),
             Self::ShortcutShow => Storage::Row(config::hotkey_key(hotkey::Action::Show)),
             Self::ShortcutPanel => Storage::Row(config::hotkey_key(hotkey::Action::Panel)),
+            Self::Updates => Storage::Row(config::UPDATES_CHECK_KEY),
             // The row is "has the walk-through been through"; the
             // button beside it opens the walk-through, and it is the
             // walk-through's Finish and Skip that write the row.
@@ -1399,6 +1408,9 @@ impl Preferences {
             comparison,
             on_arrival,
             journal_keep_days,
+            // The update rows are `update::Updates`'s, which reads them
+            // from the same launch (D784).
+            updates: _,
         } = stored;
         let (events, heard) = flume::unbounded();
         // The server holds a way to the engine from the start (D56): its
@@ -4154,6 +4166,9 @@ struct SettingsView {
     _idle: Subscription,
     /// Repaints the page when the model loads, unloads or is checked.
     _host: Option<Subscription>,
+    /// Repaints the General page as an update check lands (D785) — `None`
+    /// where nothing installed the updates.
+    _updates: Option<Subscription>,
     _preferences: Subscription,
     _geometry: Subscription,
     _activation: Subscription,
@@ -4904,6 +4919,8 @@ impl SettingsView {
             _clear: chose_clear,
             _idle: chose_idle,
             _host: watched_host,
+            _updates: crate::update::hosted(cx)
+                .map(|updates| cx.observe(&updates, |_, _, cx| cx.notify())),
             _preferences: observed,
             _geometry: geometry,
             _activation: activation,
@@ -5157,6 +5174,8 @@ impl SettingsView {
     fn below(&self, setting: Setting, cx: &Context<Self>) -> Option<AnyElement> {
         match setting {
             Setting::RewriteProfile => Some(self.template_profile_block(cx).into_any_element()),
+            // The last check, Check now, and Update… while a version waits.
+            Setting::Updates => crate::update::below(cx),
             _ => None,
         }
     }
@@ -5174,6 +5193,7 @@ impl SettingsView {
             Setting::ShortcutPanel => self
                 .shortcut_control(hotkey::Action::Panel, cx)
                 .into_any_element(),
+            Setting::Updates => crate::update::switch(cx),
             Setting::Setup => Self::setup_control(cx).into_any_element(),
             Setting::WindowScreen => self.screen_choice(cx).into_any_element(),
             Setting::CloseAfterDrop => self.close_switch(cx).into_any_element(),

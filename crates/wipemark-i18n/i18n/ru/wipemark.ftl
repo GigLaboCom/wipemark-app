@@ -1732,3 +1732,100 @@ queue-action-why-nothing-written = Для него ничего не запис�
 ## { -brand-name } (D792).
 launch-already-running = { -brand-name } уже запущен с этой папкой данных; его окно выведено вперёд. --import=, --clean=, --compare=, --settings, --profile= и --setup принимает только тот запуск, который его запускает: воспользуйтесь этим окном или выйдите из { -brand-name } и выполните команду снова.
 launch-not-answering = { -brand-name } уже запущен с этой папкой данных и не ответил. Дождитесь, пока он запустится, или выйдите из него и выполните команду снова.
+## New versions (D780–D789): the check, the download and the install
+##
+## $version and $installed are version numbers (0.2.0), never translated.
+## $host is a host name (releases.giglabo.com); $url and $path are a URL
+## and a path, as they are; $when is a date and time already written as
+## numbers (2026-10-16 14:02); $size, $done and $total are megabytes,
+## already written as numbers; $platform and $format are the release
+## service's own tokens (linux-x64, AppImage), never translated.
+settings-updates-title = Новые версии
+settings-updates-description = Раз в сутки { -brand-name } спрашивает у releases.giglabo.com, какая версия новейшая. В запросе нет ни идентификатора, ни номера версии, ни чего-либо о ваших документах; сервер видит адрес этого компьютера, как любой сайт. Ничего не скачивается, пока вы сами этого не выберете.
+settings-updates-check-now = Проверить сейчас
+settings-updates-checking = Проверяется…
+settings-updates-never = Ещё не проверялось.
+settings-updates-current = Это { $version }, новейшая проверенная версия. Проверено { $when }.
+settings-updates-available = Доступна версия { $version }. Проверено { $when }.
+settings-updates-skipped = Доступна версия { $version }, и вы её пропустили. «Проверить сейчас» предложит её снова.
+settings-updates-failed = Не удалось проверить в { $when }: { $reason }.
+settings-updates-refused = Объявлена более новая версия { $version }, но её подпись не сошлась, поэтому она не предлагается.
+settings-updates-development = Сборка для разработки сама новые версии не проверяет. «Проверить сейчас» скажет, что она бы предложила.
+settings-updates-no-keys = В этой сборке нет ключа для проверки подписи новой версии, поэтому проверять обновления она не может.
+settings-updates-no-build = Для этого компьютера выпуск { -brand-name } не собирается.
+settings-updates-open = Обновить…
+settings-updates-open-download = Скачать…
+setup-done-updates = Проверять новые версии раз в сутки
+update-ask = Проверять новые версии { -brand-name } раз в сутки? В запросе нет ничего о вас и ваших документах, и ничего не скачивается, пока вы сами этого не выберете.
+update-ask-yes = Да
+update-ask-no = Нет
+status-update-available = Доступна версия { $version }
+tray-update = Обновить до { $version }…
+update-dialog-title = { -brand-name } { $version }
+update-dialog-body = У вас { $installed }. Обновление скачает { $size } МБ с { $host }, проверит подпись и перезапустит { -brand-name }.
+update-dialog-body-mac = У вас { $installed }. Обновление скачает { $size } МБ с { $host }, проверит подпись и нотаризацию Apple и перезапустит { -brand-name }.
+update-dialog-body-download = У вас { $installed }. «Скачать…» сохранит файл размером { $size } МБ с { $host }, когда его подпись сойдётся; установите его сами.
+update-now = Обновить и перезапустить
+update-on-quit = Обновить при выходе
+update-later = Позже
+update-cancel = Отменить
+update-skip = Пропустить эту версию
+update-whats-new = Что нового
+update-download = Скачать…
+update-downloading = Скачивается — { $done } из { $total } МБ
+update-checking = Проверяется новая копия…
+update-ready = Готово.
+update-ready-on-quit = Готово: { -brand-name } { $version } встанет при выходе.
+update-restart-now = Перезапустить сейчас
+update-waits-rewrite = Ждёт окончания переписывания.
+update-waits-clean = Ждёт окончания очистки.
+update-waits-download = Ждёт окончания загрузки модели.
+update-waits-compare = В окне сравнения есть несохранённые правки. Сохраните их или закройте окно сравнения.
+update-drops-pastes = { $count ->
+        [one] { $count } очищенный вставленный текст есть только в памяти и пропадёт после перезапуска.
+        [few] { $count } очищенных вставленных текста есть только в памяти и пропадут после перезапуска.
+       *[other] { $count } очищенных вставленных текстов есть только в памяти и пропадут после перезапуска.
+    }
+update-notify-deb = Эта копия установлена через apt, и обновляет её apt: «Скачать…» сохранит пакет, когда его подпись сойдётся.
+update-notify-move = macOS запускает эту копию из места, где её нельзя заменить. Сначала перенесите { -brand-name } в «Программы».
+update-notify-unsigned = Эта копия не подписана Developer ID { -brand-name }, поэтому заменить себя не может.
+update-notify-readonly = Эта копия лежит в папке, куда у вас нет права записи, поэтому заменить себя не может.
+update-notify-development = Сборка для разработки себя не заменяет.
+update-downloaded = Проверено и сохранено: { $path }
+update-deb-verified = Проверено. Установите командой: sudo apt install { $path }
+update-copy = Скопировать
+update-show = Показать в папке
+update-failed = Обновление не встало: { $reason }. { -brand-name } остался как был.
+update-reason-connection = нет соединения
+update-reason-timeout = ответа не было вовремя
+update-reason-tls = защищённое соединение не установилось
+update-reason-redirect = ответом было перенаправление, а по нему не переходят
+update-reason-status = ответ { $status }
+update-reason-too-large = ответ больше, чем может быть манифест выпусков
+update-reason-shape = ответ не был манифестом выпусков
+update-reason-read = ответ оборвался
+update-reason-longer = скачанное длиннее объявленного
+update-reason-shorter = загрузка оборвалась раньше конца
+update-reason-sha256 = скачанное — не тот файл, что подписан
+update-reason-write = скачанное не удалось сохранить
+update-reason-cancelled = отменено
+update-reason-mount = образ диска не открылся
+update-reason-stage = новую копию не удалось положить рядом с этой
+update-reason-requirement = новая копия не подписана Developer ID { -brand-name }
+update-reason-gatekeeper = macOS не признала новую копию нотаризованной
+update-reason-identity = новая копия — не { -brand-name }
+update-reason-version = новая копия — не та версия, что предложена
+update-reason-starts = новая копия не запустилась
+update-reason-swap = две копии не удалось поменять местами
+cli-command-update = Проверить, есть ли более новая версия, подписанная и проверенная. Ничего не устанавливает: приложение обновляется само, или вы скачиваете файл.
+cli-arg-check = Проверить сейчас: что установлено, какая версия новейшая и проверенная для этой установки и где её взять.
+cli-update-current = { -brand-name } { $version } — новейшая проверенная версия для этой установки ({ $platform }, { $format }).
+cli-update-available = Доступна версия { -brand-name } { $version }, её подпись сошлась. У вас { $installed }.
+cli-update-get = Обновите из приложения или скачайте: { $url }
+cli-update-get-deb = Скачайте и установите командой sudo apt install ./{ $file } — { $url }
+cli-update-unverified = Объявлена более новая версия { $version }, но её подпись не сошлась, поэтому она не предлагается.
+cli-update-no-keys = В этой сборке нет ключа для проверки подписи новой версии, поэтому проверять обновления она не может.
+cli-update-no-build = Для этого компьютера выпуск { -brand-name } не собирается.
+cli-update-failed = Не удалось проверить { $host }: { $reason }.
+cli-update-installs-nothing = Командная строка ничего не устанавливает. Обновите из приложения или скачайте новую версию: { $url }
+cli-update-bad-base = WIPEMARK_UPDATE_BASE должна называть http на петлевом адресе с портом, а не { $value }.

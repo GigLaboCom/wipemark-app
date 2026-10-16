@@ -94,6 +94,7 @@ mod title;
 mod tray;
 // The status bar's Unload for the model on this machine (F36).
 mod unload;
+mod update;
 mod window_state;
 mod wording;
 #[cfg(target_os = "linux")]
@@ -132,6 +133,7 @@ use crate::setup::{Setup, SetupEvent};
 use crate::theme::ThemePreference;
 use crate::title::Title;
 use crate::tray::TrayCommand;
+use crate::update::{UpdateDialog, Updates};
 
 /// Root view of the main window.
 ///
@@ -204,6 +206,15 @@ struct Shell {
     /// How many requests for the walk-through this view has answered —
     /// see `Preferences::setup_asked`.
     setup_answered: u64,
+    /// The update dialog (D785), while it is open, and its subscription — an
+    /// element in this view's own tree, like the walk-through.
+    update_dialog: Option<(Entity<UpdateDialog>, Subscription)>,
+    /// How many requests for the update dialog this view has answered — the
+    /// status bar's item, the General page, the tray.
+    update_answered: u64,
+    /// Repaints the status bar and the notice as a check lands, and opens
+    /// the dialog when it is asked for.
+    _updates: Subscription,
 }
 
 impl Shell {
@@ -214,6 +225,7 @@ impl Shell {
     fn new(
         preferences: Entity<Preferences>,
         host: Entity<EngineHost>,
+        updates: Entity<Updates>,
         walk_through: bool,
         arguments: Startup,
         window: &mut Window,
@@ -414,6 +426,19 @@ impl Shell {
         );
 
         let loaded = cx.observe(&host, |_, _, cx| cx.notify());
+        // The update's dialog is asked for from three places, two of them
+        // in other windows or none (the General page, the tray): by moving
+        // a counter, read here — the walk-through's arrangement.
+        let updated = cx.observe_in(&updates, window, |shell, updates, window, cx| {
+            let asked = updates.read(cx).dialog_asked();
+            if asked > shell.update_answered {
+                shell.update_answered = asked;
+                shell.open_update(updates, window, cx);
+                cx.activate(true);
+                window.activate_window();
+            }
+            cx.notify();
+        });
         let mut shell = Self {
             queue,
             clipboard,
@@ -431,6 +456,9 @@ impl Shell {
             setup: None,
             setup_heard: None,
             setup_answered: 0,
+            update_dialog: None,
+            update_answered: 0,
+            _updates: updated,
         };
         // A fresh install, or `--setup` on the command line. Once per
         // launch either way: the row is written when the walk-through
@@ -518,6 +546,27 @@ impl Shell {
                 self.ask(next, window, cx);
             }
         }
+        cx.notify();
+    }
+
+    /// Put the update dialog over the panes, unless it is there already.
+    /// The cleaned pastes a restart would drop are counted as it opens.
+    fn open_update(
+        &mut self,
+        updates: Entity<Updates>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.update_dialog.is_some() {
+            return;
+        }
+        let pastes = self.queue.read(cx).texts_only_in_memory();
+        let view = cx.new(|cx| UpdateDialog::new(updates, pastes, window, cx));
+        let closed = cx.subscribe(&view, |shell, _, _: &dialog::Answer, cx| {
+            shell.update_dialog = None;
+            cx.notify();
+        });
+        self.update_dialog = Some((view, closed));
         cx.notify();
     }
 
@@ -961,6 +1010,8 @@ impl Render for Shell {
                     .min_h(px(0.0))
                     .child(self.queue.clone()),
             )
+            // Asked once, where the main window says things (D784).
+            .children(update::notice(cx))
             .child(
                 div()
                     .flex()
@@ -992,6 +1043,8 @@ impl Render for Shell {
                             .map(|button| div().flex_shrink_0().child(button)),
                     )
                     .child(div().flex_1())
+                    // Only while a verified version waits (D785).
+                    .children(update::status_item(cx))
                     // The far end of the status bar, which is where a
                     // desktop application has put its preferences for
                     // thirty years. It is one button and not three
@@ -1041,6 +1094,11 @@ impl Render for Shell {
             }))
             .children(self.setup.as_ref().map(|setup| {
                 deferred(setup.clone())
+                    .with_priority(dialog::MODAL_PRIORITY)
+                    .into_any_element()
+            }))
+            .children(self.update_dialog.as_ref().map(|(view, _)| {
+                deferred(view.clone())
                     .with_priority(dialog::MODAL_PRIORITY)
                     .into_any_element()
             }));
@@ -1687,6 +1745,18 @@ fn main() -> std::process::ExitCode {
                     engine_inbox.clone(),
                     cx,
                 );
+                // New versions (D780–D789): off until the person says yes,
+                // and nothing asked of the network before then.
+                let updates = update::install(
+                    preferences.clone(),
+                    store.clone(),
+                    update::Start {
+                        rows: stored.updates.clone(),
+                        setup_done: stored.setup_done,
+                        downloads: homes.results.clone(),
+                    },
+                    cx,
+                );
                 // The walk-through opens over a fresh install, and
                 // over any launch that asked for it.
                 let walk_through = launch.setup || !stored.setup_done;
@@ -1694,8 +1764,17 @@ fn main() -> std::process::ExitCode {
                     import: launch.import.clone(),
                     clean: launch.clean.clone(),
                 };
-                let shell =
-                    cx.new(|cx| Shell::new(preferences, host, walk_through, arguments, window, cx));
+                let shell = cx.new(|cx| {
+                    Shell::new(
+                        preferences,
+                        host,
+                        updates,
+                        walk_through,
+                        arguments,
+                        window,
+                        cx,
+                    )
+                });
 
                 // The first level inside a window has to be a Root —
                 // dialogs, sheets, notifications and tooltips all mount
@@ -2065,6 +2144,25 @@ fn adopt_tray(
         .detach();
     }
 
+    // "Update to 0.2.1…" while a verified version waits, and only then
+    // (D785) — followed the way Unload model is.
+    if let Some(updates) = update::hosted(cx) {
+        let waiting = |updates: &Entity<Updates>, cx: &App| {
+            updates
+                .read(cx)
+                .offer()
+                .map(|offer| offer.version.to_string())
+        };
+        cx.global::<tray::Tray>().show_update(waiting(&updates, cx));
+        cx.observe(&updates, move |updates, cx| {
+            let version = waiting(&updates, cx);
+            if let Some(tray) = cx.try_global::<tray::Tray>() {
+                tray.show_update(version);
+            }
+        })
+        .detach();
+    }
+
     // With an item in the menu bar, the close button hides the
     // application instead of ending it — the same bargain lazy-shot
     // makes, and only defensible because "Show Wipemark" is now a click
@@ -2124,6 +2222,13 @@ fn adopt_tray(
                 TrayCommand::UnloadModel => {
                     if let Some(host) = engine_host::hosted(cx) {
                         host.update(cx, |host, cx| host.unload_now(cx));
+                    }
+                }
+                // The main window forward, and the dialog in it.
+                TrayCommand::Update => {
+                    show_main_window(window, cx);
+                    if let Some(updates) = update::hosted(cx) {
+                        updates.update(cx, |updates, cx| updates.open_dialog(cx));
                     }
                 }
                 TrayCommand::Settings => {
