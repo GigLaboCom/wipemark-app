@@ -19,7 +19,8 @@ product code changes with it.
   (§11).
 * The giglabo side (§8.5) was checked on 2026-10-16 against the deployed
   source, `heretic-releases-api` `origin/main` at **`917b8ff`**, and is being
-  changed and deployed by the owner's side; the shape this document names —
+  changed by the owner's side — **deployed 2026-10-16 from `310f54f`**; the
+  shape this document names —
   the fields, `sig` per asset, the paths, the publish API — is the fixed
   contract between the client, CI and the Worker.
 * Read-only, nothing modified in any of them:
@@ -677,8 +678,8 @@ the build jobs of the same file skip themselves on the `release` event.
 
 **The giglabo side** is the owner's repository, unchanged here. It needs
 three changes, listed in §8.5: register `wipemark`, pass `sig` through,
-and, optionally, a publish token per slug. The owner's side is making and
-deploying the first two (2026-10-16).
+and, optionally, a publish token per slug. The owner's side made and
+deployed the first two (2026-10-16, `310f54f`).
 
 ---
 
@@ -1276,8 +1277,14 @@ exits in `docs/architecture/cli.md`, and its words in the catalogue.
 
 ### 8.5 The giglabo side (the owner's `heretic-releases-api`)
 
-**Being made and deployed by the owner's side (2026-10-16)**, against the
-deployed source (`origin/main` at `917b8ff`), not by this line. Checked there:
+**Made and deployed by the owner's side (2026-10-16, from `310f54f`)**,
+against the deployed source (`origin/main` at `917b8ff`), not by this line.
+The live `/downloads/wipemark` answered `200` with `versions: []`,
+`latest_by_platform: {}` and no `latest_version`; read once through this
+program's own client (a debug `wipemark-cli update --check` with a throwaway
+test key — a read-only GET): "the newest verified version", exit 0.
+`/downloads/wipemark/download` answers `404` "no versions available". Checked
+there:
 `GET /downloads/wipemark`; artifacts at
 `https://releases.giglabo.com/wipemark/<version>/<platform>/<filename>`;
 `Authorization: Bearer <PUBLISH_TOKEN>`, one shared token; `open` with
