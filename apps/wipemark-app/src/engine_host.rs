@@ -13,8 +13,8 @@
 //! whether a job is running, which keep mode the user chose and what just
 //! happened, to a list of [`Action`]s. It is tested without a window, a
 //! timer or a model, the shape `duty::on_duty`, `retention::plan` and
-//! `placement::spot_for` already have. Its ten rules are the comments on
-//! its arms and the tests at the bottom of this file.
+//! `placement::spot_for` already have. Its eleven rules are the comments
+//! on its arms and the tests at the bottom of this file.
 //!
 //! The **execution** is [`EngineHost`], a GPUI entity that observes
 //! [`Preferences`], turns what moved into an [`Event`], asks [`decide`],
@@ -49,6 +49,15 @@
 //! loaded model serves every surface and nothing loads a second copy. The
 //! job around it is `wipemark_pipeline`'s — Layer A, the guards, the
 //! report — so no surface ever hands out a model's raw output (D56).
+//!
+//! Every holder is counted by who it is as well ([`Use`]: a rewrite, the
+//! Engine page's Check, the Rewriting page's template check or
+//! adaptation), which is what the main window's **Unload** reads to say
+//! why it is greyed (F36, D801). And a job is counted in under the lock an
+//! unload is begun under (D803): either the job was counted first and
+//! nothing is unloaded, or it finds the unload's latch and waits for the
+//! model to be out before it asks the engine anything — so an unload never
+//! lands between two calls of a job that started as it was decided.
 //!
 //! Beside the slot the handle carries the [`Pace`]: the executor of the
 //! engine on duty and the rate the last Check measured for it — what a
@@ -226,10 +235,91 @@ pub enum Event {
     IdleElapsed,
     /// **Unload now**, or the menu bar's **Unload model**.
     UnloadAsked,
+    /// The main window's **Unload** (F36, D802): offered only while nothing
+    /// uses the model, and refused rather than deferred when something
+    /// took it since the button was drawn.
+    UnloadIfUnused,
     /// The keep row or the idle span moved.
     KeepChanged,
     /// The Engine page's **Check**.
     CheckAsked,
+}
+
+/// Who holds the engine on duty now (D801) — what the main window's
+/// **Unload** says it waits for. Every holder is counted busy as well, and
+/// the policy reads only that; this says which.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Use {
+    /// An item of the batch queue: a window's rewrite or redo, an agent's
+    /// `rewrite`, the command line's through this application.
+    Rewrite,
+    /// The Engine page's **Check**.
+    Check,
+    /// The Rewriting page's **Check template** or **Adapt**.
+    Template,
+}
+
+impl Use {
+    /// Every holder, in the order the main window names the first one
+    /// that holds the engine.
+    pub const ALL: [Use; 3] = [Self::Rewrite, Self::Check, Self::Template];
+
+    /// For a log line: a format, never translated.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Rewrite => "rewrite",
+            Self::Check => "check",
+            Self::Template => "template",
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Rewrite => 0,
+            Self::Check => 1,
+            Self::Template => 2,
+        }
+    }
+}
+
+/// What the main window offers to unload (F36, D800, D801).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnloadOffer {
+    /// No button at all: the duty is not a model on this machine, or that
+    /// model is not in memory — starting, loading, failed, or unloaded.
+    Absent,
+    /// The button, pressable: the model is in memory and nobody holds it.
+    Ready,
+    /// The button, greyed: `Use` holds the model.
+    InUse(Use),
+}
+
+/// Whether the main window offers **Unload**, and pressable or not — a
+/// pure function of who is on duty, what is in memory and who holds the
+/// engine (D800, D801). Only a model on this machine, and only once it is
+/// in memory: in every other state there is nothing of this machine's to
+/// free, and the button is absent rather than greyed.
+pub fn unload_offer(machine_on_duty: bool, loaded: &Loaded, in_use: Option<Use>) -> UnloadOffer {
+    if !machine_on_duty || !matches!(loaded, Loaded::Yes { .. }) {
+        return UnloadOffer::Absent;
+    }
+    match in_use {
+        Some(using) => UnloadOffer::InUse(using),
+        None => UnloadOffer::Ready,
+    }
+}
+
+/// What a press of the main window's **Unload** came to (D802).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unloaded {
+    /// The model is on its way out of memory.
+    Done,
+    /// Nothing was in memory by the time the press arrived.
+    NothingLoaded,
+    /// Something took the engine between the frame that drew the button
+    /// and the press: nothing was unloaded, and nothing will be when it
+    /// lets go.
+    InUse(Use),
 }
 
 /// What to do about it.
@@ -268,6 +358,11 @@ pub enum Action {
 ///    `Started`/`CheckAsked`/`DutyChanged` (or job) tries again.
 /// 10. Busy defers an unload and a swap until the job ends — never unload
 ///     under a running decode.
+/// 11. `UnloadIfUnused`, the main window's **Unload**: unload and disarm
+///     when a model is held and nothing is busy; busy → nothing. Refused,
+///     never deferred: its button is greyed while anything holds the model,
+///     and a press that lost the race to a job is not carried out when the
+///     job ends (D802).
 pub fn decide(keep: &Keep, loaded: &Loaded, busy: bool, event: Event) -> Vec<Action> {
     let resident = *keep == Keep::Resident;
     let held = loaded.holds();
@@ -308,6 +403,13 @@ pub fn decide(keep: &Keep, loaded: &Loaded, busy: bool, event: Event) -> Vec<Act
             if busy {
                 actions.push(Action::Defer(Event::UnloadAsked));
             } else if held {
+                actions.push(Action::Unload);
+            }
+        }
+        // Rule 11.
+        Event::UnloadIfUnused => {
+            if held && !busy {
+                actions.push(Action::DisarmIdle);
                 actions.push(Action::Unload);
             }
         }
@@ -448,6 +550,15 @@ struct Shared {
     whereto: Mutex<Option<Whereto>>,
     /// Jobs and checks running now, through any handle or the page.
     busy: AtomicUsize,
+    /// The same, by who holds the engine ([`Use::index`]) — what the main
+    /// window's **Unload** says it waits for (D801).
+    uses: [AtomicUsize; 3],
+    /// An unload the host has begun and not seen land (D803): its latch,
+    /// whose sender goes when the model is out of memory. Locked around
+    /// every count into `busy`, so a job is either counted before the host
+    /// looks — and nothing is unloaded — or finds the latch and waits for
+    /// it before it asks the engine anything.
+    unloading: Mutex<Option<flume::Receiver<()>>>,
     events: flume::Sender<Event>,
     /// Where every engine that takes the slot tells its loads, and the
     /// end the host listens on (F1).
@@ -519,22 +630,68 @@ impl std::fmt::Debug for EngineHandle {
 /// A job's hold on the engine: counted busy and announced from the moment
 /// it is taken until it is dropped — also when the job's thread ends half
 /// way, because a drop is the one thing that always happens.
-struct Held(Arc<Shared>);
+struct Held(Arc<Shared>, Use);
 
 impl Held {
     /// Count first, then announce: the host deciding on `JobStarted` must
-    /// already see the job as running.
-    fn enter(shared: Arc<Shared>) -> Self {
-        shared.busy.fetch_add(1, Ordering::SeqCst);
+    /// already see the job as running. With the latch of an unload on its
+    /// way, which the job waits for before it asks the engine anything
+    /// (D803).
+    fn enter(shared: Arc<Shared>, using: Use) -> (Self, Option<flume::Receiver<()>>) {
+        let latch = count_in(&shared, using);
         let _ = shared.events.send(Event::JobStarted);
-        Held(shared)
+        (Held(shared, using), latch)
     }
 }
 
 impl Drop for Held {
     fn drop(&mut self) {
-        self.0.busy.fetch_sub(1, Ordering::SeqCst);
+        count_out(&self.0, self.1);
         let _ = self.0.events.send(Event::JobEnded);
+    }
+}
+
+/// Count `using` in, under the lock an unload is begun under (D803), and
+/// hand back the latch of an unload already on its way, if one is.
+fn count_in(shared: &Shared, using: Use) -> Option<flume::Receiver<()>> {
+    let unloading = shared
+        .unloading
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    shared.busy.fetch_add(1, Ordering::SeqCst);
+    shared.uses[using.index()].fetch_add(1, Ordering::SeqCst);
+    unloading.clone()
+}
+
+/// Count `using` out.
+fn count_out(shared: &Shared, using: Use) {
+    shared.uses[using.index()].fetch_sub(1, Ordering::SeqCst);
+    shared.busy.fetch_sub(1, Ordering::SeqCst);
+}
+
+/// An unload under way (D803): while it lives, a job counted in waits for
+/// it; dropped once the engine's unload has returned — or with its task, if
+/// the application quits first — it clears its latch and lets them go.
+struct Landing {
+    shared: Arc<Shared>,
+    latch: flume::Receiver<()>,
+    /// Dropped after `drop` has cleared the latch: every waiter then goes on.
+    _done: flume::Sender<()>,
+}
+
+impl Drop for Landing {
+    fn drop(&mut self) {
+        let mut unloading = self
+            .shared
+            .unloading
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if unloading
+            .as_ref()
+            .is_some_and(|now| now.same_channel(&self.latch))
+        {
+            *unloading = None;
+        }
     }
 }
 
@@ -565,6 +722,8 @@ impl EngineHandle {
                     slot: Mutex::new(slot),
                     whereto: Mutex::new(None),
                     busy: AtomicUsize::new(0),
+                    uses: Default::default(),
+                    unloading: Mutex::new(None),
                     events,
                     loads,
                     load_inbox,
@@ -581,6 +740,38 @@ impl EngineHandle {
     /// How many jobs are running now.
     pub fn busy(&self) -> usize {
         self.shared.busy.load(Ordering::SeqCst)
+    }
+
+    /// Who holds the engine now, the first of [`Use::ALL`] that does — or
+    /// `None` when nobody does (D801). The count every holder is counted
+    /// into, read from any thread; never a guess from what a window shows.
+    pub fn in_use(&self) -> Option<Use> {
+        Use::ALL
+            .into_iter()
+            .find(|using| self.shared.uses[using.index()].load(Ordering::SeqCst) > 0)
+    }
+
+    /// Begin an unload, unless a job holds the engine (D803): looked at
+    /// under the lock every job is counted in under, so a job either
+    /// counted itself first — and this refuses — or will find the latch and
+    /// wait for the unload to land. Hold the answer until the engine's
+    /// unload has returned.
+    fn begin_unload(&self) -> Option<Landing> {
+        let mut unloading = self
+            .shared
+            .unloading
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if self.shared.busy.load(Ordering::SeqCst) > 0 {
+            return None;
+        }
+        let (done, latch) = flume::bounded(0);
+        *unloading = Some(latch.clone());
+        Some(Landing {
+            shared: Arc::clone(&self.shared),
+            latch,
+            _done: done,
+        })
     }
 
     fn slot(&self) -> Slot {
@@ -799,15 +990,30 @@ impl EngineHandle {
     /// run, and with the credential store's answer for an endpoint whose
     /// key cannot be had — and a job refused here is not a job: nothing is
     /// counted. Otherwise the job is counted busy and announced until the
-    /// [`JobEngine`] is dropped, which is when the job's thread ends.
+    /// [`JobEngine`] is dropped, which is when the job's thread ends. A
+    /// rewrite's: an item of the batch queue, or an agent's call the queue
+    /// did not take ([`Use::Rewrite`]).
     pub async fn for_job(&self) -> Result<JobEngine, EngineError> {
+        self.for_job_as(Use::Rewrite).await
+    }
+
+    /// [`EngineHandle::for_job`], for a holder that is not a rewrite — the
+    /// Rewriting page's check and adaptation ([`Use::Template`]). An unload
+    /// begun before the job was counted is waited for here, so nothing the
+    /// job asks reaches the engine ahead of it (D803).
+    pub async fn for_job_as(&self, using: Use) -> Result<JobEngine, EngineError> {
         let (engine, whereto) = self.engine_going().await?;
         let info = engine.info();
+        let (held, latch) = Held::enter(Arc::clone(&self.shared), using);
+        if let Some(latch) = latch {
+            // Ends when the unload's sender goes: the model is out.
+            let _ = latch.recv_async().await;
+        }
         Ok(JobEngine {
             engine,
             info,
             whereto,
-            _held: Held::enter(Arc::clone(&self.shared)),
+            _held: held,
         })
     }
 
@@ -1342,17 +1548,8 @@ impl EngineHost {
         if !self.started {
             return;
         }
-        let keep = self
-            .reading
-            .as_ref()
-            .map_or(LocalPolicy::default(), |reading| reading.policy)
-            .keep();
         let busy = self.handle.busy() > 0;
-        let actions = decide(&keep, &self.loaded, busy, event);
-        tracing::debug!(?event, ?actions, busy, "engine host");
-        for action in actions {
-            self.execute(action, cx);
-        }
+        self.decide_and_run(event, busy, cx);
         // A job just ended and nothing else runs: what waited for it is
         // decided again now.
         if event == Event::JobEnded && self.handle.busy() == 0 {
@@ -1368,7 +1565,37 @@ impl EngineHost {
         cx.notify();
     }
 
-    fn execute(&mut self, action: Action, cx: &Context<Self>) {
+    /// Decide `event` with `busy` as read, and carry the actions out — up to
+    /// an unload a job got in ahead of (D803): a job counted itself between
+    /// the read and the unload, so nothing was unloaded, the rest is not
+    /// carried out, and the event is decided again with the job counted:
+    /// deferred, dropped or refused, as the rules say for a busy engine.
+    /// Its own start and end are still on their way to [`EngineHost::on`].
+    fn decide_and_run(&mut self, event: Event, busy: bool, cx: &mut Context<Self>) {
+        let keep = self
+            .reading
+            .as_ref()
+            .map_or(LocalPolicy::default(), |reading| reading.policy)
+            .keep();
+        let actions = decide(&keep, &self.loaded, busy, event);
+        tracing::debug!(?event, ?actions, busy, "engine host");
+        for action in actions {
+            if !self.execute(action, cx) {
+                tracing::info!(
+                    ?event,
+                    "a job took the engine before its unload began; nothing was unloaded"
+                );
+                if !busy {
+                    self.decide_and_run(event, true, cx);
+                }
+                return;
+            }
+        }
+    }
+
+    /// Carry one action out. `false` only for an unload a job got in ahead
+    /// of, which did nothing (D803).
+    fn execute(&mut self, action: Action, cx: &Context<Self>) -> bool {
         match action {
             Action::Nothing => {}
             Action::Defer(event) => {
@@ -1392,8 +1619,9 @@ impl EngineHost {
             }
             Action::Swap => self.swap(),
             Action::Load => self.load(cx),
-            Action::Unload => self.unload(cx),
+            Action::Unload => return self.unload(cx),
         }
+        true
     }
 
     /// Build the engine for the duty as it stands.
@@ -1471,7 +1699,19 @@ impl EngineHost {
                 self.generation += 1;
                 let generation = self.generation;
                 self.loaded = Loaded::Loading;
+                let latch = self
+                    .handle
+                    .shared
+                    .unloading
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone();
                 cx.spawn(async move |host, cx| {
+                    // An unload still on its way reaches the engine first,
+                    // or this load would be undone behind it (D803).
+                    if let Some(latch) = latch {
+                        let _ = latch.recv_async().await;
+                    }
                     let started = Instant::now();
                     let result = engine.warmup().await;
                     let elapsed_ms = started.elapsed().as_millis();
@@ -1524,21 +1764,74 @@ impl EngineHost {
         cx.notify();
     }
 
-    fn unload(&mut self, cx: &Context<Self>) {
+    /// Drop the model from memory — unless a job counted itself in since
+    /// the policy decided, which this sees under the job's own lock and
+    /// answers `false` to, unloading nothing (D803).
+    fn unload(&mut self, cx: &Context<Self>) -> bool {
+        let landing = match self.handle.slot() {
+            Slot::Engine(engine) => match self.handle.begin_unload() {
+                Some(landing) => Some((engine, landing)),
+                None => return false,
+            },
+            Slot::Nothing | Slot::Starting | Slot::Keyed { .. } | Slot::Refused(_) => None,
+        };
         self.generation += 1;
         self.loaded = Loaded::No;
         self.loaded_at = None;
-        if let Slot::Engine(engine) = self.handle.slot() {
+        if let Some((engine, landing)) = landing {
             cx.spawn(async move |_, _| {
                 engine.unload().await;
+                // The model is out: a job that waited goes on.
+                drop(landing);
             })
             .detach();
         }
+        true
     }
 
     /// **Unload now**, from the page or the menu bar.
     pub fn unload_now(&mut self, cx: &mut Context<Self>) {
         self.on(Event::UnloadAsked, cx);
+    }
+
+    /// What the main window offers to unload (F36, D800, D801): read off
+    /// who the preferences put on duty, what is in memory and who holds the
+    /// engine now.
+    pub fn unload_offer(&self) -> UnloadOffer {
+        let machine = matches!(
+            self.reading
+                .as_ref()
+                .and_then(|reading| reading.performer.as_ref()),
+            Some(Performer::Machine(_))
+        );
+        unload_offer(machine, &self.loaded, self.handle.in_use())
+    }
+
+    /// The main window's **Unload** (F36, D802): through the policy, as
+    /// [`Event::UnloadIfUnused`] — the model out of memory when nothing
+    /// holds the engine, and nothing at all when something does. The duty,
+    /// the chosen model and every preference stay as they are; the next
+    /// job loads the model again as the keep policy says.
+    pub fn unload_unused(&mut self, cx: &mut Context<Self>) -> Unloaded {
+        if !matches!(self.loaded, Loaded::Yes { .. }) {
+            return Unloaded::NothingLoaded;
+        }
+        let model = self.model.clone();
+        self.on(Event::UnloadIfUnused, cx);
+        if matches!(self.loaded, Loaded::Yes { .. }) {
+            // Nobody, only when the holder let go since the policy looked;
+            // a rewrite is what holds the engine nearly always.
+            let using = self.handle.in_use().unwrap_or(Use::Rewrite);
+            tracing::info!(
+                ?model,
+                using = using.id(),
+                "the main window's unload was refused: the model is in use"
+            );
+            Unloaded::InUse(using)
+        } else {
+            tracing::info!(?model, "the model was unloaded from the main window");
+            Unloaded::Done
+        }
     }
 
     /// **Check** (D54): load if needed, generate a few tokens from a fixed
@@ -1563,10 +1856,15 @@ impl EngineHost {
         self.check = Check::Running {
             cancel: cancel.clone(),
         };
-        self.handle.shared.busy.fetch_add(1, Ordering::SeqCst);
+        let latch = count_in(&self.handle.shared, Use::Check);
         self.on(Event::CheckAsked, cx);
 
         cx.spawn(async move |host, cx| {
+            // An unload begun before the check was counted lands first
+            // (D803).
+            if let Some(latch) = latch {
+                let _ = latch.recv_async().await;
+            }
             // An endpoint that sends a key is built here, its key read on a
             // thread of its own: the first moment anything needs it.
             let outcome = match cancel.run_until_cancelled(handle.engine()).await {
@@ -1575,7 +1873,7 @@ impl EngineHost {
                 Some(Ok(engine)) => run_the_check(engine, was_loaded, remote, cancel, cx).await,
             };
             host.update(cx, |host, cx| {
-                host.handle.shared.busy.fetch_sub(1, Ordering::SeqCst);
+                count_out(&host.handle.shared, Use::Check);
                 match &outcome {
                     // The length, never the words: a log is read by
                     // whoever is debugging.
@@ -2076,6 +2374,7 @@ mod tests {
         for keep in [ON_DEMAND, Keep::Resident] {
             for event in [
                 Event::UnloadAsked,
+                Event::UnloadIfUnused,
                 Event::DutyChanged,
                 Event::IdleElapsed,
                 Event::KeepChanged,
@@ -2092,6 +2391,73 @@ mod tests {
                 .contains(&Action::Defer(Event::UnloadAsked)));
             assert!(decide(&keep, &yes(), true, Event::DutyChanged)
                 .contains(&Action::Defer(Event::DutyChanged)));
+        }
+    }
+
+    /// Rule 11 (D802): the main window's Unload unloads a held model that
+    /// nothing is using, in either mode — and under a running job does
+    /// nothing at all, not even later: its button is greyed then, and a
+    /// press that lost the race to a job is not carried out when the job
+    /// ends. Red with the `busy` test taken out of the arm, or with a
+    /// `Defer` put in its place.
+    #[test]
+    fn the_main_windows_unload_is_refused_under_a_job_and_never_deferred() {
+        for keep in [ON_DEMAND, Keep::Resident] {
+            assert_eq!(
+                decide(&keep, &yes(), false, Event::UnloadIfUnused),
+                vec![Action::DisarmIdle, Action::Unload],
+                "{keep:?}"
+            );
+            assert_eq!(
+                decide(&keep, &yes(), true, Event::UnloadIfUnused),
+                vec![Action::Nothing],
+                "{keep:?}: under a running job"
+            );
+            assert_eq!(
+                decide(&keep, &Loaded::No, false, Event::UnloadIfUnused),
+                vec![Action::Nothing],
+                "{keep:?}: nothing loaded"
+            );
+        }
+    }
+
+    /// D800: the button is there only for a model on this machine that is
+    /// in memory — absent, not greyed, while nothing of this machine's is:
+    /// before the first look (the host has not started, nothing loaded),
+    /// while it loads, after a load that failed, after an unload, and with
+    /// an endpoint or nobody on duty whatever the slot still holds. Red
+    /// with either half of `unload_offer`'s first test deleted.
+    #[test]
+    fn the_unload_button_shows_only_for_a_loaded_model_on_this_machine() {
+        let failed = Loaded::Failed(Unavailable::NotBuilt);
+        for loaded in [Loaded::No, Loaded::Loading, failed] {
+            for in_use in [None, Some(Use::Rewrite)] {
+                assert_eq!(
+                    unload_offer(true, &loaded, in_use),
+                    UnloadOffer::Absent,
+                    "{loaded:?}, {in_use:?}"
+                );
+            }
+        }
+        for in_use in [None, Some(Use::Check)] {
+            assert_eq!(
+                unload_offer(false, &yes(), in_use),
+                UnloadOffer::Absent,
+                "not the machine's model, {in_use:?}"
+            );
+        }
+        assert_eq!(unload_offer(true, &yes(), None), UnloadOffer::Ready);
+    }
+
+    /// D801: while anything holds the engine the button is there and
+    /// greyed, naming the holder. Red with `in_use` ignored.
+    #[test]
+    fn the_unload_button_is_greyed_while_anything_holds_the_model() {
+        for using in Use::ALL {
+            assert_eq!(
+                unload_offer(true, &yes(), Some(using)),
+                UnloadOffer::InUse(using)
+            );
         }
     }
 
@@ -3401,6 +3767,224 @@ mod tests {
             "the press was dropped rather than deferred"
         );
         host.read_with(cx, |host, _| assert_eq!(host.loaded(), &Loaded::No));
+    }
+
+    /// F36 through a real host (D800–D802): with a job of the batch queue
+    /// holding the model the main window's Unload is greyed, a press is
+    /// refused — nothing unloaded, then or when the job ends — and once
+    /// nothing holds it a press unloads it, the button goes, and the next
+    /// job loads it again by the usual road with the duty as it was.
+    #[gpui::test]
+    fn the_main_windows_unload_waits_for_nothing_and_unloads_only_an_idle_model(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let model = Arc::new(Model::default());
+        let host = host_over(model.clone(), Keeping::OnDemand, cx);
+        let handle = host.read_with(cx, |host, _| host.handle.clone());
+        assert_eq!(
+            host.read_with(cx, |host, _| host.unload_offer()),
+            UnloadOffer::Absent,
+            "offered before anything was loaded"
+        );
+
+        let job = block_on(handle.for_job()).expect("the double is on duty");
+        cx.run_until_parked();
+        assert_eq!(
+            host.read_with(cx, |host, _| host.unload_offer()),
+            UnloadOffer::InUse(Use::Rewrite)
+        );
+        let answer = host.update(cx, |host, cx| host.unload_unused(cx));
+        assert_eq!(answer, Unloaded::InUse(Use::Rewrite));
+        cx.run_until_parked();
+        assert_eq!(
+            model.unloads.load(Ordering::SeqCst),
+            0,
+            "unloaded under a running job"
+        );
+
+        drop(job);
+        cx.run_until_parked();
+        assert_eq!(
+            model.unloads.load(Ordering::SeqCst),
+            0,
+            "a refused press was carried out when the job ended"
+        );
+        assert_eq!(
+            host.read_with(cx, |host, _| host.unload_offer()),
+            UnloadOffer::Ready
+        );
+
+        let answer = host.update(cx, |host, cx| host.unload_unused(cx));
+        assert_eq!(answer, Unloaded::Done);
+        cx.run_until_parked();
+        assert_eq!(model.unloads.load(Ordering::SeqCst), 1);
+        host.read_with(cx, |host, _| {
+            assert_eq!(host.loaded(), &Loaded::No);
+            assert_eq!(host.unload_offer(), UnloadOffer::Absent);
+            assert!(
+                host.idle.is_none(),
+                "an unloaded model left its timer armed"
+            );
+        });
+        assert_eq!(
+            host.update(cx, |host, cx| host.unload_unused(cx)),
+            Unloaded::NothingLoaded
+        );
+
+        // Nothing else moved: the same engine in the slot, and the next job
+        // loads the model again.
+        let job = block_on(handle.for_job()).expect("still on duty");
+        cx.run_until_parked();
+        assert!(matches!(
+            host.read_with(cx, |host, _| host.loaded().clone()),
+            Loaded::Yes { .. }
+        ));
+        assert_eq!(model.warmups.load(Ordering::SeqCst), 2);
+        drop(job);
+    }
+
+    /// D801: every holder is counted as who it is — a rewrite through the
+    /// handle, a template's check or adaptation, the Engine page's Check —
+    /// and the main window's button names it while it holds the engine.
+    #[gpui::test]
+    fn every_holder_is_counted_as_who_it_is(cx: &mut gpui::TestAppContext) {
+        let (release, gate) = flume::unbounded();
+        let model = Arc::new(Model {
+            gate: Some(gate),
+            ..Model::default()
+        });
+        let host = host_over(model.clone(), Keeping::OnDemand, cx);
+        let handle = host.read_with(cx, |host, _| host.handle.clone());
+        assert_eq!(handle.in_use(), None);
+
+        let job = block_on(handle.for_job()).expect("on duty");
+        assert_eq!(handle.in_use(), Some(Use::Rewrite));
+        drop(job);
+        assert_eq!(handle.in_use(), None);
+        let job = block_on(handle.for_job_as(Use::Template)).expect("on duty");
+        assert_eq!(handle.in_use(), Some(Use::Template));
+        drop(job);
+        assert_eq!(handle.in_use(), None);
+
+        host.update(cx, |host, cx| host.run_check(cx));
+        cx.run_until_parked();
+        assert_eq!(handle.in_use(), Some(Use::Check));
+        assert_eq!(
+            host.read_with(cx, |host, _| host.unload_offer()),
+            UnloadOffer::InUse(Use::Check)
+        );
+        release.send(()).expect("the double waits");
+        cx.run_until_parked();
+        assert_eq!(handle.in_use(), None);
+        assert_eq!(handle.busy(), 0);
+        assert_eq!(
+            host.read_with(cx, |host, _| host.unload_offer()),
+            UnloadOffer::Ready
+        );
+    }
+
+    /// D803, the race: a job counted in after an unload began but before
+    /// it reached the engine — the batch queue's, whose thread takes the
+    /// engine whenever an item starts — waits for it to land, so nothing
+    /// the job asks reaches the model ahead of the unload. The job's future
+    /// is polled by hand here, because the test scheduler refuses a wake
+    /// from another thread; the lock and the latch are the same on any.
+    /// Red with the wait in `for_job_as` deleted: the job goes on at once,
+    /// with the unload still to come.
+    #[gpui::test]
+    fn a_job_counted_in_while_the_model_unloads_waits_for_the_unload(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::future::Future as _;
+        use std::task::{Context as TaskContext, Poll, Waker};
+
+        let model = Arc::new(Model::default());
+        let host = host_over(model.clone(), Keeping::OnDemand, cx);
+        let handle = host.read_with(cx, |host, _| host.handle.clone());
+        host.update(cx, |host, cx| host.load(cx));
+        cx.run_until_parked();
+
+        // The press: the unload is begun, and its task has not run yet.
+        let answer = host.update(cx, |host, cx| host.unload_unused(cx));
+        assert_eq!(answer, Unloaded::Done);
+        assert_eq!(model.unloads.load(Ordering::SeqCst), 0);
+
+        let mut taking = Box::pin(handle.for_job());
+        let mut context = TaskContext::from_waker(Waker::noop());
+        assert!(
+            taking.as_mut().poll(&mut context).is_pending(),
+            "the job went on before the unload had landed"
+        );
+        assert_eq!(handle.busy(), 1, "the waiting job is not counted");
+
+        cx.run_until_parked();
+        assert_eq!(model.unloads.load(Ordering::SeqCst), 1);
+        let job = match taking.as_mut().poll(&mut context) {
+            Poll::Ready(Ok(job)) => job,
+            Poll::Ready(Err(error)) => panic!("refused: {error:?}"),
+            Poll::Pending => panic!("the job still waits once the unload has landed"),
+        };
+        drop(job);
+    }
+
+    /// D803, the other half: an unload decided while nothing was counted,
+    /// with a job counted in before it began, unloads nothing — the gate
+    /// sees the job — and the event is decided again with the job counted:
+    /// the idle timer's dropped (the job's end arms it again), Unload now
+    /// and another model deferred until the job ends, the main window's
+    /// refused. Red with the `busy` test in `begin_unload` deleted.
+    #[gpui::test]
+    fn an_unload_a_job_got_ahead_of_unloads_nothing(cx: &mut gpui::TestAppContext) {
+        let model = Arc::new(Model::default());
+        let host = host_over(model.clone(), Keeping::OnDemand, cx);
+        let handle = host.read_with(cx, |host, _| host.handle.clone());
+        let job = block_on(handle.for_job()).expect("on duty");
+        cx.run_until_parked();
+        assert!(matches!(
+            host.read_with(cx, |host, _| host.loaded().clone()),
+            Loaded::Yes { .. }
+        ));
+
+        // Each as the policy decided it a moment before the job counted
+        // itself in.
+        host.update(cx, |host, cx| {
+            for event in [
+                Event::IdleElapsed,
+                Event::UnloadAsked,
+                Event::UnloadIfUnused,
+                Event::DutyChanged,
+            ] {
+                host.decide_and_run(event, false, cx);
+            }
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            model.unloads.load(Ordering::SeqCst),
+            0,
+            "unloaded under a job that was counted first"
+        );
+        host.read_with(cx, |host, _| {
+            assert!(matches!(host.loaded(), Loaded::Yes { .. }));
+            assert_eq!(
+                host.deferred,
+                vec![Event::UnloadAsked, Event::DutyChanged],
+                "decided again as though nothing ran"
+            );
+        });
+        assert!(handle.swap_pending(), "another model was not deferred");
+        assert_eq!(
+            handle.described().map(|info| info.model_id),
+            Ok("double".to_owned()),
+            "the engine was swapped under the job"
+        );
+
+        drop(job);
+        cx.run_until_parked();
+        assert_eq!(
+            model.unloads.load(Ordering::SeqCst),
+            1,
+            "Unload now was not carried out when the job ended"
+        );
     }
 
     /// The price's two facts follow the engine in the slot: the executor

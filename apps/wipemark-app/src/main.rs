@@ -92,6 +92,8 @@ mod signals;
 mod theme;
 mod title;
 mod tray;
+// The status bar's Unload for the model on this machine (F36).
+mod unload;
 mod window_state;
 mod wording;
 #[cfg(target_os = "linux")]
@@ -982,6 +984,13 @@ impl Render for Shell {
                     // build sends a request.
                     .child(Icon::new(IconName::CircleInfo).small().color(muted))
                     .child(SharedString::from(self.status(cx)))
+                    // Beside the sentence that says the model on this
+                    // machine is in memory, what frees it — there only
+                    // while it is (F36, D800).
+                    .children(
+                        unload::button(&self.host, cx)
+                            .map(|button| div().flex_shrink_0().child(button)),
+                    )
                     .child(div().flex_1())
                     // The far end of the status bar, which is where a
                     // desktop application has put its preferences for

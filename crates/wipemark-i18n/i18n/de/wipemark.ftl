@@ -82,6 +82,11 @@ status-local-loading-progress = { $model } wird geladen — { $percent } % · ni
 status-local-loaded = { $model } geladen · { -brand-name } belegt { $ram } · nichts verlässt diesen Rechner
 status-local-loaded-unmeasured = { $model } geladen · nichts verlässt diesen Rechner
 status-local-failed = { $model } konnte nicht geladen werden: { $reason } · nur { -layer-a }
+status-unload = Entladen
+status-unload-tooltip = Den Speicher, den { $model } belegt, jetzt freigeben. Sonst ändert sich nichts: Das nächste Umschreiben lädt das Modell wieder.
+status-unload-busy-rewrite = Ein Umschreiben verwendet das Modell. Es lässt sich entladen, sobald das Umschreiben endet.
+status-unload-busy-check = Die Prüfung auf der Seite „Engine“ verwendet das Modell. Es lässt sich entladen, sobald die Prüfung endet.
+status-unload-busy-template = Eine Prüfung oder Anpassung einer Vorlage auf der Seite „Umschreiben“ verwendet das Modell. Es lässt sich entladen, sobald sie endet.
 
 ## Einstellungen
 
