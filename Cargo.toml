@@ -17,6 +17,7 @@ members = [
     "crates/wipemark-log",
     "crates/wipemark-store",
     "crates/wipemark-secret",
+    "crates/wipemark-update",
     "apps/wipemark-app",
     "apps/wipemark-cli",
 ]
@@ -211,6 +212,7 @@ wipemark-license = { path = "crates/wipemark-license" }
 wipemark-log = { path = "crates/wipemark-log" }
 wipemark-store = { path = "crates/wipemark-store" }
 wipemark-secret = { path = "crates/wipemark-secret" }
+wipemark-update = { path = "crates/wipemark-update" }
 
 # Lints — adapted from qdrant, via heretic-mnemoria and
 # heretic-amuse-merge. Kept identical to Merge on purpose: code that

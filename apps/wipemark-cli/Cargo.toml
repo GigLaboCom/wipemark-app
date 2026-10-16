@@ -54,6 +54,13 @@ wipemark-pixels.workspace = true
 # `--json` answer carries beside core's report, and for the tests to read
 # that answer back.
 serde_json.workspace = true
+# `update --check`: the manifest, the release statement and its signature,
+# the installation — the application's own check (D788). `semver` for the
+# running version it is handed; `hex` for the sha256 in `--json`. Both
+# already in the lock.
+wipemark-update.workspace = true
+semver = "1"
+hex.workspace = true
 # `models add` hears a hash's progress the way the application does
 # (`Downloads::watch_hashes`), to draw it on stderr like a pull's.
 flume.workspace = true
@@ -73,6 +80,10 @@ ctrlc.workspace = true
 libc = "0.2"
 
 [dev-dependencies]
+# The loopback server, the run-time key pair and the signed manifest
+# `update --check`'s tests are made against. A dev-dependency feature: no
+# build that ships carries it.
+wipemark-update = { workspace = true, features = ["test-support"] }
 # `tests/image.rs` borrows `wipemark-image`'s own fixture builders
 # (`crates/wipemark-image/tests/support`, by `#[path]`) and the gate's
 # decoders: the output's raster is decoded before and after a `clean` and

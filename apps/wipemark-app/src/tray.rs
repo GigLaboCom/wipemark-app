@@ -50,7 +50,7 @@
 //! already in the channel when it is returned.
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-use wipemark_i18n::{t, Message};
+use wipemark_i18n::{args, t, t_args, Message};
 
 use crate::theme::ThemePreference;
 
@@ -111,6 +111,10 @@ pub enum TrayCommand {
     /// Engine page's **Unload now**, reachable with every window closed.
     /// Enabled only while a model is loaded (see [`Tray::show_loaded`]).
     UnloadModel,
+    /// "Update to 0.2.1…": the main window forward and the update dialog
+    /// in it (D785). In the menu only while a verified version waits
+    /// ([`Tray::show_update`]).
+    Update,
     /// Open the Settings dialog, bringing the window back first if it
     /// is hidden. Everything the tray cannot fit lives there.
     Settings,
@@ -139,10 +143,11 @@ impl TrayCommand {
     /// `every_theme_the_app_offers_has_a_menu_command` rather than
     /// quietly going untested.
     #[cfg(test)]
-    pub const ALL: [TrayCommand; 8] = [
+    pub const ALL: [TrayCommand; 9] = [
         Self::Show,
         Self::Panel,
         Self::UnloadModel,
+        Self::Update,
         Self::Theme(ThemePreference::System),
         Self::Theme(ThemePreference::Light),
         Self::Theme(ThemePreference::Dark),
@@ -157,6 +162,7 @@ impl TrayCommand {
             Self::Show => "show".to_owned(),
             Self::Panel => "panel".to_owned(),
             Self::UnloadModel => "unload-model".to_owned(),
+            Self::Update => "update".to_owned(),
             Self::Theme(choice) => format!("{THEME_PREFIX}{}", choice.as_str()),
             Self::Settings => "settings".to_owned(),
             Self::Quit => "quit".to_owned(),
@@ -173,6 +179,7 @@ impl TrayCommand {
             "show" => Some(Self::Show),
             "panel" => Some(Self::Panel),
             "unload-model" => Some(Self::UnloadModel),
+            "update" => Some(Self::Update),
             "settings" => Some(Self::Settings),
             "quit" => Some(Self::Quit),
             other => other
@@ -385,12 +392,26 @@ pub(crate) fn panel_label(open: bool) -> String {
     })
 }
 
+/// The update item's words: "Update to 0.2.1…".
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "linux")),
+    allow(dead_code, reason = "only the macOS and Linux trays have words")
+)]
+fn update_label(version: String) -> String {
+    t_args(Message::TrayUpdate, &args!("version" => version))
+}
+
 /// The menu and the items whose state or words change after it is
 /// built. One builder for macOS and Linux, so the two menus cannot
 /// drift into two slightly different ideas of what the tray offers.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 struct Menu {
     menu: tray_icon::menu::Menu,
+    /// "Update to 0.2.1…", at the top of the menu while a verified version
+    /// waits and out of it otherwise (D785).
+    update: tray_icon::menu::MenuItem,
+    /// Whether `update` is in the menu now.
+    update_shown: std::cell::Cell<bool>,
     show: tray_icon::menu::MenuItem,
     panel: tray_icon::menu::MenuItem,
     clipboard: tray_icon::menu::MenuItem,
@@ -413,6 +434,11 @@ fn build_menu(current: ThemePreference, labels: &Labels) -> Result<Menu, String>
     use tray_icon::menu::{CheckMenuItem, MenuItem, PredefinedMenuItem, Submenu};
 
     let show = MenuItem::with_id(TrayCommand::Show.menu_id(), &labels.show, true, None);
+
+    // Built now and put in the menu only while a version waits
+    // (`Change::Update`): an item that is there and greyed most of the
+    // time would be one more line to read past.
+    let update = MenuItem::with_id(TrayCommand::Update.menu_id(), "", true, None);
 
     // The panel, which is the one window of this application that is
     // *summoned*: it has no titlebar and arrives where the Placement
@@ -500,6 +526,8 @@ fn build_menu(current: ThemePreference, labels: &Labels) -> Result<Menu, String>
 
     Ok(Menu {
         menu,
+        update,
+        update_shown: std::cell::Cell::new(false),
         show,
         panel,
         clipboard,
@@ -531,6 +559,9 @@ enum Change {
     /// The panel item's words, as the panel came or went
     /// ([`panel_label`]).
     Panel(String),
+    /// The update item's words while a verified version waits; `None`
+    /// takes it out of the menu.
+    Update(Option<String>),
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -560,6 +591,25 @@ impl Menu {
             }
             Change::Loaded(loaded) => self.unload.set_enabled(loaded),
             Change::Panel(label) => self.panel.set_text(&label),
+            Change::Update(Some(label)) => {
+                self.update.set_text(&label);
+                if !self.update_shown.get() {
+                    match self.menu.insert(&self.update, 0) {
+                        Ok(()) => self.update_shown.set(true),
+                        Err(error) => tracing::warn!(%error, "the update item could not be shown"),
+                    }
+                }
+            }
+            Change::Update(None) => {
+                if self.update_shown.get() {
+                    match self.menu.remove(&self.update) {
+                        Ok(()) => self.update_shown.set(false),
+                        Err(error) => {
+                            tracing::warn!(%error, "the update item could not be taken out")
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -617,6 +667,8 @@ pub struct Tray {
     /// Whether the panel is on screen, so a relabel keeps the panel
     /// item's words ([`Tray::show_panel_open`]).
     panel_open: std::cell::Cell<bool>,
+    /// The version the update item names, while one waits.
+    update: std::cell::RefCell<Option<String>>,
 }
 
 /// The Linux item, seen from the GPUI side: the clicks coming in, and
@@ -629,6 +681,8 @@ pub struct Tray {
     /// Whether the panel is on screen, so a relabel keeps the panel
     /// item's words ([`Tray::show_panel_open`]).
     panel_open: std::cell::Cell<bool>,
+    /// The version the update item names, while one waits.
+    update: std::cell::RefCell<Option<String>>,
 }
 
 /// There is no tray on this platform, and the type says so: `install`
@@ -666,11 +720,23 @@ impl Tray {
     /// read here, on the GPUI thread, whichever thread the menu is on.
     pub fn relabel(&self) {
         self.change(Change::Labels(Labels::now(self.panel_open.get())));
+        let version = self.update.borrow().clone();
+        self.change(Change::Update(version.map(update_label)));
     }
 
     /// Enable "Unload model" while a model is loaded, and only then.
     pub fn show_loaded(&self, loaded: bool) {
         self.change(Change::Loaded(loaded));
+    }
+
+    /// "Update to `version`…" at the top of the menu while a verified
+    /// version waits, and nothing while none does (D785).
+    pub fn show_update(&self, version: Option<String>) {
+        if *self.update.borrow() == version {
+            return;
+        }
+        self.update.replace(version.clone());
+        self.change(Change::Update(version.map(update_label)));
     }
 
     /// Say "Hide the panel" while the panel is on screen and "Show the
@@ -740,6 +806,10 @@ impl Tray {
     }
 
     pub fn show_loaded(&self, _loaded: bool) {
+        match *self {}
+    }
+
+    pub fn show_update(&self, _version: Option<String>) {
         match *self {}
     }
 
@@ -823,6 +893,7 @@ fn install_now(current: ThemePreference) -> Option<Tray> {
         menu,
         commands,
         panel_open: std::cell::Cell::new(false),
+        update: std::cell::RefCell::new(None),
     })
 }
 
@@ -1072,6 +1143,7 @@ mod linux {
                         commands,
                         updates,
                         panel_open: std::cell::Cell::new(false),
+                        update: std::cell::RefCell::new(None),
                     }))
                     .is_err()
                 {

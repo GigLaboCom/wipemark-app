@@ -9785,6 +9785,7 @@ dependencies = [
  "png 0.17.16",
  "raw-window-handle",
  "rust-embed",
+ "semver",
  "serde",
  "serde_json",
  "sysinfo",
@@ -9807,6 +9808,7 @@ dependencies = [
  "wipemark-queue",
  "wipemark-secret",
  "wipemark-store",
+ "wipemark-update",
  "x11rb",
 ]
 
@@ -9817,10 +9819,12 @@ dependencies = [
  "clap",
  "ctrlc",
  "flume 0.11.1",
+ "hex",
  "image",
  "image-webp",
  "libc",
  "png 0.18.1",
+ "semver",
  "serde_json",
  "sha2 0.10.9",
  "tracing",
@@ -9836,6 +9840,7 @@ dependencies = [
  "wipemark-pipeline",
  "wipemark-pixels",
  "wipemark-store",
+ "wipemark-update",
  "zune-jpeg 0.5.16-rc2",
 ]
 
@@ -10032,6 +10037,24 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "tracing",
+]
+
+[[package]]
+name = "wipemark-update"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "hex",
+ "libc",
+ "ring",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tracing",
+ "ureq",
 ]
 
 [[package]]

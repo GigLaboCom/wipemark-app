@@ -2469,3 +2469,99 @@ queue-action-why-nothing-written = Nothing was written for it; its status says w
 ## seconds and did not quit.
 launch-already-running = { -brand-name } is already running for this data directory; its window was brought forward. --import=, --clean=, --compare=, --settings, --profile= and --setup are taken only by the launch that starts it: use that window, or quit { -brand-name } and run the command again.
 launch-not-answering = { -brand-name } is already running for this data directory and did not answer. Wait for it to finish starting, or quit it, and run the command again.
+## New versions (D780–D789): the check, the download and the install
+##
+## $version and $installed are version numbers (0.2.0), never translated.
+## $host is a host name (releases.giglabo.com); $url and $path are a URL
+## and a path, as they are; $when is a date and time already written as
+## numbers (2026-10-16 14:02); $size, $done and $total are megabytes,
+## already written as numbers; $platform and $format are the release
+## service's own tokens (linux-x64, AppImage), never translated.
+settings-updates-title = New versions
+settings-updates-description = Once a day, { -brand-name } asks releases.giglabo.com which version is newest. The request carries no identifier, no version number and nothing about your documents; the server sees this computer's address, as any website does. Nothing is downloaded until you choose to.
+settings-updates-check-now = Check now
+settings-updates-checking = Checking…
+settings-updates-never = Not checked yet.
+settings-updates-current = This is { $version }, the newest verified version. Checked { $when }.
+settings-updates-available = { $version } is available. Checked { $when }.
+settings-updates-skipped = { $version } is available, and you skipped it. Check now offers it again.
+settings-updates-failed = Could not check at { $when }: { $reason }.
+settings-updates-refused = A newer version, { $version }, was announced, but its signature did not verify, so it is not offered.
+settings-updates-development = A development build does not check for new versions on its own. Check now says what it would offer.
+settings-updates-no-keys = This build carries no key to verify a new version's signature, so it cannot check for updates.
+settings-updates-no-build = No release of { -brand-name } is built for this computer.
+settings-updates-open = Update…
+settings-updates-open-download = Download…
+setup-done-updates = Check for new versions once a day
+update-ask = Check for new versions of { -brand-name } once a day? The request carries nothing about you or your documents, and nothing is downloaded until you choose to.
+update-ask-yes = Yes
+update-ask-no = No
+status-update-available = { $version } is available
+tray-update = Update to { $version }…
+update-dialog-title = { -brand-name } { $version }
+update-dialog-body = You have { $installed }. Updating downloads { $size } MB from { $host }, checks its signature, and restarts { -brand-name }.
+update-dialog-body-mac = You have { $installed }. Updating downloads { $size } MB from { $host }, checks its signature and its Apple notarization, and restarts { -brand-name }.
+update-dialog-body-download = You have { $installed }. Download… saves the { $size } MB file from { $host } once its signature is checked; you install it yourself.
+update-now = Update and restart
+update-on-quit = Update when I quit
+update-later = Later
+update-cancel = Cancel
+update-skip = Skip this version
+update-whats-new = What's new
+update-download = Download…
+update-downloading = Downloading — { $done } of { $total } MB
+update-checking = Checking the new copy…
+update-ready = Ready.
+update-ready-on-quit = Ready: { -brand-name } { $version } goes in when you quit.
+update-restart-now = Restart now
+update-waits-rewrite = Waits for the rewrite to finish.
+update-waits-clean = Waits for the clean to finish.
+update-waits-download = Waits for the model download to finish.
+update-waits-compare = Compare holds edits that are not saved. Save them or close Compare first.
+update-drops-pastes = { $count ->
+        [one] One cleaned pasted text is only in memory and will be gone after the restart.
+       *[other] { $count } cleaned pasted texts are only in memory and will be gone after the restart.
+    }
+update-notify-deb = This copy was installed with apt, so apt updates it: Download… saves the package once its signature is checked.
+update-notify-move = macOS runs this copy from a place it cannot replace. Move { -brand-name } to Applications first.
+update-notify-unsigned = This copy is not signed with { -brand-name }'s Developer ID, so it cannot replace itself.
+update-notify-readonly = This copy sits in a folder you cannot write to, so it cannot replace itself.
+update-notify-development = A development build does not replace itself.
+update-downloaded = Verified and saved: { $path }
+update-deb-verified = Verified. Install it with: sudo apt install { $path }
+update-copy = Copy
+update-show = Show in folder
+update-failed = The update did not go in: { $reason }. { -brand-name } is as it was.
+update-reason-connection = no connection
+update-reason-timeout = it did not answer in time
+update-reason-tls = the secure connection failed
+update-reason-redirect = it answered with a redirect, which is not followed
+update-reason-status = it answered { $status }
+update-reason-too-large = its answer was larger than a release manifest can be
+update-reason-shape = its answer was not a release manifest
+update-reason-read = the answer broke off
+update-reason-longer = the download was longer than announced
+update-reason-shorter = the download ended early
+update-reason-sha256 = the download is not the file that was signed
+update-reason-write = the download could not be saved
+update-reason-cancelled = it was cancelled
+update-reason-mount = the disk image could not be opened
+update-reason-stage = the new copy could not be put beside this one
+update-reason-requirement = the new copy is not signed with { -brand-name }'s Developer ID
+update-reason-gatekeeper = macOS did not accept the new copy as notarized
+update-reason-identity = the new copy is not { -brand-name }
+update-reason-version = the new copy is not the version offered
+update-reason-starts = the new copy did not start
+update-reason-swap = the two copies could not be swapped
+cli-command-update = Check whether a newer version exists, signed and verified. Installs nothing: the application updates itself, or you download the file.
+cli-arg-check = Check now: say what is installed, what is newest and verified for this installation, and where to get it.
+cli-update-current = { -brand-name } { $version } is the newest verified version for this installation ({ $platform }, { $format }).
+cli-update-available = { -brand-name } { $version } is available, and its signature verified. This is { $installed }.
+cli-update-get = Update from the application, or download it: { $url }
+cli-update-get-deb = Download it, then install it with sudo apt install ./{ $file } — { $url }
+cli-update-unverified = A newer version, { $version }, was announced, but its signature did not verify, so it is not offered.
+cli-update-no-keys = This build carries no key to verify a new version's signature, so it cannot check for updates.
+cli-update-no-build = No release of { -brand-name } is built for this computer.
+cli-update-failed = Could not check { $host }: { $reason }.
+cli-update-installs-nothing = The command line installs nothing. Update from the application, or download a new version: { $url }
+cli-update-bad-base = WIPEMARK_UPDATE_BASE must name http on a loopback address with a port, not { $value }.

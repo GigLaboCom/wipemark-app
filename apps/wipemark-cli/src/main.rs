@@ -42,6 +42,11 @@
 //!                rewritten
 //! ```
 //!
+//! For `update --check` (D788): 0 up to date, 1 a newer version whose
+//! signature verified — a finding — and 2 a refusal: no key in this build,
+//! no build for this computer, no connection, or only a newer version whose
+//! signature does not verify. A plain `update` installs nothing and exits 2.
+//!
 //! For `rewrite`, 0 and 1 read as for `clean`: 1 when the input had
 //! findings, which were cleaned (D31), and 0 when it had none — and in
 //! both, every paragraph was rewritten.
@@ -88,6 +93,7 @@ mod models;
 mod report;
 mod rewrite;
 mod run;
+mod update;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -221,6 +227,14 @@ enum Action {
         #[arg(long)]
         sarif: bool,
     },
+    // `update --check`: whether a newer version exists, verified (D788).
+    // Without `--check` it installs nothing and says so.
+    Update {
+        #[arg(long)]
+        check: bool,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -273,7 +287,7 @@ const TACTICS: [&str; 5] = [
 /// is set per subcommand: `inspect`, `clean` and `rewrite` take `-` for
 /// stdin and `audit` takes a folder, and help that offered it everywhere
 /// would be help that lies.
-const ARGUMENT_HELP: [(&str, Message); 25] = [
+const ARGUMENT_HELP: [(&str, Message); 26] = [
     ("path", Message::CliArgPath),
     ("out", Message::CliArgOut),
     ("in_place", Message::CliArgInPlace),
@@ -299,6 +313,7 @@ const ARGUMENT_HELP: [(&str, Message); 25] = [
     ("name", Message::CliArgName),
     ("role", Message::CliArgRole),
     ("ctx", Message::CliArgCtx),
+    ("check", Message::CliArgCheck),
 ];
 
 /// Put one command's own description, its arguments' help and the frame
@@ -431,6 +446,9 @@ fn command() -> Command {
                 .mut_arg("out", |out| out.help(t(Message::CliArgOutRewrite)))
         })
         .mut_subcommand("audit", |audit| localized(audit, Message::CliCommandAudit))
+        .mut_subcommand("update", |update| {
+            localized(update, Message::CliCommandUpdate)
+        })
         .mut_subcommand("models", |models| {
             localized(models, Message::CliCommandModels)
                 .mut_subcommand("list", |c| localized(c, Message::CliCommandModelsList))
@@ -616,6 +634,7 @@ fn main() -> ExitCode {
             };
             audit::run(dir, output, io)
         }
+        Action::Update { check, json } => update::run(*check, *json, io),
         Action::Models(ModelsAction::List { json }) => models::list(*json, io),
         Action::Models(ModelsAction::Pull { id }) => models::pull(id, io),
         Action::Models(ModelsAction::Verify { id }) => models::verify(id, io),

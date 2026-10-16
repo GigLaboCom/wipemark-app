@@ -22,6 +22,9 @@ image/    real PNG/JPEG/WebP files from the C2PA project's public
           each file's claim are in `image/README.md`; everything
           injected (SD `parameters`, ComfyUI, XMP DigitalSourceType…)
           is built in `crates/wipemark-image/tests/support/`.
+update/   `statement.txt`: the release statement's one form (D781), byte
+          for byte — `wipemark-update`'s builder and
+          `scripts/release/update/statement.sh` are both held to it.
 clean-parity/
           the windows' clean against the CLI's (E7, W9): six small
           inputs — two Markdown files, a UTF-16 text with a byte order

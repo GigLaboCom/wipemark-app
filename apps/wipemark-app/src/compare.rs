@@ -845,6 +845,19 @@ pub fn rewritten_text(from: &RewriteFrom) -> Result<String, Refusal> {
 /// over, handed in rather than looked up for the reason `settings::open`
 /// gives: from inside the main window's own update it would come back
 /// "not found". Every caller defers to here.
+/// Whether any Compare window holds an edit a quit would lose — read
+/// from every window, so one opened by `--compare=` counts too. A window
+/// being drawn right now cannot be read and is not one of these.
+pub fn any_holds_unkept_edits(cx: &App) -> bool {
+    cx.windows().into_iter().any(|handle| {
+        handle
+            .downcast::<Root>()
+            .and_then(|root| root.read(cx).ok())
+            .and_then(|root| root.view().clone().downcast::<CompareView>().ok())
+            .is_some_and(|view| view.read(cx).holds_unkept_edits(cx))
+    })
+}
+
 pub fn open(
     key: Option<u64>,
     subject: Subject,
@@ -3218,6 +3231,28 @@ impl CompareView {
     /// saving — no edit unsaved, no save under way, no question standing.
     /// What a reopen to come forward asks (D596): Compare never loses an
     /// edit to one (D415, D440).
+    /// Whether this window holds an edit a quit would lose (D788): unsaved,
+    /// and not what [`Self::flush_at_quit`] writes — autosave off or
+    /// stopped, a question standing, or no file or row it writes to at quit.
+    /// What an update's restart waits for.
+    pub fn holds_unkept_edits(&self, cx: &App) -> bool {
+        let saving = &self.saving;
+        if saving.discarded || !matches!(self.state, State::Ready) {
+            return false;
+        }
+        if *self.current(cx) == *saving.saved {
+            return false;
+        }
+        let flushed = saving.saver.autosaves()
+            && !saving.saver.stopped()
+            && saving.question.is_none()
+            && matches!(
+                (&self.target, saving.seen),
+                (Ok(Target::File(_)), Seen::File(_)) | (Ok(Target::Item(..)), Seen::Item(_))
+            );
+        !flushed
+    }
+
     fn loses_nothing(&self, cx: &App) -> bool {
         if self.saving.discarded || !matches!(self.state, State::Ready) {
             return true;
@@ -6966,6 +7001,56 @@ mod tests {
         type_in(&view, "after\n", cx);
         quiet(cx);
         assert_eq!(std::fs::read(&result).expect("result"), b"after\n");
+    }
+
+    /// An update's restart waits for an edit a quit would lose (D788):
+    /// unsaved with autosave off — and not one autosave writes at quit, nor
+    /// one saved. Make it answer from `loses_nothing` alone and the autosaved
+    /// window holds the update up for nothing: red.
+    #[gpui::test]
+    fn an_edit_a_quit_would_lose_holds_an_update(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("update-edits");
+        let rewrite = scratch.file("x.rewritten.md", b"rewritten\n");
+        let subject = Subject {
+            handed: Handed::Text(MARKED.to_owned()),
+            intake: None,
+            made: Made::Rewritten {
+                from: RewriteFrom::File(rewrite.clone()),
+                kept: None,
+            },
+        };
+        let manual = Comparison {
+            autosave: false,
+            ..Comparison::default()
+        };
+        let (view, _, cx) = saving_window(cx, &scratch, subject, manual, Some(6), None);
+        assert!(!cx.update(|_, cx| view.read(cx).holds_unkept_edits(cx)));
+        type_in(&view, "rewritten, edited\n", cx);
+        assert!(cx.update(|_, cx| view.read(cx).holds_unkept_edits(cx)));
+        cx.dispatch_action(SaveCompare);
+        cx.run_until_parked();
+        assert!(!cx.update(|_, cx| view.read(cx).holds_unkept_edits(cx)));
+    }
+
+    /// With autosave on, a quit writes the edit: nothing for an update to
+    /// wait for, though the window does hold an edit.
+    #[gpui::test]
+    fn an_edit_autosave_keeps_holds_no_update(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("update-autosaved");
+        let rewrite = scratch.file("x.rewritten.md", b"rewritten\n");
+        let subject = Subject {
+            handed: Handed::Text(MARKED.to_owned()),
+            intake: None,
+            made: Made::Rewritten {
+                from: RewriteFrom::File(rewrite.clone()),
+                kept: None,
+            },
+        };
+        let (view, _, cx) =
+            saving_window(cx, &scratch, subject, Comparison::default(), Some(7), None);
+        type_in(&view, "rewritten, again\n", cx);
+        assert!(!cx.update(|_, cx| view.read(cx).loses_nothing(cx)));
+        assert!(!cx.update(|_, cx| view.read(cx).holds_unkept_edits(cx)));
     }
 
     /// Save on the strip and ⌘S are one road: the strip dispatches the

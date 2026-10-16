@@ -1683,3 +1683,99 @@ queue-action-why-nothing-written = Dafür wurde nichts geschrieben; der Status s
 ## { -brand-name } hält (D792).
 launch-already-running = { -brand-name } läuft bereits mit diesem Datenordner; sein Fenster wurde nach vorn geholt. --import=, --clean=, --compare=, --settings, --profile= und --setup nimmt nur der Start an, der es startet: Verwenden Sie dieses Fenster, oder beenden Sie { -brand-name } und führen Sie den Befehl erneut aus.
 launch-not-answering = { -brand-name } läuft bereits mit diesem Datenordner und hat nicht geantwortet. Warten Sie, bis es fertig gestartet ist, oder beenden Sie es, und führen Sie den Befehl erneut aus.
+## New versions (D780–D789): the check, the download and the install
+##
+## $version and $installed are version numbers (0.2.0), never translated.
+## $host is a host name (releases.giglabo.com); $url and $path are a URL
+## and a path, as they are; $when is a date and time already written as
+## numbers (2026-10-16 14:02); $size, $done and $total are megabytes,
+## already written as numbers; $platform and $format are the release
+## service's own tokens (linux-x64, AppImage), never translated.
+settings-updates-title = Neue Versionen
+settings-updates-description = Einmal am Tag fragt { -brand-name } bei releases.giglabo.com nach, welche Version die neueste ist. Die Anfrage enthält keine Kennung, keine Versionsnummer und nichts über Ihre Dokumente; der Server sieht die Adresse dieses Computers, wie jede Website. Heruntergeladen wird nichts, bevor Sie es wählen.
+settings-updates-check-now = Jetzt prüfen
+settings-updates-checking = Wird geprüft…
+settings-updates-never = Noch nicht geprüft.
+settings-updates-current = Dies ist { $version }, die neueste geprüfte Version. Geprüft { $when }.
+settings-updates-available = { $version } ist verfügbar. Geprüft { $when }.
+settings-updates-skipped = { $version } ist verfügbar, und Sie haben sie übersprungen. „Jetzt prüfen“ bietet sie wieder an.
+settings-updates-failed = Prüfung um { $when } nicht möglich: { $reason }.
+settings-updates-refused = Eine neuere Version, { $version }, wurde angekündigt, aber ihre Signatur stimmte nicht, deshalb wird sie nicht angeboten.
+settings-updates-development = Ein Entwicklungs-Build prüft nicht von selbst auf neue Versionen. „Jetzt prüfen“ sagt, was er anbieten würde.
+settings-updates-no-keys = Dieser Build enthält keinen Schlüssel, um die Signatur einer neuen Version zu prüfen, und kann daher nicht nach Updates suchen.
+settings-updates-no-build = Für diesen Computer wird keine Version von { -brand-name } gebaut.
+settings-updates-open = Aktualisieren…
+settings-updates-open-download = Herunterladen…
+setup-done-updates = Einmal am Tag nach neuen Versionen suchen
+update-ask = Einmal am Tag nach neuen Versionen von { -brand-name } suchen? Die Anfrage enthält nichts über Sie oder Ihre Dokumente, und heruntergeladen wird nichts, bevor Sie es wählen.
+update-ask-yes = Ja
+update-ask-no = Nein
+status-update-available = { $version } ist verfügbar
+tray-update = Auf { $version } aktualisieren…
+update-dialog-title = { -brand-name } { $version }
+update-dialog-body = Sie haben { $installed }. Das Update lädt { $size } MB von { $host }, prüft die Signatur und startet { -brand-name } neu.
+update-dialog-body-mac = Sie haben { $installed }. Das Update lädt { $size } MB von { $host }, prüft die Signatur und die Notarisierung durch Apple und startet { -brand-name } neu.
+update-dialog-body-download = Sie haben { $installed }. „Herunterladen…“ speichert die { $size } MB große Datei von { $host }, sobald ihre Signatur geprüft ist; installieren Sie sie selbst.
+update-now = Aktualisieren und neu starten
+update-on-quit = Beim Beenden aktualisieren
+update-later = Später
+update-cancel = Abbrechen
+update-skip = Diese Version überspringen
+update-whats-new = Was ist neu
+update-download = Herunterladen…
+update-downloading = Wird geladen — { $done } von { $total } MB
+update-checking = Die neue Kopie wird geprüft…
+update-ready = Bereit.
+update-ready-on-quit = Bereit: { -brand-name } { $version } wird beim Beenden eingesetzt.
+update-restart-now = Jetzt neu starten
+update-waits-rewrite = Wartet, bis das Umschreiben fertig ist.
+update-waits-clean = Wartet, bis die Bereinigung fertig ist.
+update-waits-download = Wartet, bis der Modell-Download fertig ist.
+update-waits-compare = Der Vergleich enthält ungespeicherte Änderungen. Speichern Sie sie oder schließen Sie zuerst den Vergleich.
+update-drops-pastes = { $count ->
+        [one] Ein bereinigter eingefügter Text ist nur im Speicher und ist nach dem Neustart weg.
+       *[other] { $count } bereinigte eingefügte Texte sind nur im Speicher und sind nach dem Neustart weg.
+    }
+update-notify-deb = Diese Kopie wurde mit apt installiert, also aktualisiert apt sie: „Herunterladen…“ speichert das Paket, sobald seine Signatur geprüft ist.
+update-notify-move = macOS führt diese Kopie an einem Ort aus, an dem sie nicht ersetzt werden kann. Verschieben Sie { -brand-name } zuerst in „Programme“.
+update-notify-unsigned = Diese Kopie ist nicht mit der Developer ID von { -brand-name } signiert und kann sich daher nicht selbst ersetzen.
+update-notify-readonly = Diese Kopie liegt in einem Ordner, in den Sie nicht schreiben dürfen, und kann sich daher nicht selbst ersetzen.
+update-notify-development = Ein Entwicklungs-Build ersetzt sich nicht selbst.
+update-downloaded = Geprüft und gespeichert: { $path }
+update-deb-verified = Geprüft. Installieren Sie es mit: sudo apt install { $path }
+update-copy = Kopieren
+update-show = Im Ordner zeigen
+update-failed = Das Update wurde nicht eingesetzt: { $reason }. { -brand-name } ist unverändert.
+update-reason-connection = keine Verbindung
+update-reason-timeout = keine Antwort in der Zeit
+update-reason-tls = die sichere Verbindung kam nicht zustande
+update-reason-redirect = die Antwort war eine Weiterleitung, und Weiterleitungen wird nicht gefolgt
+update-reason-status = die Antwort war { $status }
+update-reason-too-large = die Antwort war größer, als ein Release-Manifest sein kann
+update-reason-shape = die Antwort war kein Release-Manifest
+update-reason-read = die Antwort brach ab
+update-reason-longer = der Download war länger als angekündigt
+update-reason-shorter = der Download endete zu früh
+update-reason-sha256 = der Download ist nicht die signierte Datei
+update-reason-write = der Download konnte nicht gespeichert werden
+update-reason-cancelled = abgebrochen
+update-reason-mount = das Disk-Image ließ sich nicht öffnen
+update-reason-stage = die neue Kopie ließ sich nicht neben diese legen
+update-reason-requirement = die neue Kopie ist nicht mit der Developer ID von { -brand-name } signiert
+update-reason-gatekeeper = macOS hat die neue Kopie nicht als notarisiert angenommen
+update-reason-identity = die neue Kopie ist nicht { -brand-name }
+update-reason-version = die neue Kopie ist nicht die angebotene Version
+update-reason-starts = die neue Kopie startete nicht
+update-reason-swap = die beiden Kopien ließen sich nicht tauschen
+cli-command-update = Prüfen, ob es eine neuere Version gibt, signiert und geprüft. Installiert nichts: Die Anwendung aktualisiert sich selbst, oder Sie laden die Datei herunter.
+cli-arg-check = Jetzt prüfen: was installiert ist, welche Version für diese Installation die neueste geprüfte ist und wo es sie gibt.
+cli-update-current = { -brand-name } { $version } ist die neueste geprüfte Version für diese Installation ({ $platform }, { $format }).
+cli-update-available = { -brand-name } { $version } ist verfügbar, und ihre Signatur stimmt. Dies ist { $installed }.
+cli-update-get = Aktualisieren Sie aus der Anwendung, oder laden Sie es herunter: { $url }
+cli-update-get-deb = Herunterladen und mit sudo apt install ./{ $file } installieren — { $url }
+cli-update-unverified = Eine neuere Version, { $version }, wurde angekündigt, aber ihre Signatur stimmte nicht, deshalb wird sie nicht angeboten.
+cli-update-no-keys = Dieser Build enthält keinen Schlüssel, um die Signatur einer neuen Version zu prüfen, und kann daher nicht nach Updates suchen.
+cli-update-no-build = Für diesen Computer wird keine Version von { -brand-name } gebaut.
+cli-update-failed = { $host } konnte nicht geprüft werden: { $reason }.
+cli-update-installs-nothing = Die Kommandozeile installiert nichts. Aktualisieren Sie aus der Anwendung, oder laden Sie eine neue Version herunter: { $url }
+cli-update-bad-base = WIPEMARK_UPDATE_BASE muss http auf einer Loopback-Adresse mit Port nennen, nicht { $value }.

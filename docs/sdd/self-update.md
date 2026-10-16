@@ -13,8 +13,16 @@ product code changes with it.
   at `d25ac4e`. The owner asked on 2026-10-16: "we need a check for a new
   version so the program can update itself… through giglabo, the lazy-shot
   way — how to know there is an update, through JSON metadata."
-* Decisions **D780–D789** are reserved for this line. Every one is
-  ***proposed*** until the owner says yes (§9).
+* Decisions **D780–D789** are this line's. **Decided on 2026-10-16**: the
+  coordinator proceeded on every recommendation of §10, and the owner may
+  overturn any of them later (§9, §10). Built on branch `feat/self-update`
+  (§11).
+* The giglabo side (§8.5) was checked on 2026-10-16 against the deployed
+  source, `heretic-releases-api` `origin/main` at **`917b8ff`**, and is being
+  changed by the owner's side — **deployed 2026-10-16 from `310f54f`**; the
+  shape this document names —
+  the fields, `sig` per asset, the paths, the publish API — is the fixed
+  contract between the client, CI and the Worker.
 * Read-only, nothing modified in any of them:
   * `heretic-lazy-shot` at **`620de44`** (2026-09-23),
     `~/self/heretic-lazy-shot`.
@@ -88,6 +96,11 @@ Worker `heretic-releases-api`: по вебхуку GitHub `release: published` �
 
 **Что нужно от вас:** ответы в §10. Главные — Q1 (умолчание), Q2 (когда
 публиковать) и Q5 (ключи).
+
+**Решено 2026-10-16:** приняты все рекомендации §10 (вы можете отменить
+любую). Сделано в ветке `feat/self-update` (§11). От вас: один раз запустить
+`scripts/release/update-keys.sh` (ключи), создать Environment `releases` и три
+секрета (packaging.md, чек-лист). Правку Worker делает ваша сторона.
 
 ---
 
@@ -473,7 +486,7 @@ first entry:
 
 | | |
 |---|---|
-| **manifest** | `https://releases.giglabo.com/downloads/wipemark`, the Worker's derived manifest for slug **`wipemark`**, registered `source: 'direct'`, `expected_platforms: ['macos-aarch64', 'linux-x64']`, `keep: 5` |
+| **manifest** | `https://releases.giglabo.com/downloads/wipemark`, the Worker's derived manifest for slug **`wipemark`**, registered `source: 'direct'`, `expected_platforms: ['macos-aarch64', 'linux-x64']`, `keep: 5` — which records intent only: the service does not prune a `direct` app (mnemovi has `keep: 3` and serves 11 versions), so **the service keeps every published version; pruning is not implemented (enabling it would delete mnemovi's live versions); later**. The client reads every entry anyway; each signed version adds about 1.3 KB, so the 256 KiB cap is reached only after about 190 versions. Before the first publish the manifest is `200` with `versions: []`, `latest_by_platform: {}` and no `latest_version`, which the client reads as nothing newer (`an_empty_manifest_is_nothing_newer`) |
 | **artifacts** | `https://releases.giglabo.com/wipemark/<version>/<platform>/<file>`, the shape `assemble.ts:115` writes; R2's public domain serves them, with no redirect |
 | **platforms and formats** | `macos-aarch64` + `dmg` (`Wipemark-<v>-arm64.dmg`); `linux-x64` + `AppImage` (`Wipemark-<v>-x86_64.AppImage`); `linux-x64` + `deb` (`wipemark_<v>_amd64.deb`). These are all canonical tokens of the deployed Worker (§1.6), so the Worker needs no new token. |
 | **the URL in the program** | a constant in `wipemark-update`. A release build has no way to change it. A debug build may point it at a loopback server for the live check (§8.8) |
@@ -591,7 +604,10 @@ and "a person publishes, with `docs/release/<version>.md` as the notes"
 every installation would be offered the version before the person had
 published it. A new workflow therefore listens for that click.
 
-`.github/workflows/publish-update.yml`:
+Built as the job **`publish-update` of `.github/workflows/release.yml`**
+rather than a workflow of its own (the coordinator, 2026-10-16: "extend
+`release.yml`"); its triggers, Environment and steps are the ones below, and
+the build jobs of the same file skip themselves on the `release` event.
 
 * **Triggers:**
   * `release: types: [published]` — a person's Publish in the UI fires
@@ -613,12 +629,22 @@ published it. A new workflow therefore listens for that click.
      a release asset could also replace `SHA256SUMS`; they cannot forge
      the attestation.
   4. Open the version on giglabo:
-     `POST /publish/wipemark/<v>/open {channel, git_tag, expected_platforms}`.
+     `POST /publish/wipemark/<v>/open {channel, git_tag, expected_platforms}`
+     — always first, with `channel: "stable"`: a version has a `channel`
+     only when it was opened, and the client refuses an entry with none.
   5. For each artifact:
      * write the statement (§2.2);
      * sign it (D782);
-     * presign, PUT and finalize with `sig`, as MnemoVi's
-       `releases-publish.sh:108-135` does.
+     * presign, PUT to R2 and finalize with `sig` **in finalize's JSON body**
+       (`{filename, sha256, size, format, git_sha, sig}`), as MnemoVi's
+       `releases-publish.sh:108-135` does. (On the through-Worker PUT the
+       Worker takes `sig` as the header `X-Sig`; CI does not use that road.)
+     * The Worker stores the sha256 CI claims and does not hash the bytes on
+       the presign road, so the client's own sha256 of what it downloads and
+       step 6 are what make the hash mean anything; both stay.
+     * A second filename for one `(os, arch, format)` is answered `409`
+       unless `replace: true`; the release's file names never change, so a
+       re-run of the same version overwrites in place and is idempotent.
   6. **Verify what is served:**
      * fetch `/downloads/wipemark`;
      * rebuild each statement from the served fields;
@@ -631,7 +657,10 @@ published it. A new workflow therefore listens for that click.
      the AppImage *as downloaded from giglabo*, as MnemoVi's
      `published-artifact-gate.sh` does.
 * **Scripts** (each with a header, as the repository requires):
-  * `scripts/release/update/statement.sh` — the statement for one file;
+  * `scripts/release/update/statement.sh` — the statement for one file,
+    held to `fixtures/update/statement.txt` with the Rust builder;
+  * `scripts/release/update/sign.sh` — the `wm1` signature through OpenSSL
+    3, refusing a key whose public half is not committed;
   * `scripts/release/update/publish.sh` — open, presign, PUT, finalize,
     adapted from MnemoVi's;
   * `scripts/release/update/verify-served.sh` — step 6, runnable by hand
@@ -649,7 +678,8 @@ published it. A new workflow therefore listens for that click.
 
 **The giglabo side** is the owner's repository, unchanged here. It needs
 three changes, listed in §8.5: register `wipemark`, pass `sig` through,
-and, optionally, a publish token per slug.
+and, optionally, a publish token per slug. The owner's side made and
+deployed the first two (2026-10-16, `310f54f`).
 
 ---
 
@@ -746,7 +776,9 @@ and no new tool. minisign is a fair second choice (Q5).
   succeeded, never "this is the newest version there is".
 * **That a release is good.** A signed release can still be broken. The
   previous copy is kept until the new one has started once (§6.6), and
-  the service keeps the last five versions for a manual step back.
+  the service keeps every published version for a manual step back
+  (pruning is not implemented; enabling it would delete mnemovi's live
+  versions; later).
 * **That GitHub's runner is honest.** The key is used on a hosted runner.
   On macOS the Developer ID is a second, independent bar. On Linux it is
   not.
@@ -1096,8 +1128,9 @@ hold as they are:
     the log names it.
   * An automatic rollback would need a launcher apart from the program,
     which is not proposed.
-* **Stepping back on purpose:** the service keeps the last five versions,
-  so a person can download the previous one by hand.
+* **Stepping back on purpose:** the service keeps every published version
+  (pruning is not implemented; later), so a person can download the
+  previous one by hand.
 
 ---
 
@@ -1223,15 +1256,46 @@ exits in `docs/architecture/cli.md`, and its words in the catalogue.
 ### 8.4 The release lane
 
 * **`release.yml`:** the `linux` and `macos` jobs each add
-  `actions/attest-build-provenance` over their artifacts. That needs
-  `permissions: id-token: write, attestations: write` on those two jobs
-  only. Nothing else changes, and the draft stays a draft.
-* **`publish-update.yml`** (new): §2.5.
-* **`scripts/release/update/`:** `statement.sh`, `publish.sh` and
-  `verify-served.sh`, each with its header.
-* **`crates/wipemark-update/keys/`:** the two public keys, as PEM.
+  `actions/attest-build-provenance` over their artifacts on a tag. That
+  needs `permissions: id-token: write, attestations: write` on those two
+  jobs only. The draft stays a draft. The file gains the `release:
+  published` trigger, the `publish-update` platform of `workflow_dispatch`
+  and the job **`publish-update`** (§2.5); without the Environment's three
+  secrets it says so in a notice and the summary and publishes nothing, and
+  with some of them it fails, as the macOS lane does (D775).
+* **`scripts/release/update/`:** `statement.sh`, `sign.sh`, `publish.sh`
+  and `verify-served.sh`, each with its header.
+* **`scripts/release/update-keys.sh`:** run once by the owner. It makes the
+  working and backup pairs with OpenSSL 3, writes the private halves
+  encrypted, mode 0600, to paths outside the repository, writes the public
+  halves to `crates/wipemark-update/keys/<role>-<id>.pem` and the table in
+  `keys.rs` from them, and prints the Environment and `gh secret set` steps
+  without printing any key material.
+* **`crates/wipemark-update/keys/`:** the two public keys, as PEM — empty
+  until the owner runs the script, and a build made before then says it
+  cannot check for updates.
 
 ### 8.5 The giglabo side (the owner's `heretic-releases-api`)
+
+**Made and deployed by the owner's side (2026-10-16, from `310f54f`)**,
+against the deployed source (`origin/main` at `917b8ff`), not by this line.
+The live `/downloads/wipemark` answered `200` with `versions: []`,
+`latest_by_platform: {}` and no `latest_version`; read once through this
+program's own client (a debug `wipemark-cli update --check` with a throwaway
+test key — a read-only GET): "the newest verified version", exit 0.
+`/downloads/wipemark/download` answers `404` "no versions available". Checked
+there:
+`GET /downloads/wipemark`; artifacts at
+`https://releases.giglabo.com/wipemark/<version>/<platform>/<filename>`;
+`Authorization: Bearer <PUBLISH_TOKEN>`, one shared token; `open` with
+`{channel, git_tag, expected_platforms}`; `presign` with `{filename}`,
+answering `{url, key, method, expires_in}`; `finalize` with `{filename,
+sha256, size?, format?, git_sha?, replace?, sig?}`; the format tokens exactly
+`dmg`, `AppImage` and `deb`, case-sensitive; `sig` held to the pattern below or
+`400`, optional, and served as `assets[].sig`. Unknown fields the client
+ignores (`format_preference`, `format_tokens`, `latest_version`, `status`,
+`expected`, `missing`, `released_at`, `built_at`); `keep` is not enforced for
+`direct` apps (§2.1).
 
 1. **`src/apps.ts`:** register
    `{ slug: 'wipemark', source: 'direct', keep: 5, expected_platforms: ['macos-aarch64', 'linux-x64'] }`.
@@ -1354,9 +1418,13 @@ inside the test, and no private key is ever committed.
 
 ---
 
-## 9. Decisions D780–D789 — all *proposed*
+## 9. Decisions D780–D789 — decided 2026-10-16
 
-| | proposed | why |
+Every recommendation of §10 was taken (the coordinator proceeded on all of
+them; the owner may overturn any later). `docs/plan/README.md` carries the
+rows with the tests that hold each one.
+
+| | decided | why |
 |---|---|---|
 | **D780** | **Where the metadata lives.** The giglabo release service (`heretic-releases-api`), slug `wipemark`, `source: 'direct'`, `keep: 5`, `expected_platforms: ['macos-aarch64', 'linux-x64']`. The program reads `https://releases.giglabo.com/downloads/wipemark`. Artifacts are `https://releases.giglabo.com/wipemark/<version>/<platform>/<file>`. Formats are `dmg`, `AppImage` and `deb`, all existing tokens. The URL is a constant; only a debug build may point at loopback. | The owner's ask ("through giglabo, the lazy-shot way"). It is the newest route, MnemoVi's: a sha256 per asset, CI holds only a publish token, and per-platform independence (D778). The mirror route's regex matches none of our macOS or AppImage names and carries no sha256 (§1.4). |
 | **D781** | **What is signed.** One release statement per artifact (§2.2): eight lines binding the channel, version, platform, format, file, size and sha256. The signature travels as the asset's `sig` (`wm1:<key id>:<base64>`). The program rebuilds the statement from the manifest's fields and verifies it before it says anything or downloads anything. It builds the URL itself and refuses a different one. It chooses the newest verified version strictly above its own on `stable`, for its own platform and format, with no fallback. | The derived manifest cannot be signed whole. The statement covers every field the program acts on. Building the URL in the program keeps a forged manifest from steering this computer to another host. These are MnemoVi's lessons on formats and on `latest_by_platform`. |
@@ -1371,9 +1439,12 @@ inside the test, and no private key is ever committed.
 
 ---
 
-## 10. Open questions for the owner
+## 10. Questions for the owner — answered 2026-10-16
 
-| | question | recommended |
+Each was answered with its recommendation; the owner may overturn any.
+Q12's wording stands **provisionally**.
+
+| | question | recommended, and taken |
 |---|---|---|
 | **Q1** | The default of the automatic check: **ask once** (off until answered), on by default and said on screen (lazy-shot), or manual only? | Ask once (§4.2). |
 | **Q2** | When does a version become visible to installations: at the person's **Publish** of the draft, or at the tag after notarization, as lazy-shot and MnemoVi do (which would mean dropping the draft step)? | At Publish (D783). |
@@ -1384,6 +1455,83 @@ inside the test, and no private key is ever committed.
 | **Q7** | `.deb`: notify with a verified download (proposed), or a signed apt repository on `releases.giglabo.com` later? | Notify now; the apt repository is stage two. |
 | **Q8** | "What's new": the public GitHub release page, or a page on giglabo.com? (0.1.0's download location is still open in `v1-release.md` §2a.) | GitHub's page, built from the version. |
 | **Q9** | AppImage: replace in place, so the file name keeps the old version, or write the new name beside and move the desktop entry? | In place. |
-| **Q10** | How many versions the service keeps (`keep`): 5? | 5. |
+| **Q10** | How many versions the service keeps (`keep`): 5? | 5, recorded as intent only: the service keeps every published version; pruning is not implemented (enabling it would delete mnemovi's live versions); later. |
 | **Q11** | A beta channel: not now? It needs the Worker to order prereleases and filter `latest_by_platform` by channel (UC-Q3, UC-Q4). | Not now. |
-| **Q12** | The reworded promise (§4.3): is the wording right? | — |
+| **Q12** | The reworded promise (§4.3): is the wording right? | §4.3's wording, provisional: README and the site carry it. |
+
+---
+
+## 11. As built (2026-10-16, branch `feat/self-update`)
+
+Where the code and the design differ, the code is described here, and the
+sections above were brought into line.
+
+* **`crates/wipemark-update`** — `manifest` (serde, unknown fields allowed,
+  the choice of §2.3), `statement` (the eight lines, `wm1`, `ring`), `keys`
+  (the table between `// BEGIN KEYS` and `// END KEYS`, empty until the
+  owner runs `scripts/release/update-keys.sh`), `fetch` (https only, no
+  redirect, `User-Agent: wipemark`, the proxy of the environment but never on
+  loopback, the 256 KiB cap, the streamed sha256), `install`
+  (`Installation::detect`, `prepare`, `Prepared::swap`, `tidy`; `macos` and
+  `appimage`; the libc calls in `install::sys`, the crate otherwise
+  `deny(unsafe_code)`), and `testing` (a loopback server, a run-time key
+  pair, a signed manifest — compiled for tests and, through the
+  `test-support` feature, for the applications' tests only). It adds no
+  package to `Cargo.lock`; `base64` 0.22, already in the lock, reads the
+  signature.
+* **A build without a key** refuses before any request (`Refusal::NoKeys`):
+  the General page and `wipemark-cli update --check` say "This build carries
+  no key to verify a new version's signature, so it cannot check for
+  updates", the automatic check never runs, and the one-time notice is not
+  shown.
+* **`apps/wipemark-app/src/update.rs`** — the `Updates` entity (a GPUI
+  global): detection off the GPUI thread, the schedule (`due`), Check now,
+  Skip, the Download… into the Downloads folder, Update and restart, Update
+  when I quit (`at_quit`, an `on_app_quit` handler), `tidy` after the first
+  window; the General row (`switch`, `below`), the status-bar item, the
+  one-time notice above the status bar, and `UpdateDialog`. The gate is
+  `first_wait(work_now(cx))`: the batch queue holding a rewrite (waiting,
+  running or paused) or the engine busy, a clean in the line or waiting for
+  it, a model download, and a Compare window holding an edit a quit would
+  not write (`CompareView::holds_unkept_edits`). The cleaned pastes a
+  restart would drop are counted as the dialog opens
+  (`Queue::texts_only_in_memory`).
+* **The notice** is asked only of an install that had been through the
+  walk-through before this version, not yet asked, with a key, and not a
+  development build. The walk-through's Finish writes `updates.check` and
+  `updates.asked`; Skip writes neither.
+* **The CLI** — `apps/wipemark-cli/src/update.rs`; `update --check --json`
+  writes `{installed, installation, platform, format, status, newest,
+  unverified, refused}`.
+* **The live check of §8.8** is reduced to what a debug build on this Mac
+  can show: an install needs a notarized Developer ID bundle, which only the
+  release lane makes. What a test cannot see is listed in the branch's
+  report.
+
+The tests of §8.7, as named in the code: `a_statement_signed_by_another_key_is_refused`,
+`a_changed_field_breaks_the_signature`, `an_unknown_key_id_is_refused`,
+`a_version_not_newer_is_not_offered`, `a_prerelease_is_not_offered_on_stable`,
+`an_asset_for_another_platform_or_format_is_not_used`,
+`a_download_whose_sha256_differs_is_refused_and_removed`,
+`a_download_longer_than_announced_is_cut_and_refused` (announced by its
+length, and chunked), `an_asset_on_another_host_is_refused_before_any_request`,
+`the_manifest_is_never_followed_through_a_redirect`,
+`a_plaintext_or_foreign_base_is_refused_in_a_release_build`,
+`a_manifest_over_the_cap_is_refused`, `the_check_sends_nothing_but_the_get`,
+`the_compiled_in_keys_are_the_committed_ones`,
+`the_installation_is_read_from_where_the_program_is`,
+`no_check_runs_while_the_row_is_off`, `an_automatic_check_waits_a_day`,
+`a_development_build_never_checks_on_its_own`,
+`update_is_greyed_while_a_rewrite_runs` with
+`the_update_s_buttons_are_greyed_under_work` and
+`an_edit_a_quit_would_lose_holds_an_update`, `the_swap_is_one_rename`
+(macOS and AppImage), `an_ad_hoc_bundle_fails_the_requirement`,
+`update_check_exits_0_1_2`, and `a_live_manifest_verifies` (ignored, by
+hand). Beside them: `an_empty_manifest_is_nothing_newer`,
+`the_services_other_fields_are_ignored`, `a_build_without_keys_refuses_before_any_request`,
+`a_staged_copy_that_is_not_ours_leaves_nothing` (a real image, mounted),
+`a_staged_copy_must_start_and_say_its_version`,
+`tidying_removes_what_an_update_left_and_nothing_else`,
+`an_update_state_row_is_never_a_preference_row` and
+`a_cleaned_paste_is_the_one_thing_a_restart_drops`. Every one was seen red
+with its protection deleted.

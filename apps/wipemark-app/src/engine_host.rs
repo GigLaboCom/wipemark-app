@@ -1415,6 +1415,13 @@ impl EngineHost {
         &self.loaded
     }
 
+    /// Whether anything holds the engine now — the count the Unload reads
+    /// (D801), and an update's gate (D788): a rewrite, an agent's, a Check,
+    /// a template's check.
+    pub fn held(&self) -> bool {
+        self.handle.in_use().is_some() || self.handle.busy() > 0
+    }
+
     /// How much of the weights the load under way has read, from 0 to 1 —
     /// `None` while no load is under way (F1). A load a Check or a job
     /// asked for counts as much as one the policy asked for.

@@ -1873,6 +1873,37 @@ impl Queue {
             .map(|row| row.look.title.clone())
     }
 
+    /// What runs for this table now, as an update's gate reads it (D788):
+    /// a clean in the line or a row waiting for one, and a rewrite in the
+    /// batch queue — waiting or running, paused or not, for a restart would
+    /// cut the line either way.
+    pub fn at_work(&self, cx: &App) -> (bool, bool) {
+        let cleaning = self.progress(cx).is_some()
+            || self
+                .rows
+                .iter()
+                .any(|row| matches!(row.status, Status::Queued | Status::Cleaning));
+        let rewriting = self.rewrites_open()
+            || self
+                .rows
+                .iter()
+                .any(|row| matches!(row.status, Status::RewriteQueued | Status::Rewriting(_)));
+        (cleaning, rewriting)
+    }
+
+    /// How many cleaned texts live only in memory — a paste's result, which
+    /// no file holds and the process takes with it (D419): what a restart
+    /// for an update would drop, said before it is asked for (D785).
+    pub fn texts_only_in_memory(&self) -> usize {
+        self.rows
+            .iter()
+            .filter(|row| match &row.status {
+                Status::Done(outcome) => outcome.written.is_none() && outcome.text.is_some(),
+                _ => false,
+            })
+            .count()
+    }
+
     /// Which clean of how many is running — the status bar's "Cleaning 2
     /// of 5", counted over every window's cleans.
     pub fn progress(&self, cx: &App) -> Option<(usize, usize)> {
@@ -4279,6 +4310,37 @@ pub(crate) mod tests {
         assert_eq!(
             std::fs::read(kept[0].join("original.txt")).expect("original"),
             pasted.as_bytes()
+        );
+    }
+
+    /// What an update's restart would drop is counted (D785, D419): a
+    /// cleaned paste lives only in memory; a cleaned file's result is on
+    /// disk and is not. And nothing runs once the clean is over (D788).
+    #[gpui::test]
+    fn a_cleaned_paste_is_the_one_thing_a_restart_drops(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("restart-drops");
+        let (queue, _preferences, cx) = queue_in(cx, &scratch);
+        let file = scratch.0.join("note.txt");
+        std::fs::write(&file, "file\u{200B}text").expect("a file");
+        queue.update(cx, |queue, cx| {
+            queue.land(
+                vec![
+                    Handed::Text("paste\u{200B}me".to_owned()),
+                    Handed::Path(file.clone()),
+                ],
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        assert_eq!(cx.update(|_, cx| queue.read(cx).texts_only_in_memory()), 0);
+        let ids = cx.update(|_, cx| queue.read(cx).ids());
+        queue.update(cx, |queue, cx| queue.clean(&ids, cx));
+        cx.run_until_parked();
+        assert_eq!(statuses(&queue, cx), ["cleaned", "cleaned"]);
+        assert_eq!(cx.update(|_, cx| queue.read(cx).texts_only_in_memory()), 1);
+        assert_eq!(
+            cx.update(|_, cx| queue.read(cx).at_work(cx)),
+            (false, false)
         );
     }
 
