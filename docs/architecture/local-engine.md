@@ -531,9 +531,11 @@ llama.cpp's own words, shown under the sentence and never translated.
 On demand is the default because a loaded 4B holds about four gigabytes
 of this machine, and a user who has not asked for that should get it back
 when nothing is using it. Resident is the user's word: **Unload now** (the
-Engine page, or the menu bar's **Unload model**) still unloads it, and the
-next launch loads it again; nothing else — no timer, and not memory
-pressure — overrides it.
+Engine page, or the menu bar's **Unload model**) still unloads it, and so
+does the main window's **Unload** beside the status bar's sentence (F36,
+D800–D804; [queue.md](queue.md), "The status bar's Unload"), and the next
+launch loads it again; nothing else — no timer, and not memory pressure —
+overrides it.
 
 `engine.local.mlock` (off) asks llama.cpp for `LLAMA_LOAD_MODE_MMAP_MLOCK`
 instead of `LLAMA_LOAD_MODE_MMAP`; the weights are mapped either way, and
@@ -542,7 +544,7 @@ At this pin a lock the system refuses is a warning in llama.cpp's log
 (`failed to mlock …`, routed to `tracing` at warn) and the load carries on
 unlocked.
 
-### `decide`, and its ten rules
+### `decide`, and its eleven rules
 
 The policy is a pure function, tested without a window, a timer or a model:
 
@@ -551,7 +553,8 @@ decide(keep: &Keep, loaded: &Loaded, busy: bool, event: Event) -> Vec<Action>
 ```
 
 `Event` is `Started`, `DutyChanged`, `JobStarted`, `JobEnded`,
-`IdleElapsed`, `UnloadAsked`, `KeepChanged`, `CheckAsked`; `Action` is
+`IdleElapsed`, `UnloadAsked`, `UnloadIfUnused`, `KeepChanged`,
+`CheckAsked`; `Action` is
 `Load`, `Unload`, `Swap` (build the engine for the duty as it stands),
 `ArmIdle(d)`, `DisarmIdle`, `Defer(event)` and `Nothing`.
 
@@ -571,6 +574,23 @@ decide(keep: &Keep, loaded: &Loaded, busy: bool, event: Event) -> Vec<Action>
 10. Busy (a job or a check running) defers an unload and a swap —
     `Defer(event)`, decided again when the last job ends. Never unload
     under a running decode.
+11. `UnloadIfUnused`, the main window's **Unload** (D802): held and not
+    busy → disarm and unload; busy → nothing. Refused, never deferred: its
+    button is greyed while anything holds the model, and a press that lost
+    the race to a job is not carried out when the job ends.
+
+**Busy is the last word, read under the jobs' own lock** (D803). `busy`
+is read on the GPUI thread when an event is decided, and a job counts
+itself in on its own thread, so a job could take the engine between the
+decision and the unload reaching the engine's worker — which then ran the
+job's first call and unloaded between its calls. Now every count into
+`busy` is made under one lock (`Shared::unloading`), and the host begins
+an unload under the same lock (`begin_unload`): a job counted first makes
+it refuse — nothing is unloaded, and the event is decided again as busy
+(deferred, dropped or refused by the rules above) — and a job counted
+after finds the unload's latch and waits in `for_job` until the model is
+out, so its calls reach the worker after the unload. The Engine page's
+Check waits the same way.
 
 `EngineHost` is the GPUI entity that executes it: it observes
 `Preferences`, turns what moved into an event (the duty is compared by

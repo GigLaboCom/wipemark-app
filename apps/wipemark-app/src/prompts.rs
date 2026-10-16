@@ -26,7 +26,8 @@
 //!   the model into another language, judged by the rule plus the source's
 //!   variables. Both reach the engine through the [`EngineHandle`] the MCP
 //!   server holds, so a check is counted busy and an **Unload now** waits
-//!   for it (D51). Both run only on a button (Q-B22).
+//!   for it (D51) — counted as a template's ([`Use::Template`]), which the
+//!   main window's greyed **Unload** names (D801). Both run only on a button (Q-B22).
 //! * The **words** are here, over values, so they can be read without a
 //!   window: every sentence is a [`Line`] — a catalogue message and its
 //!   arguments — and rule ids, row keys, tactic ids and variable names are
@@ -72,7 +73,7 @@ use crate::config::{self, PivotRow, PromptRow, SettingsStore};
 use crate::diff::Diff;
 use crate::duty::{Duty, Performer};
 use crate::engine::{self, Choice};
-use crate::engine_host::{self, EngineHandle};
+use crate::engine_host::{self, EngineHandle, Use};
 use crate::icon::IconName;
 use crate::settings::{engine_banner, Preferences, Tone};
 
@@ -1196,7 +1197,10 @@ pub async fn check_template(
         Ok(trial) => trial,
         Err(refusal) => return CheckEnd::Refused(refusal),
     };
-    let engine = match cancel.run_until_cancelled(handle.for_job()).await {
+    let engine = match cancel
+        .run_until_cancelled(handle.for_job_as(Use::Template))
+        .await
+    {
         None | Some(Err(EngineError::Cancelled)) => return CheckEnd::Ran(TrialEnd::Cancelled),
         Some(Err(EngineError::Unavailable(why))) => {
             return CheckEnd::Ran(TrialEnd::Unavailable(why))
@@ -1260,7 +1264,10 @@ pub async fn adapt_template(
         .effective(source_slot)
         .unwrap_or_default()
         .to_owned();
-    let engine = match cancel.run_until_cancelled(handle.for_job()).await {
+    let engine = match cancel
+        .run_until_cancelled(handle.for_job_as(Use::Template))
+        .await
+    {
         None | Some(Err(EngineError::Cancelled)) => return Adapted::Ended(AdaptEnd::Cancelled),
         Some(Err(EngineError::Unavailable(why))) => {
             return Adapted::Ended(AdaptEnd::Unavailable(why))

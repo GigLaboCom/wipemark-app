@@ -755,6 +755,90 @@ pressed, and then a row the panel wrote itself, which the table read back
   from the moment the last thing stopped. Clearing never takes a row out of
   the list or the journal.
 
+## The status bar's Unload (F36, D800–D804)
+
+The owner, 2026-10-16: "on the main window, if our engine is this machine
+and a model is loaded and no task is being processed by that model, show an
+Unload button. If processing is running, the button is disabled. Make the
+button contrasting, but so that it goes with the themes."
+
+```
+apps/wipemark-app/src/unload.rs        the button: when, how it looks, what a press calls
+apps/wipemark-app/src/engine_host.rs   `unload_offer`, `unload_unused`, `Use`, rule 11, the unload's latch
+```
+
+* **Where** (D800). In the status bar, right after its sentence and before
+  the gear: the sentence is the one place the main window says the model is
+  in memory and how much the process holds ("Qwen3 4B loaded · Wipemark
+  holds 4.4 GB · nothing leaves this machine"), and the button frees exactly
+  that. Not the toolbar: its buttons act on the rows, and an engine is not a
+  row.
+* **When** (D800). `EngineHost::unload_offer`, a pure `unload_offer` under
+  it: only while the duty, as `duty.rs` decided it, is a model on this
+  machine, and that model is in memory (`Loaded::Yes`). Before the first
+  models scan (the engine *starting*, D745), while it loads, after a load
+  that failed, after an unload, and with an endpoint — or nobody — on duty,
+  there is nothing of this machine's to free and the button is **absent**,
+  not greyed.
+* **Greyed, and why** (D801). While anything holds the engine the button
+  is greyed and its tooltip names the holder, from the catalogue: a rewrite
+  — every item of the batch queue, a window's rewrite or redo, an agent's
+  `rewrite`, the command line's through this application, all one line —,
+  the Engine page's Check, or the Rewriting page's Check template or Adapt.
+  The truth is the engine handle's own count, the one every holder is
+  counted into for the keep policy (`busy`), now kept by holder as well
+  (`Use`, `EngineHandle::in_use`); nothing is inferred from what a window
+  shows. The panel cleans and never holds the model; the bench runs in a
+  process of its own.
+* **A press** (D802). `EngineHost::unload_unused`, the keep policy's own
+  road: `Event::UnloadIfUnused`, `decide`'s rule 11 — unload and disarm the
+  idle timer when a model is held and nothing is busy, and do nothing when
+  something is. Refused, never deferred, unlike the Engine page's Unload
+  now and the menu bar's Unload model (rule 10 defers those until the job
+  ends): the button promised an idle model, and a press that lost the race
+  to a job is not carried out minutes later when the job ends — between two
+  items of a batch the model would be unloaded and read in again. The
+  refusal repaints the button greyed with the holder's sentence. Nothing
+  else moves: the duty, the chosen model, the keep row and every setting
+  stay; the next job loads the model by the usual road, with the status
+  bar's usual *Loading … %*. The log says "the model was unloaded from the
+  main window" or "…was refused: the model is in use", with the model's
+  name and the holder's id — never a document.
+* **The race** (D803). The frame that drew the button and the press are
+  apart, and so are the press and the unload reaching the engine's worker
+  — a job on the batch queue's thread can take the engine in either gap.
+  The first is the policy's (rule 11 reads `busy` at the press). The second
+  is closed in the handle: every count into `busy` is made under one lock,
+  and the unload is begun under it (`begin_unload`); a job counted first
+  makes it unload nothing and the event is decided again as busy, and a job
+  counted after waits in `for_job` until the model is out. That covers the
+  idle timer's unload and Unload now as well
+  (`an_unload_a_job_got_ahead_of_unloads_nothing`,
+  `a_job_counted_in_while_the_model_unloads_waits_for_the_unload`).
+* **How it looks** (D804). gpui-component's **primary** button, extra
+  small, with the microchip glyph (`assets/icons/microchip.svg`, already
+  promoted): the
+  theme's own primary fill and the label colour the theme pairs with it,
+  near-black on near-white in the light theme and the other way round in
+  the dark — it stands out from the muted sentence beside it in either, and
+  with a theme other than the default it takes that theme's primary. No
+  colour of ours. Greyed, it is the library's own greyed primary. The
+  warning, danger, info and success buttons were measured and refused:
+  each is its colour on a 20 % tint of itself, and in the default light
+  theme they read at 1.7:1, 2.9:1, 2.0:1 and 1.9:1, under WCAG's 4.5:1 for
+  text. `the_unload_button_reads_clearly_in_both_themes` computes the
+  label's contrast on the fill, from the theme values `Button` draws the
+  variant with, in the light and the dark theme: 17.2:1 in both at the
+  default palette.
+
+The gates: `the_unload_button_shows_only_for_a_loaded_model_on_this_machine`,
+`the_unload_button_is_greyed_while_anything_holds_the_model`,
+`the_main_windows_unload_is_refused_under_a_job_and_never_deferred`,
+`the_main_windows_unload_waits_for_nothing_and_unloads_only_an_idle_model`,
+`every_holder_is_counted_as_who_it_is`, the two race tests above,
+`the_unload_button_reads_clearly_in_both_themes`, and
+`every_holder_says_why_in_every_language`.
+
 ## What it does not do yet
 
 Folders and archives are listed and never expanded. The editors and the

@@ -143,6 +143,20 @@ status-local-loaded = { $model } loaded · { -brand-name } holds { $ram } · not
 status-local-loaded-unmeasured = { $model } loaded · nothing leaves this machine
 # $reason is one of the engine-refusal-* sentences.
 status-local-failed = { $model } could not be loaded: { $reason } · { -layer-a } only
+# The main window's Unload (F36): a button beside the status bar's
+# sentence while the model on this machine is in memory. It frees that
+# memory now; the chosen model and every setting stay as they are, and the
+# next rewrite loads the model again. Short: it sits in the status bar.
+status-unload = Unload
+# $model is the catalogue's display name, never translated.
+status-unload-tooltip = Free the memory { $model } holds now. Nothing else changes: the next rewrite loads it again.
+# The button is greyed while something uses the model; the tooltip says
+# what. One sentence per holder: a rewrite (from the table, an agent or the
+# command line), the Engine page's Check, or the Rewriting page's Check
+# template or adaptation.
+status-unload-busy-rewrite = A rewrite is using the model. It can be unloaded once the rewrite ends.
+status-unload-busy-check = The Engine page's check is using the model. It can be unloaded once the check ends.
+status-unload-busy-template = A template check or adaptation on the Rewriting page is using the model. It can be unloaded once it ends.
 
 ## Settings.
 ##

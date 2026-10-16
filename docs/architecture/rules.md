@@ -1550,12 +1550,20 @@
   `apps/wipemark-app/src/engine_host.rs`. `LocalEngine` never unloads on
   its own; `EngineHost` decides, and the decision is `decide` — a pure
   function from (keep mode, what is loaded, busy, event) to actions, with
-  ten rules and a test each. Two modes (`engine.local.keep`): **on
+  eleven rules and a test each. Two modes (`engine.local.keep`): **on
   demand**, the default, loaded by a job or a Check and unloaded after
   `engine.local.idle_minutes` idle; **resident**, loaded once the scan and
   the probe land after launch and kept until quit or another model. Never
   unload under a running decode: busy defers an unload or a swap until
-  the job ends (`nothing_is_unloaded_under_a_running_decode`). Resident is
+  the job ends (`nothing_is_unloaded_under_a_running_decode`). Busy is read
+  again under the lock every job is counted in under as the unload begins,
+  and a job counted after it waits in `for_job` for the model to be out
+  (D803, `an_unload_a_job_got_ahead_of_unloads_nothing`,
+  `a_job_counted_in_while_the_model_unloads_waits_for_the_unload`). The
+  main window's **Unload** (F36, D800–D804) is there only while the model
+  on duty is this machine's and in memory, greyed while anything holds the
+  engine — the holder named from the count itself (`Use`) — and refused,
+  never deferred, under a job (rule 11). Resident is
   the user's word — **Unload now** unloads it and the next launch loads it
   again — and memory pressure does not override it (memory-pressure
   unloading of on-demand is D55's, the first step run on a Mac). The
