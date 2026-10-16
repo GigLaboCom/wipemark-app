@@ -43,7 +43,7 @@ pub mod statement;
 pub mod testing;
 
 pub use fetch::{Client, DownloadError, FetchError};
-pub use install::{Can, Installation, Why};
+pub use install::{Can, Installation, Prepared, Refused as InstallRefused, Why};
 pub use keys::{KeyId, Keyring, PublicKey};
 pub use manifest::{Choice, Offer, Rejected, Unverified, Wanted};
 use semver::Version;

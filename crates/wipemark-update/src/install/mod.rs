@@ -15,9 +15,16 @@
 //! | development build | none of the above | no automatic check |
 
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
+use semver::Version;
+
+use crate::manifest::Offer;
 use crate::{Format, Platform};
 
+pub mod appimage;
+#[cfg(target_os = "macos")]
+pub mod macos;
 mod sys;
 
 /// The bundle's identifier, as `Info.plist` and the requirement name it.
@@ -223,6 +230,248 @@ impl Installation {
     }
 }
 
+/// Why a new copy was not put in place. Every one of them leaves the
+/// installed copy as it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum Refused {
+    /// This installation does not replace itself.
+    #[error("this installation does not replace itself")]
+    NotHere,
+    /// The disk image could not be mounted.
+    #[error("the disk image could not be opened")]
+    Mount,
+    /// The new copy could not be put beside this one.
+    #[error("the new copy could not be staged: {0:?}")]
+    Stage(std::io::ErrorKind),
+    /// The new copy is not signed by the release's Developer ID.
+    #[error("the new copy does not satisfy the Developer ID requirement")]
+    Requirement,
+    /// Gatekeeper does not accept it as notarized.
+    #[error("Gatekeeper does not accept the new copy as notarized")]
+    Gatekeeper,
+    /// It is not Wipemark.
+    #[error("the new copy is not Wipemark")]
+    Identity,
+    /// It is not the version offered.
+    #[error("the new copy is not the version offered")]
+    Version,
+    /// It does not start.
+    #[error("the new copy does not start")]
+    Starts,
+    /// The swap was refused.
+    #[error("the swap was refused: {0:?}")]
+    Swap(std::io::ErrorKind),
+}
+
+/// Run `program --version`: it must start, exit 0 and print exactly
+/// `<name> <version>` — what the release's gates ask of a fresh copy.
+pub(crate) fn says_version(program: &Path, name: &str, version: &Version) -> Result<(), Refused> {
+    let mut tries = 0;
+    let answer = loop {
+        match Command::new(program)
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+        {
+            // A file just written can be busy for a moment on Linux while
+            // another thread's child still holds it open.
+            Err(error) if error.raw_os_error() == Some(26) && tries < 10 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            other => break other,
+        }
+    };
+    let Ok(answer) = answer else {
+        return Err(Refused::Starts);
+    };
+    if !answer.status.success() {
+        return Err(Refused::Starts);
+    }
+    if String::from_utf8_lossy(&answer.stdout).trim() == format!("{name} {version}") {
+        Ok(())
+    } else {
+        Err(Refused::Version)
+    }
+}
+
+/// A new copy, verified and staged beside the installed one, waiting for
+/// its moment: [`Prepared::swap`] now, or at quit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prepared {
+    staged: PathBuf,
+    installed: PathBuf,
+    kind: Kind,
+    version: Version,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// Staged only on macOS; matched everywhere.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Bundle,
+    AppImage,
+}
+
+impl Prepared {
+    /// One naming nothing on disk — [`crate::testing::prepared`].
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn for_tests() -> Prepared {
+        Prepared {
+            staged: PathBuf::from("/nowhere/.Wipemark-update-0.2.0.AppImage"),
+            installed: PathBuf::from("/nowhere/Wipemark.AppImage"),
+            kind: Kind::AppImage,
+            version: Version::new(0, 2, 0),
+        }
+    }
+
+    /// The version it is.
+    pub fn version(&self) -> &Version {
+        &self.version
+    }
+
+    /// What a restart opens: the installed path, which now holds the new
+    /// copy.
+    pub fn restart_path(&self) -> &Path {
+        &self.installed
+    }
+
+    /// Put it in place: one atomic call on macOS (`renamex_np`), a link and
+    /// a rename in an AppImage's folder. Answers where the previous copy is
+    /// kept.
+    pub fn swap(&self) -> Result<PathBuf, Refused> {
+        let swapped = match self.kind {
+            #[cfg(target_os = "macos")]
+            Kind::Bundle => macos::swap(&self.staged, &self.installed),
+            #[cfg(not(target_os = "macos"))]
+            Kind::Bundle => return Err(Refused::NotHere),
+            Kind::AppImage => appimage::swap(&self.staged, &self.installed),
+        };
+        swapped.map_err(|error| Refused::Swap(error.kind()))
+    }
+
+    /// Let it go: the staged copy is removed, the installed one untouched.
+    pub fn discard(&self) {
+        let removed = match self.kind {
+            Kind::Bundle => std::fs::remove_dir_all(&self.staged),
+            Kind::AppImage => std::fs::remove_file(&self.staged),
+        };
+        if let Err(error) = removed {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(%error, "updates: a staged copy could not be removed");
+            }
+        }
+    }
+}
+
+impl Installation {
+    /// Where the offer is downloaded to be installed: on macOS
+    /// `<updates>/<version>/<file>` under the data directory; in an AppImage
+    /// its own folder, under the name it is staged as. `None` where this
+    /// installation does not replace itself.
+    pub fn download_path(&self, offer: &Offer, updates: &Path) -> Option<PathBuf> {
+        match self {
+            Installation::Bundle {
+                can: Can::Install, ..
+            } => Some(updates.join(offer.version.to_string()).join(&offer.file)),
+            Installation::AppImage {
+                file,
+                can: Can::Install,
+            } => Some(appimage::staged_path(file, &offer.version)),
+            _ => None,
+        }
+    }
+
+    /// Stage and check the copy downloaded to [`Self::download_path`].
+    /// Blocking — it mounts, copies and runs the new programs; off the GPUI
+    /// thread.
+    pub fn prepare(&self, offer: &Offer, downloaded: &Path) -> Result<Prepared, Refused> {
+        match self {
+            #[cfg(target_os = "macos")]
+            Installation::Bundle {
+                app,
+                can: Can::Install,
+            } => {
+                let staged = macos::stage(downloaded, app, &offer.version)?;
+                Ok(Prepared {
+                    staged,
+                    installed: app.clone(),
+                    kind: Kind::Bundle,
+                    version: offer.version.clone(),
+                })
+            }
+            Installation::AppImage {
+                file,
+                can: Can::Install,
+            } => {
+                if let Err(refused) = appimage::check_staged(downloaded, &offer.version) {
+                    let _ = std::fs::remove_file(downloaded);
+                    return Err(refused);
+                }
+                Ok(Prepared {
+                    staged: downloaded.to_path_buf(),
+                    installed: file.clone(),
+                    kind: Kind::AppImage,
+                    version: offer.version.clone(),
+                })
+            }
+            _ => Err(Refused::NotHere),
+        }
+    }
+
+    /// What an update leaves once the new version has opened its first
+    /// window: the previous copy, a staged copy a crash left, and the
+    /// downloads under `updates`. Nothing else is touched.
+    pub fn tidy(&self, updates: Option<&Path>) {
+        let gone = |path: &Path| {
+            let removed = if path.is_dir() {
+                std::fs::remove_dir_all(path)
+            } else {
+                std::fs::remove_file(path)
+            };
+            match removed {
+                Ok(()) => {
+                    tracing::info!(path = %path.display(), "updates: removed what an update left")
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    tracing::warn!(%error, path = %path.display(), "updates: could not remove what an update left")
+                }
+            }
+        };
+        match self {
+            Installation::Bundle { app, .. } => {
+                #[cfg(target_os = "macos")]
+                {
+                    gone(&app.with_file_name(macos::PREVIOUS));
+                    gone(&app.with_file_name(macos::STAGED));
+                }
+                #[cfg(not(target_os = "macos"))]
+                let _ = app;
+            }
+            Installation::AppImage { file, .. } => {
+                gone(&file.with_file_name(appimage::PREVIOUS));
+                if let Some(folder) = file.parent() {
+                    if let Ok(entries) = std::fs::read_dir(folder) {
+                        for entry in entries.flatten() {
+                            let name = entry.file_name();
+                            let name = name.to_string_lossy();
+                            if name.starts_with(".Wipemark-update-") {
+                                gone(&entry.path());
+                            }
+                        }
+                    }
+                }
+            }
+            Installation::Deb | Installation::Development => {}
+        }
+        if let Some(updates) = updates {
+            gone(updates);
+        }
+    }
+}
+
 /// `<X>.app` when `exe` is `<X>.app/Contents/MacOS/<exe>`.
 fn bundle_of(exe: &Path) -> Option<PathBuf> {
     let macos = exe.parent()?;
@@ -409,6 +658,86 @@ mod tests {
         assert!(Installation::Deb.checks_on_its_own());
         assert_eq!(Installation::Deb.can(), Can::Notify(Why::Apt));
         assert_eq!(appimage.restart_path(), Some(Path::new("/x/W.AppImage")));
+    }
+
+    /// Only an installation that replaces itself downloads to be installed,
+    /// and the AppImage beside itself.
+    #[test]
+    fn an_install_downloads_beside_what_it_replaces() {
+        let offer = Offer {
+            version: Version::new(0, 2, 0),
+            platform: Platform::LinuxX64,
+            format: Format::AppImage,
+            file: "Wipemark-0.2.0-x86_64.AppImage".to_owned(),
+            size: 1,
+            sha256: [0; 32],
+            url: String::new(),
+            key: crate::keys::PublicKey::new([0; 32]).id(),
+        };
+        let updates = Path::new("/data/updates");
+        let appimage = Installation::AppImage {
+            file: "/home/me/Apps/Wipemark-0.1.0-x86_64.AppImage".into(),
+            can: Can::Install,
+        };
+        assert_eq!(
+            appimage.download_path(&offer, updates),
+            Some(PathBuf::from(
+                "/home/me/Apps/.Wipemark-update-0.2.0.AppImage"
+            ))
+        );
+        let bundle = Installation::Bundle {
+            app: "/Applications/Wipemark.app".into(),
+            can: Can::Install,
+        };
+        assert_eq!(
+            bundle.download_path(&offer, updates),
+            Some(PathBuf::from(
+                "/data/updates/0.2.0/Wipemark-0.2.0-x86_64.AppImage"
+            ))
+        );
+        for notify in [
+            Installation::Deb,
+            Installation::Development,
+            Installation::AppImage {
+                file: "/opt/W.AppImage".into(),
+                can: Can::Notify(Why::ReadOnly),
+            },
+        ] {
+            assert_eq!(notify.download_path(&offer, updates), None);
+            assert_eq!(
+                notify.prepare(&offer, Path::new("/nowhere")),
+                Err(Refused::NotHere)
+            );
+        }
+    }
+
+    /// What an update leaves goes once the new version is up — and nothing
+    /// else beside it.
+    #[test]
+    fn tidying_removes_what_an_update_left_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("Wipemark-0.1.0-x86_64.AppImage");
+        std::fs::write(&file, b"running").unwrap();
+        std::fs::write(dir.path().join(appimage::PREVIOUS), b"old").unwrap();
+        std::fs::write(
+            dir.path().join(".Wipemark-update-0.2.0.AppImage.part"),
+            b"half",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("notes.txt"), b"mine").unwrap();
+        let updates = dir.path().join("updates");
+        std::fs::create_dir_all(updates.join("0.2.0")).unwrap();
+        Installation::AppImage {
+            file: file.clone(),
+            can: Can::Install,
+        }
+        .tidy(Some(&updates));
+        let mut left: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["Wipemark-0.1.0-x86_64.AppImage", "notes.txt"]);
     }
 
     #[test]

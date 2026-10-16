@@ -1622,6 +1622,11 @@ fn main() -> std::process::ExitCode {
     // than loading a second copy (D52). None without a data directory: the
     // CLI then loads its own.
     let beacon = layout.as_ref().ok().map(Layout::beacon_path);
+    // Where an update's download waits to be installed, on macOS (D786).
+    let updates_dir = layout
+        .as_ref()
+        .ok()
+        .map(|layout| layout.root().join("updates"));
 
     // Before the window, because the window's title is one of the
     // strings. `Rendering::Ui` and not the default: everything below
@@ -1754,6 +1759,7 @@ fn main() -> std::process::ExitCode {
                         rows: stored.updates.clone(),
                         setup_done: stored.setup_done,
                         downloads: homes.results.clone(),
+                        updates_dir: updates_dir.clone(),
                     },
                     cx,
                 );
@@ -1805,6 +1811,8 @@ fn main() -> std::process::ExitCode {
                 return;
             };
 
+            // The first window is up: what an update left goes (D786, D787).
+            update::tidy(cx);
             install_shortcut(window, preferences.clone(), cx);
             install_tray(preference, window, preferences.clone(), cx);
             install_hotkeys(window, preferences.clone(), cx);

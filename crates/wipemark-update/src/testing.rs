@@ -368,3 +368,9 @@ fn answer(
     }
     stream.flush()
 }
+
+/// A staged copy that names nothing on disk, for a surface's own tests of
+/// what it offers once one is ready.
+pub fn prepared() -> crate::install::Prepared {
+    crate::install::Prepared::for_tests()
+}

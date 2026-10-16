@@ -23,6 +23,17 @@
 //! * **Never under work (D788).** The actions are greyed, and say why,
 //!   while a rewrite, a clean or a model download runs, or a Compare window
 //!   holds edits a quit would not keep ([`first_wait`]).
+//! * **The install (D786, D787).** Where this copy may replace itself — a
+//!   Developer ID bundle in a writable folder, an AppImage in one — **Update
+//!   and restart** downloads the offer, stages and checks the new copy
+//!   (`wipemark_update::Installation::prepare`), lets the model go, swaps the
+//!   two in one call and restarts through GPUI's own `App::restart`, whose
+//!   quit runs every `on_app_quit` handler (the engine shut down, D740–D744;
+//!   the beacon and the socket taken away, D717). **Update when I quit**
+//!   stages the same way and swaps in the quit path, relaunching nothing.
+//!   Everywhere else the dialog offers a verified **Download…**. The new
+//!   version, once its first window is up, removes the previous copy and the
+//!   downloads ([`tidy`]).
 //!
 //! Every request runs on a thread of its own and reports through `flume`,
 //! polled from `cx.spawn`: nothing here blocks the GPUI thread.
@@ -44,8 +55,8 @@ use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable as _, Sizable as _
 use semver::Version;
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_update::{
-    Base, Can, Client, DownloadError, FetchError, Format, Installation, Keyring, Offer, Platform,
-    PublicKey, Refusal, Wanted, Why,
+    Base, Can, Client, DownloadError, FetchError, Format, InstallRefused, Installation, Keyring,
+    Offer, Platform, Prepared, PublicKey, Refusal, Wanted, Why,
 };
 
 use crate::config::{self, SettingsStore};
@@ -194,6 +205,17 @@ pub enum Said {
     BadBase(String),
 }
 
+/// What a download is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Then {
+    /// Download…: saved for the person to install.
+    Save,
+    /// Update and restart: in place, then a restart.
+    Restart,
+    /// Update when I quit: in place as the application quits.
+    OnQuit,
+}
+
 /// Where the Download… or the install stands.
 #[derive(Debug, Clone)]
 pub enum Fetching {
@@ -202,7 +224,20 @@ pub enum Fetching {
         done: u64,
         total: u64,
         cancel: Arc<AtomicBool>,
+        then: Then,
     },
+    /// Downloaded and verified; the new copy is being staged and checked.
+    Checking {
+        then: Then,
+    },
+    /// The new copy staged and checked, waiting for its moment — the work
+    /// to end, the restart, or the quit.
+    Ready {
+        prepared: Prepared,
+        then: Then,
+    },
+    /// Swapped in; the restart is on its way.
+    Swapped,
     /// Verified and saved, for the person to install.
     Saved(PathBuf),
     /// What went wrong, already in words.
@@ -232,6 +267,8 @@ pub struct Updates {
     fetching: Fetching,
     /// Where a Download… saves: the Downloads folder.
     downloads: PathBuf,
+    /// Where an install's download goes on macOS: `<data dir>/updates`.
+    updates_dir: Option<PathBuf>,
     /// How many times the dialog was asked for — the main window answers.
     dialog_asked: u64,
 }
@@ -252,6 +289,8 @@ pub struct Start {
     /// Whether the walk-through had been through before this launch.
     pub setup_done: bool,
     pub downloads: PathBuf,
+    /// `<data dir>/updates`, when there is a data directory.
+    pub updates_dir: Option<PathBuf>,
 }
 
 /// Build the entity, park it in its global and start its schedule.
@@ -263,7 +302,31 @@ pub fn install(
 ) -> Entity<Updates> {
     let updates = cx.new(|cx| Updates::new(preferences, store, start, cx));
     cx.set_global(Hosted(updates.clone()));
+    // Update when I quit: the swap in the quit path (D786, D787).
+    cx.on_app_quit(|cx| {
+        if let Some(updates) = hosted(cx) {
+            updates.update(cx, |updates, cx| updates.at_quit(cx));
+        }
+        async {}
+    })
+    .detach();
     updates
+}
+
+/// Once the first window is up: what an update left — the previous copy, a
+/// staged copy a crash left, the downloads — goes (§6.1 step 9, §6.3). Off
+/// the GPUI thread.
+pub fn tidy(cx: &App) {
+    let Some(updates) = hosted(cx) else {
+        return;
+    };
+    let dir = updates.read(cx).updates_dir.clone();
+    let spawned = std::thread::Builder::new()
+        .name("wipemark-update-tidy".into())
+        .spawn(move || Installation::this().tidy(dir.as_deref()));
+    if let Err(error) = spawned {
+        tracing::warn!(%error, "updates: what an update left could not be looked at");
+    }
 }
 
 impl Updates {
@@ -277,6 +340,7 @@ impl Updates {
             rows,
             setup_done,
             downloads,
+            updates_dir,
         } = start;
         let keyring = keyring();
         let updates = Self {
@@ -303,6 +367,7 @@ impl Updates {
             said: Said::Never,
             fetching: Fetching::Idle,
             downloads,
+            updates_dir,
             dialog_asked: 0,
         };
         Self::detect(cx);
@@ -584,7 +649,36 @@ impl Updates {
     /// Download…: the offer, verified, into the Downloads folder. Greyed —
     /// and refused here — under work (D788).
     pub fn download(&mut self, cx: &mut Context<Self>) {
-        if matches!(self.fetching, Fetching::Downloading { .. }) {
+        self.fetch(Then::Save, cx);
+    }
+
+    /// Update and restart: in place now — or, already staged, at once.
+    pub fn update_now(&mut self, cx: &mut Context<Self>) {
+        if let Fetching::Ready { then, .. } = &mut self.fetching {
+            *then = Then::Restart;
+            self.try_restart(cx);
+            return;
+        }
+        self.fetch(Then::Restart, cx);
+    }
+
+    /// Update when I quit: staged now, swapped as the application quits.
+    pub fn update_on_quit(&mut self, cx: &mut Context<Self>) {
+        if let Fetching::Ready { then, .. } = &mut self.fetching {
+            *then = Then::OnQuit;
+            cx.notify();
+            return;
+        }
+        self.fetch(Then::OnQuit, cx);
+    }
+
+    /// Download the offer — for the person, or to install — off the GPUI
+    /// thread, and for an install stage and check the new copy there too.
+    fn fetch(&mut self, then: Then, cx: &mut Context<Self>) {
+        if matches!(
+            self.fetching,
+            Fetching::Downloading { .. } | Fetching::Checking { .. } | Fetching::Swapped
+        ) {
             return;
         }
         if first_wait(work_now(cx)).is_some() {
@@ -596,7 +690,18 @@ impl Updates {
         let Ok(base) = self.base.clone() else {
             return;
         };
-        let into = self.downloads.join(&offer.file);
+        let installation = self.installation.clone();
+        let into = match then {
+            Then::Save => Some(self.downloads.join(&offer.file)),
+            Then::Restart | Then::OnQuit => match (&installation, &self.updates_dir) {
+                (Some(installation), Some(dir)) => installation.download_path(&offer, dir),
+                _ => None,
+            },
+        };
+        let Some(into) = into else {
+            // Only an installation that replaces itself is offered the two.
+            return;
+        };
         let cancel = Arc::new(AtomicBool::new(false));
         let (events, heard) = flume::unbounded();
         let stop = cancel.clone();
@@ -618,24 +723,34 @@ impl Updates {
                     },
                     &stop,
                 );
-                let _ = events.send(Heard::Done(result));
+                match (then, result, installation) {
+                    (Then::Restart | Then::OnQuit, Ok(path), Some(installation)) => {
+                        let _ = events.send(Heard::Downloaded);
+                        let prepared = installation.prepare(&fetched, &path);
+                        let _ = events.send(Heard::Prepared(prepared));
+                    }
+                    (_, result, _) => {
+                        let _ = events.send(Heard::Done(result));
+                    }
+                }
             });
         if let Err(error) = spawned {
             tracing::warn!(%error, "updates: the download could not start");
             return;
         }
-        tracing::info!(version = %offer.version, file = %offer.file, "updates: downloading");
+        tracing::info!(version = %offer.version, file = %offer.file, ?then, "updates: downloading");
         self.fetching = Fetching::Downloading {
             done: 0,
             total: offer.size,
             cancel,
+            then,
         };
         cx.notify();
         cx.spawn(async move |this, cx| {
             while let Ok(heard) = heard.recv_async().await {
-                let done = matches!(heard, Heard::Done(_));
+                let done = matches!(heard, Heard::Done(_) | Heard::Prepared(_));
                 let _ = this.update(cx, |this, cx| {
-                    this.heard(heard);
+                    this.heard(heard, cx);
                     cx.notify();
                 });
                 if done {
@@ -646,7 +761,11 @@ impl Updates {
         .detach();
     }
 
-    fn heard(&mut self, heard: Heard) {
+    fn heard(&mut self, heard: Heard, cx: &mut Context<Self>) {
+        let then = match &self.fetching {
+            Fetching::Downloading { then, .. } | Fetching::Checking { then } => *then,
+            _ => Then::Save,
+        };
         match heard {
             Heard::Progress(done, total) => {
                 if let Fetching::Downloading {
@@ -659,6 +778,10 @@ impl Updates {
                     *of = total;
                 }
             }
+            Heard::Downloaded => {
+                tracing::info!("updates: downloaded and verified; checking the new copy");
+                self.fetching = Fetching::Checking { then };
+            }
             Heard::Done(Ok(path)) => {
                 tracing::info!("updates: downloaded and verified");
                 self.fetching = Fetching::Saved(path);
@@ -667,7 +790,97 @@ impl Updates {
                 tracing::warn!(%error, "updates: the download was refused");
                 self.fetching = Fetching::Failed(download_reason(&error));
             }
+            Heard::Prepared(Ok(prepared)) => {
+                tracing::info!(version = %prepared.version(), "updates: the new copy is staged and checked");
+                self.fetching = Fetching::Ready { prepared, then };
+                if then == Then::Restart {
+                    self.try_restart(cx);
+                }
+            }
+            Heard::Prepared(Err(refused)) => {
+                tracing::warn!(%refused, "updates: the new copy was refused");
+                self.fetching = Fetching::Failed(install_reason(refused));
+            }
         }
+    }
+
+    /// Swap and restart, once nothing runs (D788). With work under way the
+    /// staged copy waits, the dialog says for what, and Restart now goes
+    /// when it ends.
+    fn try_restart(&mut self, cx: &mut Context<Self>) {
+        let Fetching::Ready { prepared, .. } = &self.fetching else {
+            return;
+        };
+        if let Some(wait) = first_wait(work_now(cx)) {
+            tracing::info!(?wait, "updates: staged; waiting for the work to end");
+            cx.notify();
+            return;
+        }
+        let prepared = prepared.clone();
+        // The model let go first, as the tray's Unload model does — never
+        // under a decode, which the gate above has ruled out.
+        if let Some(host) = crate::engine_host::hosted(cx) {
+            host.update(cx, |host, cx| host.unload_now(cx));
+        }
+        match prepared.swap() {
+            Ok(previous) => {
+                tracing::info!(
+                    version = %prepared.version(),
+                    previous = %previous.display(),
+                    "updates: swapped in; restarting"
+                );
+                self.fetching = Fetching::Swapped;
+                let path = prepared.restart_path().to_path_buf();
+                // After this update: the restart quits, and the quit runs
+                // every handler, this entity's among them.
+                cx.defer(move |cx| {
+                    cx.set_restart_path(path);
+                    cx.restart();
+                });
+            }
+            Err(refused) => {
+                tracing::warn!(%refused, "updates: the swap was refused; nothing changed");
+                prepared.discard();
+                self.fetching = Fetching::Failed(install_reason(refused));
+            }
+        }
+        cx.notify();
+    }
+
+    /// Restart now, for a staged copy that waited for the work.
+    pub fn restart_now(&mut self, cx: &mut Context<Self>) {
+        if let Fetching::Ready { then, .. } = &mut self.fetching {
+            *then = Then::Restart;
+        }
+        self.try_restart(cx);
+    }
+
+    /// The quit path: a copy staged for Update when I quit goes in, unless
+    /// work runs (D788). Nothing relaunches.
+    fn at_quit(&mut self, cx: &Context<Self>) {
+        let Fetching::Ready {
+            prepared,
+            then: Then::OnQuit,
+        } = &self.fetching
+        else {
+            return;
+        };
+        if let Some(wait) = first_wait(work_now(cx)) {
+            tracing::info!(?wait, "updates: not swapped at quit, work was running");
+            return;
+        }
+        match prepared.swap() {
+            Ok(previous) => tracing::info!(
+                version = %prepared.version(),
+                previous = %previous.display(),
+                "updates: swapped in at quit"
+            ),
+            Err(refused) => {
+                tracing::warn!(%refused, "updates: the swap at quit was refused; nothing changed");
+                prepared.discard();
+            }
+        }
+        self.fetching = Fetching::Swapped;
     }
 
     /// Stop a download under way; what it wrote goes.
@@ -697,7 +910,12 @@ impl Updates {
 /// What the download's thread says.
 enum Heard {
     Progress(u64, u64),
+    /// Downloaded and verified, for an install: staging begins.
+    Downloaded,
+    /// A Download… ended.
     Done(Result<PathBuf, DownloadError>),
+    /// An install's staging ended.
+    Prepared(Result<Prepared, InstallRefused>),
 }
 
 /// The release service, or in a debug build the loopback server
@@ -760,6 +978,24 @@ fn download_reason(error: &DownloadError) -> String {
             DownloadError::Write(_) => t(Message::UpdateReasonWrite),
             DownloadError::Cancelled => t(Message::UpdateReasonCancelled),
         }),
+    )
+}
+
+/// A refused install, in the reader's language.
+fn install_reason(refused: InstallRefused) -> String {
+    t_args(
+        Message::UpdateFailed,
+        &args!("reason" => t(match refused {
+            InstallRefused::NotHere => Message::UpdateNotifyUnsigned,
+            InstallRefused::Mount => Message::UpdateReasonMount,
+            InstallRefused::Stage(_) => Message::UpdateReasonStage,
+            InstallRefused::Requirement => Message::UpdateReasonRequirement,
+            InstallRefused::Gatekeeper => Message::UpdateReasonGatekeeper,
+            InstallRefused::Identity => Message::UpdateReasonIdentity,
+            InstallRefused::Version => Message::UpdateReasonVersion,
+            InstallRefused::Starts => Message::UpdateReasonStarts,
+            InstallRefused::Swap(_) => Message::UpdateReasonSwap,
+        })),
     )
 }
 
@@ -1098,10 +1334,94 @@ impl UpdateDialog {
                     ));
                 }
             }
+            Fetching::Checking { .. } => lines.push((t(Message::UpdateChecking), false)),
+            Fetching::Ready {
+                then: Then::OnQuit,
+                prepared,
+            } => lines.push((
+                t_args(
+                    Message::UpdateReadyOnQuit,
+                    &args!("version" => prepared.version().to_string()),
+                ),
+                true,
+            )),
+            Fetching::Ready { .. } | Fetching::Swapped => {
+                lines.push((t(Message::UpdateReady), true));
+            }
             Fetching::Failed(reason) => lines.push((reason.clone(), true)),
         }
         lines
     }
+}
+
+/// One of the dialog's actions on the right.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Act {
+    Cancel,
+    RestartNow,
+    OnQuit,
+    Now,
+    Download,
+}
+
+/// The actions the dialog offers, by where the update stands, and whether
+/// each may be pressed: Cancel while it downloads; Restart now once staged;
+/// Update when I quit and Update and restart where this copy replaces
+/// itself; Download… elsewhere. Every one but Cancel greyed while work runs
+/// (D788). Pure, so the gate on the buttons is a test.
+pub fn offered(installs: bool, fetching: &Fetching, wait: Option<Wait>) -> Vec<(Act, bool)> {
+    let free = wait.is_none();
+    match fetching {
+        Fetching::Downloading { .. } => vec![(Act::Cancel, true)],
+        Fetching::Checking { .. } | Fetching::Swapped | Fetching::Saved(_) => Vec::new(),
+        Fetching::Ready { .. } => vec![(Act::RestartNow, free)],
+        Fetching::Idle | Fetching::Failed(_) if installs => {
+            vec![(Act::OnQuit, free), (Act::Now, free)]
+        }
+        Fetching::Idle | Fetching::Failed(_) => vec![(Act::Download, free)],
+    }
+}
+
+/// [`offered`], as buttons.
+fn actions(
+    updates: &Entity<Updates>,
+    installs: bool,
+    fetching: &Fetching,
+    wait: Option<Wait>,
+) -> Vec<AnyElement> {
+    offered(installs, fetching, wait)
+        .into_iter()
+        .map(|(act, enabled)| {
+            let updates = updates.clone();
+            let (id, label) = match act {
+                Act::Cancel => ("update-cancel", Message::UpdateCancel),
+                Act::RestartNow => ("update-restart-now", Message::UpdateRestartNow),
+                Act::OnQuit => ("update-on-quit", Message::UpdateOnQuit),
+                Act::Now => ("update-now", Message::UpdateNow),
+                Act::Download => ("update-download", Message::UpdateDownload),
+            };
+            let button = Button::new(id)
+                .small()
+                .label(SharedString::from(t(label)))
+                .disabled(!enabled);
+            let button = match act {
+                Act::Cancel | Act::OnQuit => button.outline(),
+                Act::Download => button.primary().icon(IconName::Download),
+                Act::RestartNow | Act::Now => button.primary(),
+            };
+            button
+                .on_click(move |_: &ClickEvent, _, cx| {
+                    updates.update(cx, |updates, cx| match act {
+                        Act::Cancel => updates.cancel(cx),
+                        Act::RestartNow => updates.restart_now(cx),
+                        Act::OnQuit => updates.update_on_quit(cx),
+                        Act::Now => updates.update_now(cx),
+                        Act::Download => updates.download(cx),
+                    });
+                })
+                .into_any_element()
+        })
+        .collect()
 }
 
 impl Focusable for UpdateDialog {
@@ -1150,15 +1470,17 @@ impl Render for UpdateDialog {
             ),
             Some(offer) => {
                 let lines = self.lines(&offer, cx);
-                let downloading = matches!(fetching, Fetching::Downloading { .. });
+                let installs = state
+                    .installation
+                    .as_ref()
+                    .is_some_and(|installation| installation.can() == Can::Install);
+                let actions = actions(&updates, installs, &fetching, wait);
                 let saved = match &fetching {
                     Fetching::Saved(path) => Some(path.clone()),
                     _ => None,
                 };
                 let notes = notes_url(&offer.version);
                 let skip = updates.clone();
-                let download = updates.clone();
-                let cancel = updates.clone();
                 let is_deb = offer.format == Format::Deb;
                 panel
                     .child(
@@ -1256,25 +1578,7 @@ impl Render for UpdateDialog {
                                     .label(SharedString::from(t(Message::UpdateLater)))
                                     .on_click(cx.listener(|view, _, _, cx| view.close(cx))),
                             )
-                            .child(if downloading {
-                                Button::new("update-cancel")
-                                    .small()
-                                    .outline()
-                                    .label(SharedString::from(t(Message::UpdateCancel)))
-                                    .on_click(move |_: &ClickEvent, _, cx| {
-                                        cancel.update(cx, |updates, cx| updates.cancel(cx));
-                                    })
-                            } else {
-                                Button::new("update-download")
-                                    .small()
-                                    .primary()
-                                    .icon(IconName::Download)
-                                    .disabled(wait.is_some())
-                                    .label(SharedString::from(t(Message::UpdateDownload)))
-                                    .on_click(move |_: &ClickEvent, _, cx| {
-                                        download.update(cx, |updates, cx| updates.download(cx));
-                                    })
-                            }),
+                            .children(actions),
                     )
             }
         };
@@ -1427,6 +1731,56 @@ mod tests {
                 .map(|wait| t(wait.message()))
                 .collect();
         assert_eq!(said.len(), 4);
+    }
+
+    /// The buttons themselves wait for the work: every action but Cancel is
+    /// greyed while anything runs, whatever stage the update is at. Red by
+    /// offering an action regardless of the gate.
+    #[test]
+    fn the_update_s_buttons_are_greyed_under_work() {
+        let fetchings = [
+            Fetching::Idle,
+            Fetching::Failed(String::new()),
+            Fetching::Ready {
+                prepared: wipemark_update::testing::prepared(),
+                then: Then::OnQuit,
+            },
+        ];
+        for installs in [true, false] {
+            for fetching in &fetchings {
+                for wait in [Wait::Rewrite, Wait::Clean, Wait::Download, Wait::Compare] {
+                    for (act, enabled) in offered(installs, fetching, Some(wait)) {
+                        assert!(!enabled, "{act:?} pressable while {wait:?} ({fetching:?})");
+                    }
+                }
+                assert!(offered(installs, fetching, None)
+                    .iter()
+                    .all(|(_, enabled)| *enabled));
+            }
+        }
+        // Where the copy replaces itself, the two; elsewhere Download….
+        let acts = |installs| -> Vec<Act> {
+            offered(installs, &Fetching::Idle, None)
+                .into_iter()
+                .map(|(act, _)| act)
+                .collect()
+        };
+        assert_eq!(acts(true), [Act::OnQuit, Act::Now]);
+        assert_eq!(acts(false), [Act::Download]);
+        // A download can always be stopped.
+        assert_eq!(
+            offered(
+                true,
+                &Fetching::Downloading {
+                    done: 0,
+                    total: 1,
+                    cancel: Arc::default(),
+                    then: Then::Restart,
+                },
+                Some(Wait::Rewrite)
+            ),
+            [(Act::Cancel, true)]
+        );
     }
 
     #[test]
