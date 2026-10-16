@@ -241,6 +241,15 @@ result, an edited result asked about first
   the result is — a text file's result as its text, a picture's as the
   picture (Copy the result image), its file's own bytes; on Linux the
   carried `gpui-pre-linux` writes a picture to the clipboard as a picture.
+- `chore/gpui-kit-gutter-pin` (D770–D772, the owner, 2026-10-16): the
+  submodule is the owner's fork `glani/gpui-component`, branch
+  `editor-gutter-menu`, at `78348fde` — gpui-kit `next` at `8abddf2a`
+  plus #3520 (`hit_test`, `gutter_bounds`, `InputHit`; approved, with the
+  maintainer's `94c99eb5`: a hit below inline-completion ghost lines reads
+  the row painted there, `InputHitArea`'s variants `#[non_exhaustive]`)
+  and #3521 on it (`context_menu_with`, `default_context_menu`), for
+  Compare's per-line menu on a line number. `gpui-pre` still `=0.3.8`,
+  `Cargo.lock` untouched; back to plain `next` once both are merged.
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice

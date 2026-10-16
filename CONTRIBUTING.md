@@ -18,7 +18,10 @@ moved to the organisation's fork, `GigLaboCom/gpui-component`; on
 decorations were merged there (gpui-kit #3359, on `next`). A checkout made
 before either keeps the old URL until it is synced. The fork's branch
 `heretic/epic-4-line-decorations` stays where it was for
-heretic-amuse-merge.
+heretic-amuse-merge. Since 2026-10-16 the URL is the owner's fork
+`glani/gpui-component`, branch `editor-gutter-menu` — `next` plus two
+pull requests of ours upstream has not merged yet (D770) — and it goes
+back to upstream's `next` when they are; sync after each move.
 
 GPUI itself comes from crates.io: the **`gpui-pre`** snapshots of Zed's
 GPUI crates that gpui-kit's maintainer publishes, at **exactly** the
