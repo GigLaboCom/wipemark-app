@@ -1,0 +1,391 @@
+[
+ {
+  "name": "verify against any key",
+  "file": "crates/wipemark-update/src/statement.rs",
+  "old": "        .verify(text.as_bytes(), &signature.bytes)\n        .map(|()| signature.key)",
+  "new": "        .verify(text.as_bytes(), &signature.bytes)\n        .or(Ok::<(), ring::error::Unspecified>(()))\n        .map(|()| signature.key)",
+  "test": "a_statement_signed_by_another_key_is_refused",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "drop the size line",
+  "file": "crates/wipemark-update/src/statement.rs",
+  "old": "\"{HEADER}\\nchannel {}\\nversion {}\\nplatform {}\\nformat {}\\nfile {}\\nsize {}\\nsha256 {}\\n\",\n            self.channel,\n            self.version,\n            self.platform,\n            self.format,\n            self.file,\n            self.size,\n            self.sha256,",
+  "new": "\"{HEADER}\\nchannel {}\\nversion {}\\nplatform {}\\nformat {}\\nfile {}\\nsha256 {}\\n\",\n            self.channel,\n            self.version,\n            self.platform,\n            self.format,\n            self.file,\n            self.sha256,",
+  "test": "a_changed_field_breaks_the_signature",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "drop the channel line",
+  "file": "crates/wipemark-update/src/statement.rs",
+  "old": "\"{HEADER}\\nchannel {}\\nversion {}\\nplatform {}\\nformat {}\\nfile {}\\nsize {}\\nsha256 {}\\n\",\n            self.channel,\n",
+  "new": "\"{HEADER}\\nchannel stable\\nversion {}\\nplatform {}\\nformat {}\\nfile {}\\nsize {}\\nsha256 {}\\n\",\n",
+  "test": "a_changed_field_breaks_the_signature",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "drop the platform line",
+  "file": "crates/wipemark-update/src/statement.rs",
+  "old": "\"{HEADER}\\nchannel {}\\nversion {}\\nplatform {}\\nformat {}\\nfile {}\\nsize {}\\nsha256 {}\\n\",\n            self.channel,\n            self.version,\n            self.platform,\n",
+  "new": "\"{HEADER}\\nchannel {}\\nversion {}\\nformat {}\\nfile {}\\nsize {}\\nsha256 {}\\n\",\n            self.channel,\n            self.version,\n",
+  "test": "a_changed_field_breaks_the_signature",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "keyring first key",
+  "file": "crates/wipemark-update/src/keys.rs",
+  "old": "        self.keys.iter().find(|key| key.id == id)",
+  "new": "        self.keys.iter().find(|key| key.id == id).or(self.keys.first())",
+  "test": "an_unknown_key_id_is_refused",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": ">= instead of >",
+  "file": "crates/wipemark-update/src/manifest.rs",
+  "old": "version > wanted.running",
+  "new": "version >= wanted.running",
+  "test": "a_version_not_newer_is_not_offered",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "no prerelease check",
+  "file": "crates/wipemark-update/src/manifest.rs",
+  "old": "(version.pre.is_empty() && version > wanted.running)",
+  "new": "(version > wanted.running)",
+  "test": "a_prerelease_is_not_offered_on_stable",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "take the first asset",
+  "file": "crates/wipemark-update/src/manifest.rs",
+  "old": "        let Some(asset) = announced.assets.iter().find(|asset| {\n            asset.os == wanted.platform.os()\n                && asset.arch == wanted.platform.arch()\n                && asset.format == wanted.format.token()\n        }) else {",
+  "new": "        let Some(asset) = announced.assets.first() else {",
+  "test": "an_asset_for_another_platform_or_format_is_not_used",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "skip the sha256 comparison",
+  "file": "crates/wipemark-update/src/fetch.rs",
+  "old": "        if hasher.finalize().as_slice() != offer.sha256 {\n            return Err(DownloadError::Sha256);\n        }\n        file.sync_all()",
+  "new": "        let _ = hasher;\n        file.sync_all()",
+  "test": "a_download_whose_sha256_differs_is_refused_and_removed",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "read to the end",
+  "test": "a_download_longer_than_announced_is_cut_and_refused",
+  "edits": [
+   {
+    "file": "crates/wipemark-update/src/fetch.rs",
+    "old": "        let mut reader = body.into_reader().take(offer.size + 1);",
+    "new": "        let mut reader = body.into_reader();"
+   },
+   {
+    "file": "crates/wipemark-update/src/fetch.rs",
+    "old": "            got += read as u64;\n            if got > offer.size {\n                return Err(DownloadError::Longer);\n            }",
+    "new": "            got += read as u64;"
+   }
+  ],
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "trust the manifest's url",
+  "file": "crates/wipemark-update/src/manifest.rs",
+  "old": "    if asset.url.as_deref() != Some(url.as_str()) {\n        return Err(Rejected::NotOurUrl);\n    }",
+  "new": "    let url = asset.url.clone().unwrap_or(url);",
+  "test": "an_asset_on_another_host_is_refused_before_any_request",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "allow redirects",
+  "file": "crates/wipemark-update/src/fetch.rs",
+  "old": "            .max_redirects(0)",
+  "new": "            .max_redirects(10)",
+  "test": "the_manifest_is_never_followed_through_a_redirect",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "read the variable in every build",
+  "file": "crates/wipemark-update/src/lib.rs",
+  "old": "        if !debug_build {\n            return Ok(Base::production());\n        }",
+  "new": "        let _ = debug_build;",
+  "test": "a_plaintext_or_foreign_base_is_refused_in_a_release_build",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "no manifest cap",
+  "test": "a_manifest_over_the_cap_is_refused",
+  "edits": [
+   {
+    "file": "crates/wipemark-update/src/fetch.rs",
+    "old": "            .take(MANIFEST_CAP as u64 + 1)\n",
+    "new": ""
+   },
+   {
+    "file": "crates/wipemark-update/src/fetch.rs",
+    "old": "        if body\n            .content_length()\n            .is_some_and(|length| length > MANIFEST_CAP as u64)\n        {\n            return Err(FetchError::TooLarge);\n        }",
+    "new": ""
+   },
+   {
+    "file": "crates/wipemark-update/src/manifest.rs",
+    "old": "    if bytes.len() > MANIFEST_CAP {\n        return Err(Shape::TooLarge);\n    }",
+    "new": ""
+   }
+  ],
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "version in the user agent",
+  "file": "crates/wipemark-update/src/lib.rs",
+  "old": "pub const USER_AGENT: &str = \"wipemark\";",
+  "new": "pub const USER_AGENT: &str = concat!(\"wipemark/\", env!(\"CARGO_PKG_VERSION\"));",
+  "test": "the_check_sends_nothing_but_the_get",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "a key only in the table",
+  "file": "crates/wipemark-update/src/keys.rs",
+  "old": "const COMPILED: &[(&str, &str, &str)] = &[];",
+  "new": "const COMPILED: &[(&str, &str, &str)] = &[(\"working\", \"56475aa75463474c\", \"d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\")];",
+  "test": "the_compiled_in_keys_are_the_committed_ones",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "every bundle installable",
+  "file": "crates/wipemark-update/src/install/mod.rs",
+  "old": "            } else {\n                Can::Install\n            };\n            return Installation::Bundle { app, can };",
+  "new": "            } else {\n                Can::Install\n            };\n            let _ = can;\n            let can = Can::Install;\n            return Installation::Bundle { app, can };",
+  "test": "the_installation_is_read_from_where_the_program_is",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "no keys still asks",
+  "file": "crates/wipemark-update/src/lib.rs",
+  "old": "    if keyring.is_empty() {\n        return Err(Refusal::NoKeys);\n    }",
+  "new": "",
+  "test": "a_build_without_keys_refuses_before_any_request",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "bundle copied instead of renamed",
+  "test": "install::macos::tests::the_swap_is_one_rename",
+  "file": "crates/wipemark-update/src/install/macos.rs",
+  "old": "    super::sys::swap(staged, installed)?;\n    let previous = installed.with_file_name(PREVIOUS);\n    remove_dir(&previous)?;\n    fs::rename(staged, &previous)?;",
+  "new": "    let previous = installed.with_file_name(PREVIOUS);\n    remove_dir(&previous)?;\n    fs::rename(installed, &previous)?;\n    Command::new(\"/usr/bin/ditto\").arg(staged).arg(installed).status()?;\n    remove_dir(staged)?;",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "appimage copied instead of renamed",
+  "test": "install::appimage::tests::the_swap_is_one_rename",
+  "file": "crates/wipemark-update/src/install/appimage.rs",
+  "old": "    fs::rename(staged, installed)?;",
+  "new": "    fs::copy(staged, installed)?;\n    fs::remove_file(staged)?;",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "skip -R",
+  "test": "install::macos::tests::an_ad_hoc_bundle_fails_the_requirement",
+  "file": "crates/wipemark-update/src/install/mod.rs",
+  "old": "        .arg(\"-R\")\n        .arg(format!(\"={REQUIREMENT}\"))\n",
+  "new": "",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "version not checked",
+  "test": "install::appimage::tests::a_staged_copy_must_start_and_say_its_version",
+  "file": "crates/wipemark-update/src/install/mod.rs",
+  "old": "    if String::from_utf8_lossy(&answer.stdout).trim() == format!(\"{name} {version}\") {",
+  "new": "    if !name.is_empty() {",
+  "crate": "wipemark-update",
+  "args": []
+ },
+ {
+  "name": "swap 0 and 1",
+  "test": "update_check_exits_0_1_2",
+  "file": "apps/wipemark-cli/src/update.rs",
+  "old": "        Ok(choice) if choice.offer.is_some() => Exit::Findings,\n        Ok(choice) if !choice.unverified.is_empty() => Exit::Usage,\n        Ok(_) => Exit::Clean,",
+  "new": "        Ok(choice) if choice.offer.is_some() => Exit::Clean,\n        Ok(choice) if !choice.unverified.is_empty() => Exit::Usage,\n        Ok(_) => Exit::Findings,",
+  "crate": "wipemark-cli",
+  "args": [
+   "--bin",
+   "wipemark-cli"
+  ]
+ },
+ {
+  "name": "unverified reads as up to date",
+  "test": "update_check_exits_0_1_2",
+  "file": "apps/wipemark-cli/src/update.rs",
+  "old": "        Ok(choice) if !choice.unverified.is_empty() => Exit::Usage,\n",
+  "new": "",
+  "crate": "wipemark-cli",
+  "args": [
+   "--bin",
+   "wipemark-cli"
+  ]
+ },
+ {
+  "name": "a refusal reads as up to date",
+  "test": "update_check_exits_0_1_2",
+  "file": "apps/wipemark-cli/src/update.rs",
+  "old": "        Err(_) => Exit::Usage,",
+  "new": "        Err(_) => Exit::Clean,",
+  "crate": "wipemark-cli",
+  "args": [
+   "--bin",
+   "wipemark-cli"
+  ]
+ },
+ {
+  "name": "the row's gate removed",
+  "test": "update::tests::no_check_runs_while_the_row_is_off",
+  "file": "apps/wipemark-app/src/update.rs",
+  "old": "    facts.on\n        && facts\n            .installation",
+  "new": "    facts\n            .installation",
+  "crate": "wipemark-app",
+  "args": [
+   "--bin",
+   "wipemark"
+  ]
+ },
+ {
+  "name": "the day's gate removed",
+  "test": "update::tests::an_automatic_check_waits_a_day",
+  "file": "apps/wipemark-app/src/update.rs",
+  "old": "        && facts.last_ok.is_none_or(|at| facts.now - at >= DAY)",
+  "new": "",
+  "crate": "wipemark-app",
+  "args": [
+   "--bin",
+   "wipemark"
+  ]
+ },
+ {
+  "name": "the development gate removed",
+  "test": "update::tests::a_development_build_never_checks_on_its_own",
+  "file": "apps/wipemark-app/src/update.rs",
+  "old": "        && facts\n            .installation\n            .is_some_and(Installation::checks_on_its_own)",
+  "new": "        && facts\n            .installation\n            .is_some_and(|_| true)",
+  "crate": "wipemark-app",
+  "args": [
+   "--bin",
+   "wipemark"
+  ]
+ },
+ {
+  "name": "the rewrite gate dropped",
+  "test": "update::tests::update_is_greyed_while_a_rewrite_runs",
+  "file": "apps/wipemark-app/src/update.rs",
+  "old": "    if work.rewriting {\n        Some(Wait::Rewrite)\n    } else if work.cleaning {",
+  "new": "    if work.cleaning {",
+  "crate": "wipemark-app",
+  "args": [
+   "--bin",
+   "wipemark"
+  ]
+ },
+ {
+  "name": "the compare gate dropped",
+  "test": "update::tests::update_is_greyed_while_a_rewrite_runs",
+  "file": "apps/wipemark-app/src/update.rs",
+  "old": "    } else if work.unkept_edits {\n        Some(Wait::Compare)\n    } else {",
+  "new": "    } else {",
+  "crate": "wipemark-app",
+  "args": [
+   "--bin",
+   "wipemark"
+  ]
+ },
+ {
+  "name": "the state rows filed as preferences",
+  "test": "config::update_rows::an_update_state_row_is_never_a_preference_row",
+  "file": "apps/wipemark-app/src/config.rs",
+  "old": "    // D784\n    UPDATES_CHECK_KEY,\n];",
+  "new": "    // D784\n    UPDATES_LAST_CHECK_KEY,\n];",
+  "crate": "wipemark-app",
+  "args": [
+   "--bin",
+   "wipemark"
+  ]
+ },
+ {
+  "name": "the buttons ignore the gate",
+  "test": "update::tests::the_update_s_buttons_are_greyed_under_work",
+  "file": "apps/wipemark-app/src/update.rs",
+  "old": "    let free = wait.is_none();",
+  "new": "    let free = wait.is_none() || true;",
+  "crate": "wipemark-app",
+  "args": [
+   "--bin",
+   "wipemark"
+  ]
+ },
+ {
+  "name": "restart now ignores the gate",
+  "test": "update::tests::the_update_s_buttons_are_greyed_under_work",
+  "file": "apps/wipemark-app/src/update.rs",
+  "old": "        Fetching::Ready { .. } => vec![(Act::RestartNow, free)],",
+  "new": "        Fetching::Ready { .. } => vec![(Act::RestartNow, true)],",
+  "crate": "wipemark-app",
+  "args": [
+   "--bin",
+   "wipemark"
+  ]
+ },
+ {
+  "name": "unkept is just unsaved",
+  "test": "compare::tests::an_edit_autosave_keeps_holds_no_update",
+  "file": "apps/wipemark-app/src/compare.rs",
+  "old": "        !flushed\n    }",
+  "new": "        let _ = flushed;\n        true\n    }",
+  "crate": "wipemark-app",
+  "args": [
+   "--bin",
+   "wipemark"
+  ]
+ },
+ {
+  "name": "unkept never",
+  "test": "compare::tests::an_edit_a_quit_would_lose_holds_an_update",
+  "file": "apps/wipemark-app/src/compare.rs",
+  "old": "        !flushed\n    }",
+  "new": "        let _ = flushed;\n        false\n    }",
+  "crate": "wipemark-app",
+  "args": [
+   "--bin",
+   "wipemark"
+  ]
+ },
+ {
+  "name": "every cleaned row counted",
+  "test": "queue::tests::a_cleaned_paste_is_the_one_thing_a_restart_drops",
+  "file": "apps/wipemark-app/src/queue.rs",
+  "old": "                Status::Done(outcome) => outcome.written.is_none() && outcome.text.is_some(),",
+  "new": "                Status::Done(_) => true,",
+  "crate": "wipemark-app",
+  "args": [
+   "--bin",
+   "wipemark"
+  ]
+ }
+]

@@ -96,6 +96,8 @@ open -a Wipemark --args --settings=mcp     # the same, for an installed app on m
 |---|---|
 | `WIPEMARK_DATA_DIR` | the data directory: `wipemark.db`, `models/`, `logs/` and the rest. Point it at a scratch directory and the run touches nothing real. The `models.dir` row can still name a real models folder. |
 | `WIPEMARK_LOG` | the log filter, and the CLI's stderr mirror. A debug build of the application mirrors to stderr regardless. |
+| `WIPEMARK_UPDATE_BASE` | **debug builds only** (D780): the release service is `http://127.0.0.1:<port>` (or `localhost`, `[::1]`) instead of `https://releases.giglabo.com`, for the update's live check against a loopback server. Anything else is refused and said. A release build does not read it. |
+| `WIPEMARK_UPDATE_TEST_KEY` | **debug builds only** (D782): one more Ed25519 public key the update check believes, as 64 hex digits — a throwaway key the live check signs its test manifest with. A release build does not read it. |
 | `WIPEMARK_LANG` | the CLI's language. `--language` outranks it, and it outranks the stored `ui.language`, which outranks the desktop. |
 | `WIPEMARK_WAYLAND=1` | on Linux, native Wayland windows instead of XWayland |
 | `WIPEMARK_TEST_GGUF` (and siblings) | the live tests of the local engine; see "The native gates" below |

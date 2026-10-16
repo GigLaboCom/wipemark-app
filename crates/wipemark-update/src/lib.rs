@@ -350,6 +350,46 @@ mod tests {
         assert_eq!(server.connections(), 0);
     }
 
+    /// The program and the service agree (§8.7): the real manifest, the
+    /// newest statement of every platform and format verified with the keys
+    /// this build carries. Reaches the network, so it runs by hand once a
+    /// version is published:
+    /// `cargo test -p wipemark-update -- --ignored a_live_manifest_verifies`.
+    #[test]
+    #[ignore = "reaches releases.giglabo.com; run by hand after a publish"]
+    fn a_live_manifest_verifies() {
+        let client = Client::new(Base::production());
+        let served = client.manifest().expect("the manifest");
+        let keyring = Keyring::compiled();
+        assert!(!keyring.is_empty(), "this build carries no update key");
+        for (platform, format) in [
+            (Platform::MacosAarch64, Format::Dmg),
+            (Platform::LinuxX64, Format::AppImage),
+            (Platform::LinuxX64, Format::Deb),
+        ] {
+            let choice = manifest::choose(
+                &served,
+                &Wanted {
+                    running: Version::new(0, 0, 0),
+                    platform,
+                    format,
+                    skipped: None,
+                },
+                &keyring,
+                client.base(),
+            );
+            assert!(
+                choice.unverified.is_empty(),
+                "{platform:?} {format:?}: {:?}",
+                choice.unverified
+            );
+            assert!(
+                choice.offer.is_some(),
+                "no verified {platform:?} {format:?}"
+            );
+        }
+    }
+
     #[test]
     fn platforms_and_formats_are_the_services_tokens() {
         assert_eq!(Platform::MacosAarch64.id(), "macos-aarch64");

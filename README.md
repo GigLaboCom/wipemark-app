@@ -249,8 +249,9 @@ other MCP client.
   (the macOS Keychain, the Secret Service on Linux), never in a file. It
   is never sent over plain `http` to another machine.
 - **No telemetry.** The only connections Wipemark makes beyond this
-  machine are the model downloads you start and the endpoint you
-  configure.
+  machine are the model downloads you start, the endpoint you
+  configure, and — if you turn it on — a check once a day for a new
+  version. That check sends nothing about you or your documents.
 - **Your file stays as it is.** A result goes beside the file, or into a
   folder named on the Retention page. Replacing the file is an option you
   have to choose (*In place* on the Retention page, `--in-place` on the

@@ -528,10 +528,70 @@ reads `valid on disk` / `satisfies its Designated Requirement`, and `spctl -a
 
 ### What is not here (macOS)
 
-An Intel or universal build, a `.pkg`, automatic updates (Sparkle), the
-application started on the runner after signing (P6's macOS part: the CLI's
+An Intel or universal build, a `.pkg`, Sparkle (the application updates
+itself without it — "The update", below), the application started on the
+runner after signing (P6's macOS part: the CLI's
 checks on the runner are still to be written), and a check of the downloaded
 .dmg's first open from a browser (above).
+
+## The update — signed, published at Publish (D780–D789)
+
+`docs/sdd/self-update.md` is the design; this is the lane. A version reaches
+installations through the giglabo release service (`heretic-releases-api`,
+slug `wipemark`, `source: 'direct'`), whose manifest the application reads at
+`https://releases.giglabo.com/downloads/wipemark`. Every artifact there
+carries a `sig`: an Ed25519 signature over its eight-line release statement
+(`fixtures/update/statement.txt` is the form), which the application verifies
+with a key compiled into it before it says a version exists or downloads a
+byte (D781, D782).
+
+**When.** At the person's **Publish** of the draft, never at the tag: the
+`release: published` event runs `release.yml`'s job `publish-update` (the
+build jobs skip themselves on it). It runs in the GitHub Environment
+`releases`, which admits only `wipemark-v*` tags, and by hand from the tag
+(Run workflow, *Use workflow from* the tag, platform `publish-update`) to
+publish a published release again — the file names never change, so a re-run
+replaces each file in place.
+
+**What it does.** Downloads the release's own files (`gh release download`);
+checks them against `SHA256SUMS` and the `.dmg.sha256` the build jobs wrote,
+and against the **build provenance attestations** the `linux` and `macos`
+jobs now make on a tag (`actions/attest-build-provenance`, `gh attestation
+verify`); writes each artifact's statement (`scripts/release/update/statement.sh`)
+and signs it with the working key through OpenSSL 3 (`sign.sh`, which refuses
+a key whose public half is not committed); opens the version on the service
+with `channel: "stable"` and puts each file there — presign, PUT to R2,
+finalize with its `sig` (`publish.sh`, MnemoVi's road); then reads the served
+manifest back and verifies every statement with the **committed** public key,
+through OpenSSL, apart from the signer, and downloads and hashes every file
+(`verify-served.sh` — runnable by hand at any time, needs no secret:
+`scripts/release/update/verify-served.sh 0.2.0`).
+
+**Without the secrets** the job says so in a notice and its summary and
+publishes nothing — installations are not offered the version; **with some
+of them** it fails, naming the missing ones, as the macOS lane does (D775).
+No Cloudflare or R2 credential ever reaches GitHub: the service presigns.
+
+**Keys.** `crates/wipemark-update/keys/` holds the public halves
+(`<role>-<id>.pem`) and `crates/wipemark-update/src/keys.rs` the same keys
+as a table; a test holds the two equal. **Until the owner runs
+`scripts/release/update-keys.sh` both are empty, and every build says it
+cannot check for updates** — it asks nothing of the network and believes
+nothing. A build made before the keys are committed never learns of them:
+the first release that carries the updater must be cut after the commit.
+
+**What installs.** A Developer ID, notarized `Wipemark.app` in a writable
+folder (D786) and an AppImage in a writable folder (D787) replace
+themselves; a `.deb`, an ad hoc bundle (no APPLE_* secrets), a translocated
+or read-only copy only say a version is out and offer a verified download.
+0.1.0 has no updater: its users install the next version by hand once.
+
+**The next release notes** (`docs/release/<version>.md`) drop 0.1.0's
+"Updates" limitation, add `updates/` to the data folder's list (an update's
+download waits there on macOS until the new version's first window), and
+carry §4.3's sentence: the only connections are the model downloads you
+start, the endpoint you configure, and — if you turn it on — a check once a
+day for a new version, which sends nothing about you or your documents.
 
 ### The owner's checklist
 
@@ -581,3 +641,37 @@ fork can reach them.
    keep them only in a password manager. If notarization is refused with an
    agreement error, the Apple Developer Program's latest agreement is waiting
    to be accepted at developer.apple.com.
+
+**The update (D782, D783)** — once, before the first release that carries
+the updater. Unlike the six above, these are **Environment** secrets, in
+`releases`, so a branch cannot reach the signing key.
+
+8. **The keys.** On this Mac, with Homebrew's OpenSSL 3:
+   `scripts/release/update-keys.sh <working key path> <backup key path>`,
+   both paths outside the repository (it refuses one inside). It asks a
+   password for each, writes the private halves encrypted with mode 0600,
+   the public halves to `crates/wipemark-update/keys/` and the table in
+   `keys.rs`, runs the key test, and prints the steps below. It prints no key.
+   **Commit** the public halves and the table.
+9. **The Environment `releases`**, admitting only `wipemark-v*` tags:
+   `gh api -X PUT repos/GigLaboCom/wipemark-app/environments/releases -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'`
+   then
+   `gh api -X POST repos/GigLaboCom/wipemark-app/environments/releases/deployment-branch-policies -f name='wipemark-v*' -f type=tag`.
+10. **`WIPEMARK_UPDATE_SIGNING_KEY`** — the working key's encrypted PEM:
+    `gh secret set WIPEMARK_UPDATE_SIGNING_KEY --env releases -R GigLaboCom/wipemark-app < <working key path>`
+11. **`WIPEMARK_UPDATE_SIGNING_KEY_PASSWORD`** — its password:
+    `gh secret set WIPEMARK_UPDATE_SIGNING_KEY_PASSWORD --env releases -R GigLaboCom/wipemark-app`
+12. **`RELEASES_PUBLISH_TOKEN`** — the release service's `PUBLISH_TOKEN`, the
+    value MnemoVi's Woodpecker holds as `publish_token`:
+    `gh secret set RELEASES_PUBLISH_TOKEN --env releases -R GigLaboCom/wipemark-app`
+13. **The backup key** and its password go to a password manager, offline —
+    never to GitHub. It exists so a leaked working key can be dropped by a
+    release the backup signs (rotation: `update-keys.sh --add next <path>`).
+14. **The service** registers `wipemark` (`direct`, `expected_platforms:
+    ['macos-aarch64', 'linux-x64']`) and passes `sig` through — the owner's
+    side, in `heretic-releases-api` (`docs/sdd/self-update.md` §8.5).
+15. **Check:** `gh secret list --env releases -R GigLaboCom/wipemark-app`
+    shows the three names. After the next Publish, the `publish-update` job's
+    summary says "Update published", and
+    `scripts/release/update/verify-served.sh <version>` passes from any
+    machine.

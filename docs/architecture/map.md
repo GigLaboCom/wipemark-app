@@ -3,7 +3,7 @@
 *Moved here verbatim from `CLAUDE.md` on 2026-10-12. `scripts/check-dep-direction.sh` prints the crate graph.*
 
 
-Sixteen libraries under `crates/`, two applications under `apps/`. The
+Seventeen libraries under `crates/`, two applications under `apps/`. The
 dependency rule below is what keeps them apart, and
 `scripts/check-dep-direction.sh` prints the whole graph in a second —
 it reads the manifests rather than the resolved graph, so it runs
@@ -29,6 +29,7 @@ it sits.
 | `wipemark-picture` | a picture file through both passes: decode to the stored raster (a JPEG with its planes, D471), the visible pass (a 4:2:0/4:2:2 mark in the planes, D471; DCT-POCS after it on a lossy JPEG, `REFINE`, D472 — no feature, no environment variable), encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4; the planes and DCT-POCS since the owner's decisions of 2026-10-10); the CLI and the MCP tools call it (E12-5), and the windows' Clean and the panel's look at AI-provenance scope (E7); Compare for pictures and the batch queue's picture item are **E12-8** |
 | `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be (`Handed::is_nothing`: an empty or ASCII-white-space text is no item, D301; no head read from a FIFO, terminal, socket or device, D356; `of_characters`, a caller's text looked at with no path looked for in it, D751); and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first, a new file only where nothing is (`write_new`) | real |
 | `wipemark-license` | activation, grace, and what a lapse never locks | types; **E9** |
+| `wipemark-update` | whether a newer version exists, proved (D780–D789): the giglabo manifest (`manifest`, unknown fields allowed, the choice — stable, strictly newer, this installation's platform and format, no fallback); the eight-line release statement and its `wm1` Ed25519 signature verified with `ring` (`statement`); the compiled-in keys and their PEMs under `keys/` (`keys`, empty until `scripts/release/update-keys.sh` runs — a build without a key refuses before any request); the two requests — https only, no redirect, `User-Agent: wipemark`, the 256 KiB cap, the download held to its sha256 and size as it streams (`fetch`); what this installation is and the swap — `renamex_np` on macOS, a link and a rename in an AppImage's folder (`install`, the one module that writes outside the data directory); a loopback server and run-time key pairs for tests (`testing`, `test-support`). A leaf: no workspace dependency, no new package in the lock | real; the application checks and installs through it, `wipemark-cli update --check` checks |
 
 A crate marked "types" still has tests, and they still have to pass —
 what is absent is the logic, and every one of those crates says so in
@@ -68,6 +69,7 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `language.rs` | what the language selector offers, and what a click means |
 | `tray.rs` | the menu-bar item on macOS and on Linux — one menu, `build_menu`; on Linux a GTK thread of its own, installed only where a StatusNotifier host would draw it, the icon derived at run time (D340–D342, D347) — and the close button that only hides while it exists |
 | `instance.rs` | Unix only: one Wipemark per data directory — `<data dir>/wipemark.lock`, an exclusive `flock` held for the life of the process (`hold`, D791); `<data dir>/wipemark.sock`, the socket a second launch hands `--panel`, `--show` or a bare launch to, listened on by a thread of its own (`wipemark-instance`) from before the database (D646, D790, D793); `admit`, what a launch does — hand over, start, or end with exit 2 (D792) |
+| `update.rs` | new versions (D780–D789): `Updates`, a global — the installation detected off the GPUI thread, the schedule (`due`: `updates.check` on, not a development build, a key, a minute after start and the first models scan, a day since the last successful check), Check now, Skip, the verified Download…, Update and restart and Update when I quit (`fetch`, `try_restart`, `at_quit`), `tidy` after the first window; the General row (`switch`, `below`), the status bar's item, the one-time notice, the tray's item, and `UpdateDialog`; the gate (`first_wait(work_now)`: a rewrite, a clean, a model download, a Compare edit a quit would not keep) on every action (`offered`) |
 | `signals.rs` | Unix only: SIGTERM, SIGINT and SIGHUP quit through `App::quit`, the tray's Quit — registered through `async-signal` on a thread of its own (`wipemark-signals`), handed to the GPUI side over `flume`, a second signal ending the process at once with `128 +` its number (D717) |
 | `hotkey.rs` | a system-wide shortcut: the chord, its row spelling, what a keystroke means while one is recorded, and the registration — Carbon on macOS, an X11 key grab on a thread of its own on Linux under X11 (D346, B1) |
 | `recorder.rs` | the shortcut recorder — the field that is clicked, then pressed into |
@@ -105,7 +107,9 @@ and its human, `--json` and SARIF 2.1.0 renderings, and `models.rs`
 and "another tool's file", `rm` removes only what a download marked,
 `add` hashes a GGUF the catalogue does not have and prints its id,
 `forget` drops its row and never the file —;
-`rewrite.rs` the rewrite flow and the command's own local engine —
+`update.rs` `update --check [--json]` over `wipemark-update` — 0 up to date,
+1 a newer verified version, 2 refused, and a plain `update` installs nothing
+(D788) —; `rewrite.rs` the rewrite flow and the command's own local engine —
 `name.rewritten.ext` by default, refused when a file is already there
 (exit 2 before the read, naming `-o` and `--in-place`, D362) — `app.rs`
 the road to the running application, its origin, file name, path and size

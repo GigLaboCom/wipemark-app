@@ -1899,6 +1899,32 @@
   left is **3 with nothing written**; TIFF, HEIC and AVIF are 2 by name,
   a picture that could not be read 3 (`docs/architecture/cli.md`,
   "Images").
+* **An update is offered only once proved** (D781, D782, D786). The
+  release statement's Ed25519 signature first — by a key compiled into the
+  program, rebuilt from the manifest's own fields, the URL built by the
+  program and any other refused — then the downloaded bytes' sha256 and
+  size, then on macOS the Developer ID requirement of team `M8AM5QVKBL` and
+  Gatekeeper's `Notarized Developer ID`, then the new programs' own
+  `--version`. Nothing is said or downloaded before the signature, and a
+  build that carries no key believes nothing and asks nothing
+  (`wipemark-update`; `a_statement_signed_by_another_key_is_refused`,
+  `a_changed_field_breaks_the_signature`,
+  `an_asset_on_another_host_is_refused_before_any_request`,
+  `a_build_without_keys_refuses_before_any_request`).
+* **The application reaches the network on its own only for the update
+  check** (D784): only with `updates.check` on — off until the person says
+  yes — at most once a day, never in a development build, and the request
+  carries nothing: `GET /downloads/wipemark` with `Host`, `Accept` and
+  `User-Agent: wipemark` (`the_check_sends_nothing_but_the_get`,
+  `no_check_runs_while_the_row_is_off`). The CLI checks only when typed;
+  MCP never does.
+* **Nothing is installed under work** (D788). Update and restart, Update
+  when I quit, Restart now and Download… are greyed with the reason — and
+  refused — while a rewrite, a clean or a model download runs or a Compare
+  window holds an edit a quit would not write; the swap is one atomic
+  call, and the restart goes through the quit path
+  (`update::first_wait`, `update_is_greyed_while_a_rewrite_runs`,
+  `the_update_s_buttons_are_greyed_under_work`, `the_swap_is_one_rename`).
 * **Every script stays in the repository, and says what it is for.**
   A script written to check, measure, verify or answer a question — by
   anyone, a host verifier and a one-off comparison included — is
