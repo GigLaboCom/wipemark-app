@@ -1,0 +1,58 @@
+[package]
+name = "wipemark-update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Whether a newer version exists, proved: the served manifest, the release statement and its Ed25519 signature, the download held to its sha256, and the swap."
+
+# A leaf on purpose (D789): it is handed the running version and the
+# installation rather than finding them in a settings row, and it hands
+# back a verdict rather than a sentence — the application words it, and
+# the CLI words it differently. Enforced by scripts/check-dep-direction.sh.
+#
+# Every package below is already in Cargo.lock (docs/sdd/self-update.md
+# §8.1): `ring` through rustls, `semver` and `base64` through the tree,
+# the rest workspace dependencies. The lock gains this crate and nothing
+# else.
+
+[dependencies]
+serde = { workspace = true }
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+# The manifest and the download: blocking, on a caller-owned thread, as
+# the model downloader's (crates/wipemark-models/src/store.rs) — https
+# only, no redirect, the trust roots of the operating system, the proxy
+# settings of the environment.
+ureq.workspace = true
+sha2.workspace = true
+hex.workspace = true
+# Ed25519 verification of a release statement (D782). Already in the tree
+# through rustls; the tests make their own key pairs with it.
+ring = "0.17"
+# Version order: a prerelease sorts below its release, and `stable` refuses
+# a prerelease outright (D781).
+semver = "1"
+# The signature's 64 bytes travel as standard base64 in the manifest.
+base64 = "0.22"
+
+# `access(W_OK)` for whether a folder can take the new copy, and on macOS
+# `renamex_np(RENAME_SWAP)` — the one atomic swap of two bundles. The only
+# calls into libc, in `install::sys`.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[features]
+# The loopback server, the run-time key pair and the signed manifest of
+# `testing`, for another crate's tests. Only a `[dev-dependencies]` entry
+# names it, so nothing that ships carries it.
+test-support = []
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

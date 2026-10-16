@@ -11,6 +11,7 @@
 #   picture → core, image, pixels: the one crate that decodes a picture
 #   store is a leaf: it takes a path and hands back rows
 #   i18n is a leaf: apps localize, libraries stay locale-neutral
+#   update is a leaf: whether a newer version exists, proved (D789)
 #   nothing depends on an app crate
 #
 # Why a script rather than a convention: the rule is invisible in the
@@ -54,6 +55,7 @@ LIBS = {
     "wipemark-store",
     "wipemark-secret",
     "wipemark-log",
+    "wipemark-update",
 }
 ALLOWED = {
     # Zero dependencies at all — external ones too. See the crate docs.
@@ -149,6 +151,13 @@ ALLOWED = {
     # instead of under the identifier a real install uses. Depending on
     # models to read BUNDLE_ID would put the two one import apart.
     "wipemark-secret": set(),
+    # Whether a newer version exists, proved: the served manifest, the
+    # release statement and its Ed25519 signature, the download held to its
+    # sha256, and the swap. A leaf on purpose: it is handed the running
+    # version and the installation rather than finding them in a settings
+    # row, and it hands back a verdict rather than a sentence — the
+    # application words it, and the CLI words it differently (D789).
+    "wipemark-update": set(),
     "wipemark-app": LIBS,
     "wipemark-cli": LIBS,
 }
