@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- The intro video's composition: every frame of wipemark-intro.mp4, the
+     hero loop and the poster is this page at one moment, drawn by
+     render.mjs (beside it) in a headless Chrome. Nothing here moves by
+     itself — no CSS animation, no transition, no timer: composition.js sets
+     every element from the time it is asked for, so the same time gives the
+     same picture. Edit the words and the timings in composition.js, then run
+     render.sh beside it. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Wipemark intro composition</title>
+  <link rel="stylesheet" href="composition.css">
+</head>
+<body>
+  <div id="frame">
+    <div id="bg"></div>
+    <div id="scenes"></div>
+    <div id="captions"></div>
+  </div>
+  <script src="composition.js"></script>
+</body>
+</html>

@@ -1,0 +1,680 @@
+/* The intro video's look: the website's light palette (site/style.css) and
+ * the application icon's blue and straw. Inter and JetBrains Mono, both under
+ * the SIL Open Font License 1.1, come from the @fontsource packages that
+ * render.sh installs; no system font is used. */
+
+@font-face { font-family: "Inter"; font-weight: 400; src: url("/fonts/inter-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 500; src: url("/fonts/inter-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 600; src: url("/fonts/inter-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 700; src: url("/fonts/inter-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; src: url("/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 600; src: url("/fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2"); }
+
+:root {
+  --bg: #fafafa;
+  --fg: #0a0a0a;
+  --fg-2: #262626;
+  --muted: #525252;
+  --border: #e5e5e5;
+  --brand: #1f5ab8;
+  --brand-2: #3c8bef;
+  --brand-soft: rgba(60, 139, 239, 0.10);
+  --straw: #ffd84d;
+  --straw-deep: #f4a11f;
+  --amber-ink: #7a4a00;
+  --green: #2f9e44;
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.05), 0 24px 64px rgba(15, 30, 60, 0.16);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+body {
+  font-family: "Inter";
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11" 1, "ss01" 1;
+}
+
+#frame {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+}
+
+#bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(900px 700px at 1500px 260px, rgba(60, 139, 239, 0.11), transparent 70%),
+    radial-gradient(700px 520px at 230px 80px, rgba(255, 216, 77, 0.13), transparent 70%),
+    radial-gradient(900px 600px at 400px 1080px, rgba(60, 139, 239, 0.05), transparent 70%),
+    var(--bg);
+}
+
+#scenes, #captions { position: absolute; inset: 0; }
+
+.scene {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  will-change: opacity;
+}
+
+/* The stage under the caption band: what sits on it may be zoomed into, and
+ * fades out at its top edge instead of being cut there. */
+.stage {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 196px;
+  bottom: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 44px);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 44px);
+}
+.stage.full { top: 0; -webkit-mask-image: none; mask-image: none; }
+
+/* A window of the application, as captured: drawn at its own pixel size and
+ * scaled by the camera, so the zoom never asks for pixels it does not have. */
+.win {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.win img { position: absolute; left: 0; top: 0; display: block; }
+
+/* ── Captions ───────────────────────────────────────────────────────── */
+
+.cap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  text-align: center;
+  visibility: hidden;
+  will-change: opacity, transform;
+}
+.cap .kicker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 52px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+.cap .head {
+  position: absolute;
+  left: 50%;
+  top: 82px;
+  width: 1500px;
+  margin-left: -750px;
+  font-size: 50px;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+.cap .sub {
+  position: absolute;
+  left: 50%;
+  top: 146px;
+  width: 1400px;
+  margin-left: -700px;
+  font-size: 28px;
+  line-height: 1.25;
+  color: var(--muted);
+  letter-spacing: -0.005em;
+}
+.cap.has-sub .head { top: 76px; }
+.cap.has-sub .sub { top: 140px; }
+
+/* ── Pills and ticks ────────────────────────────────────────────────── */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px 12px 14px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  font-size: 25px;
+  color: var(--fg-2);
+}
+.pill code { font: 500 23px "JetBrains Mono"; color: var(--fg); }
+.tick {
+  display: inline-block;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--brand-2);
+  position: relative;
+  flex: none;
+}
+.tick svg { position: absolute; inset: 0; }
+
+/* ── Brand and end card ─────────────────────────────────────────────── */
+
+.brand-icon { position: absolute; left: 50%; display: block; }
+.brand-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: var(--fg);
+}
+.brand-line {
+  position: absolute;
+  left: 50%;
+  width: 1000px;
+  margin-left: -500px;
+  text-align: center;
+  font-size: 36px;
+  line-height: 1.3;
+  letter-spacing: -0.012em;
+  color: var(--fg-2);
+}
+.end-meta {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 30px;
+  color: var(--fg-2);
+}
+.end-meta .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: 0 16px 6px;
+  border-radius: 50%;
+  background: var(--straw-deep);
+}
+.end-url {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font: 500 32px "JetBrains Mono";
+  color: var(--brand);
+}
+.end-small {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 25px;
+  color: var(--muted);
+}
+
+/* ── Pictures: the file's blocks ────────────────────────────────────── */
+
+.pic-art {
+  position: absolute;
+  left: 470px;
+  top: 392px;
+  width: 400px;
+  height: 400px;
+  border-radius: 26px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  background: linear-gradient(180deg, #8cc4ff 0%, #5aa2f4 58%, #3c8bef 100%);
+}
+.pic-art .sun {
+  position: absolute;
+  left: 262px;
+  top: 74px;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: var(--straw);
+  box-shadow: 0 0 0 14px rgba(255, 216, 77, 0.25);
+}
+.pic-art .hill { position: absolute; bottom: 0; }
+.blocks {
+  position: absolute;
+  left: 930px;
+  top: 340px;
+  width: 520px;
+}
+.block {
+  position: absolute;
+  left: 0;
+  width: 520px;
+  height: 56px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  font-size: 25px;
+  color: var(--fg-2);
+}
+.block code { font: 500 21px "JetBrains Mono"; color: var(--muted); margin-left: auto; }
+.block.ai { background: #fff8db; border-color: var(--straw-deep); color: var(--amber-ink); }
+.block.ai code { color: var(--amber-ink); }
+.block.data { height: 92px; background: #eef5ff; border-color: #bcd6fb; color: var(--brand); font-weight: 600; }
+.block.data code { color: var(--brand); font-weight: 500; }
+.block .tag {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-left: 14px;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+.block.ai .tag { background: var(--straw); color: var(--amber-ink); }
+
+/* ── Pictures: before and after ─────────────────────────────────────── */
+
+.ba {
+  position: absolute;
+  overflow: hidden;
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  background: #0a9336;
+}
+.ba .half {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+}
+.ba .divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  margin-left: -2px;
+  background: #fff;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.25);
+}
+.ba .knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+.ba .knob svg { position: absolute; inset: 0; }
+
+/* ── Report: the shelf in view ──────────────────────────────────────── */
+
+.shelf-mark {
+  position: absolute;
+  border-radius: 16px;
+  border: 4px solid var(--brand-2);
+  background: rgba(60, 139, 239, 0.07);
+}
+
+/* ── Private by default ─────────────────────────────────────────────── */
+
+.points {
+  position: absolute;
+  left: 50%;
+  top: 392px;
+  width: 1000px;
+  margin-left: -500px;
+}
+.point {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  white-space: nowrap;
+  font-size: 39px;
+  letter-spacing: -0.015em;
+  font-weight: 500;
+  color: var(--fg-2);
+}
+.point .tick { width: 46px; height: 46px; }
+
+/* ── The opening: dark, then wiped light ────────────────────────────── */
+
+.hk-light, .hk-dark, .hk-zoom { position: absolute; inset: 0; }
+.hk-dark {
+  background:
+    radial-gradient(760px 420px at 960px 560px, rgba(239, 68, 68, 0.16), transparent 70%),
+    radial-gradient(900px 600px at 1620px 80px, rgba(60, 139, 239, 0.16), transparent 70%),
+    radial-gradient(700px 500px at 200px 1000px, rgba(255, 216, 77, 0.07), transparent 70%),
+    #0a0d13;
+}
+.hk-zoom { transform-origin: 960px 540px; }
+.hk-head {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+}
+.hk-head div { white-space: nowrap; }
+.hk-dark .hk-head { top: 120px; font-size: 88px; color: #ffffff; }
+.hk-light .hk-head { top: 158px; font-size: 72px; color: var(--fg); }
+.hk-sub {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 256px;
+  text-align: center;
+  font-size: 32px;
+  color: var(--muted);
+}
+.hk-card {
+  position: absolute;
+  left: 50%;
+  top: 408px;
+  width: 1040px;
+  height: 270px;
+  margin-left: -520px;
+  border-radius: 24px;
+}
+.hk-dark .hk-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+.hk-light .hk-card { background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow); }
+.hk-label {
+  position: absolute;
+  left: 36px;
+  top: 26px;
+  font: 500 21px "JetBrains Mono";
+  letter-spacing: 0.02em;
+}
+.hk-dark .hk-label { color: #8b95a7; }
+.hk-light .hk-label { color: var(--muted); }
+.hk-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  white-space: nowrap;
+  font-size: 52px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 64px;
+}
+.hk-dark .hk-line { color: #f3f4f6; }
+.hk-light .hk-line { color: var(--fg-2); }
+.mk {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 48px;
+  vertical-align: -8px;
+}
+.mk i {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+  border-radius: 10px;
+  background: #ef4444;
+  color: #fff;
+  font: 600 21px "JetBrains Mono";
+  font-style: normal;
+  letter-spacing: 0;
+}
+/* Where a character was: a dashed outline, until the gap closes. */
+.hk-light .mk i { background: transparent; color: transparent; border: 2px dashed rgba(239, 68, 68, 0.5); }
+.hk-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 200px;
+  margin-left: -200px;
+  background: linear-gradient(90deg, rgba(250, 250, 250, 0), rgba(250, 250, 250, 0.85) 78%, #ffd84d 95%, rgba(255, 216, 77, 0) 100%);
+}
+.hk-brand {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 964px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.hk-brand img { width: 46px; height: 46px; }
+.hk-dark .hk-brand { color: #e5e7eb; }
+.hk-light .hk-brand { color: var(--fg); }
+.hk-badge { position: absolute; left: 0; right: 0; top: 720px; text-align: center; }
+
+/* ── Agents over MCP ────────────────────────────────────────────────── */
+
+.mcp-agent {
+  position: absolute;
+  left: 50%;
+  top: 236px;
+  width: 1000px;
+  height: 290px;
+  margin-left: -500px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #0f131a;
+  box-shadow: var(--shadow);
+  color: #e5e7eb;
+  font: 400 24px/1.4 "JetBrains Mono";
+}
+.mcp-agent .bar {
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 26px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  font: 500 20px "JetBrains Mono";
+  color: #8b95a7;
+}
+.mcp-agent .bar b {
+  font-weight: 600;
+  color: #bfdbfe;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: rgba(60, 139, 239, 0.22);
+}
+.mcp-agent .ln { position: absolute; left: 30px; white-space: pre; }
+.mcp-agent .muted { color: #8b95a7; }
+.mcp-agent .call { color: #93c5fd; }
+.mcp-agent .ok { color: #86efac; }
+.mk.sm { height: 32px; vertical-align: -6px; width: 92px; margin: 0 5px; }
+.mk.sm i { font-size: 16px; border-radius: 7px; box-shadow: 0 0 16px rgba(239, 68, 68, 0.5); }
+.mcp-wire {
+  position: absolute;
+  left: 50%;
+  width: 3px;
+  margin-left: -1.5px;
+  background: var(--brand-2);
+}
+.mcp-wire-label {
+  position: absolute;
+  left: 50%;
+  top: 576px;
+  margin-left: 26px;
+  font: 500 22px "JetBrains Mono";
+  color: var(--brand);
+  white-space: nowrap;
+}
+.mcp-dot {
+  position: absolute;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 6px rgba(60, 139, 239, 0.18);
+}
+.mcp-row {
+  position: absolute;
+  left: 50%;
+  top: 660px;
+  width: 1000px;
+  height: 172px;
+  margin-left: -500px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.mcp-row .head {
+  position: absolute;
+  left: 28px;
+  top: 18px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+.mcp-row .cells {
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  top: 58px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+.mcp-row .nm { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.mcp-row .nm b { font-size: 27px; font-weight: 600; color: var(--fg); }
+.mcp-row .nm span { font-size: 21px; color: var(--muted); }
+.mcp-row .nm .went { font-size: 19px; }
+.mcp-row .kind {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid #bcd6fb;
+  color: var(--brand-2);
+  font-size: 19px;
+}
+.mcp-row .state {
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: #5ec269;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 500;
+}
+.mcp-setup {
+  position: absolute;
+  left: 50%;
+  top: 236px;
+  width: 1000px;
+  height: 606px;
+  margin-left: -500px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.mcp-setup .crumb {
+  position: absolute;
+  left: 40px;
+  top: 28px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+.mcp-setup .serve {
+  position: absolute;
+  left: 40px;
+  top: 70px;
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.mcp-setup .toggle {
+  position: absolute;
+  right: 40px;
+  top: 70px;
+  width: 68px;
+  height: 40px;
+  border-radius: 20px;
+}
+.mcp-setup .toggle i {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.mcp-setup .endpoint {
+  position: absolute;
+  left: 40px;
+  top: 122px;
+  font-size: 24px;
+  color: var(--muted);
+}
+.mcp-setup .endpoint code { font: 500 23px "JetBrains Mono"; color: var(--brand); }
+.mcp-setup .rule { position: absolute; left: 40px; right: 40px; top: 182px; height: 1px; background: var(--border); }
+.mcp-setup .label {
+  position: absolute;
+  top: 208px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--fg-2);
+}
+.mcp-setup .snippet {
+  position: absolute;
+  left: 40px;
+  top: 248px;
+  width: 560px;
+  margin: 0;
+  padding: 20px 24px;
+  border-radius: 14px;
+  background: #0f131a;
+  color: #e5e7eb;
+  font: 400 21px/1.45 "JetBrains Mono";
+}
+.mcp-setup .tool {
+  position: absolute;
+  left: 640px;
+  width: 320px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  border-radius: 10px;
+  background: #eef5ff;
+  border: 1px solid #bcd6fb;
+  font: 500 22px "JetBrains Mono";
+  color: var(--brand);
+}
