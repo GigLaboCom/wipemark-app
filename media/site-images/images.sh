@@ -5,36 +5,38 @@
 # What it is for: the site (site/, built by scripts/site/build.sh) needs a
 # favicon, a touch icon, a header logo, the 1200×630 picture link previews
 # show, and the glyphs its cards draw — and all of them should be the
-# application's, not drawn twice. The outputs are committed, so a build needs
-# none of the tools below; this script is how they were made and how to make
-# them again when the icon or the wording of the picture changes.
+# application's, not drawn twice. Like every generated asset (media/README.md)
+# the outputs are not committed: they land in media/out/site/, which
+# scripts/site/build.sh copies to the site's root.
 #
 # What it does:
-#   1. site/icons.svg — one SVG sprite of the Font Awesome Free glyphs the
+#   1. icons.svg — one SVG sprite of the Font Awesome Free glyphs the
 #      application draws (apps/wipemark-app/assets/icons/), each a <symbol>
 #      the page uses as icons.svg#i-<name>, the attribution comment kept;
-#   2. site/favicon.ico (16, 32, 48) and site/icon-192.png from
+#   2. favicon.ico (16, 32, 48) and icon-192.png from
 #      apps/wipemark-app/assets/icon/icon.png;
-#   3. site/apple-touch-icon.png, 180×180, the icon on white — iOS fills a
+#   3. apple-touch-icon.png, 180×180, the icon on white — iOS fills a
 #      transparent touch icon with black;
-#   4. site/og-image.png, 1200×630: scripts/site/og-image.html drawn by a
+#   4. og-image.png, 1200×630: media/site-images/og-image.html drawn by a
 #      headless Chrome (no window opens), cut to size.
 #   Every PNG and the ICO are written with no metadata (`-strip`): no
 #   timestamps, no software name, nothing for a provenance tool to find.
 #
-# How to run:   scripts/site/images.sh
+# How to run:   media/site-images/images.sh
 # Needs:        python3; ImageMagick 7 (`magick`); Google Chrome or Chromium —
 #               found at its macOS path or as google-chrome, chromium or
 #               chromium-browser on PATH (CHROME=/path overrides).
-# Output:       the five files above, and one line each with its size.
+# Output:       the five files above in media/out/site/, and one line each
+#               with its size.
 #               Exit 1 if a tool is missing or a file comes out the wrong size.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-site="$repo/site"
+site="$repo/media/out/site"
+mkdir -p "$site"
 icon="$repo/apps/wipemark-app/assets/icon/icon.png"
 glyphs="$repo/apps/wipemark-app/assets/icons"
-template="$repo/scripts/site/og-image.html"
+template="$repo/media/site-images/og-image.html"
 
 command -v python3 >/dev/null || { echo "ERROR: python3 is needed" >&2; exit 1; }
 command -v magick >/dev/null || { echo "ERROR: ImageMagick 7 (magick) is needed" >&2; exit 1; }

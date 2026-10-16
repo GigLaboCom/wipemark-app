@@ -4,9 +4,10 @@
 #
 # What it is for: the owner asked on 2026-10-16 for everything the product
 # website needs ("prepare everything for the website too"). The pages live in
-# site/; the screenshots and the intro video live in docs/assets/, where the
-# repository's own documents can use them too. A static host serves one
-# directory, so this script makes that directory: site/dist/ (gitignored).
+# site/; the screenshots, the intro video and the site's own icons are
+# generated into media/out/ (gitignored — media/README.md says by what). A
+# static host serves one directory, so this script makes that directory:
+# site/dist/ (gitignored).
 # site/README.md says how to preview it and how to deploy it, and
 # .github/workflows/pages.yml runs this script for GitHub Pages.
 #
@@ -14,8 +15,9 @@
 #   1. empties site/dist/ and copies site/ into it, leaving out README.md and
 #      dist/ itself;
 #   2. finds every `assets/...` path the pages and the stylesheet name, and
-#      copies each from docs/assets/ to dist/assets/ — a missing one is a
-#      warning, and with --strict an error;
+#      copies each from media/out/ to dist/assets/, and copies the icons,
+#      the glyph sprite and the Open Graph picture from media/out/site/ to
+#      dist/ — a missing one is a warning, and with --strict an error;
 #   3. copies LICENSE.md to dist/legal/LICENSE.txt, so the licence is served
 #      as text beside the pages;
 #   4. writes SITE_ORIGIN and RELEASES_URL (below) over the placeholders
@@ -70,7 +72,7 @@ fi
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 src="$repo/site"
-assets="$repo/docs/assets"
+assets="$repo/media/out"
 dist="$src/dist"
 failed=0
 missing_assets=0
@@ -90,13 +92,13 @@ find "$src" -mindepth 1 -maxdepth 1 ! -name dist ! -name README.md ! -name .DS_S
     cp -R "$entry" "$dist/"
   done
 
-# 2. The assets the pages name, from docs/assets/.
-step "assets named by the pages, from docs/assets/"
+# 2. The assets the pages name, from media/out/.
+step "assets named by the pages, from media/out/"
 refs="$(grep -ohE 'assets/[A-Za-z0-9._/-]+' "$src"/*.html "$src"/*.css | sort -u || true)"
 copied=0
 for ref in $refs; do
   case "$ref" in
-    *..*) fail "an asset path that climbs out of docs/assets/: $ref"; continue ;;
+    *..*) fail "an asset path that climbs out of media/out/: $ref"; continue ;;
   esac
   from="$assets/${ref#assets/}"
   if [ -f "$from" ]; then
@@ -106,13 +108,28 @@ for ref in $refs; do
   else
     missing_assets=$((missing_assets + 1))
     if [ "$strict" = 1 ]; then
-      fail "missing: docs/$ref"
+      fail "missing: media/out/${ref#assets/}"
     else
-      warn "missing: docs/$ref (the page shows an empty frame; --strict refuses)"
+      warn "missing: media/out/${ref#assets/} (the page shows an empty frame; --strict refuses)"
     fi
   fi
 done
 echo "   $copied copied, $missing_assets missing"
+
+# The site's own generated images (media/site-images/images.sh), at its root.
+step "icons, glyph sprite and Open Graph picture, from media/out/site/"
+for name in favicon.ico icon-192.png apple-touch-icon.png og-image.png icons.svg; do
+  if [ -f "$assets/site/$name" ]; then
+    cp "$assets/site/$name" "$dist/$name"
+  else
+    missing_assets=$((missing_assets + 1))
+    if [ "$strict" = 1 ]; then
+      fail "missing: media/out/site/$name (media/site-images/images.sh makes it)"
+    else
+      warn "missing: media/out/site/$name (media/site-images/images.sh makes it; --strict refuses)"
+    fi
+  fi
+done
 
 # 3. The licence, as text.
 step "LICENSE.md -> legal/LICENSE.txt"

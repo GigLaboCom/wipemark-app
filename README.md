@@ -3,8 +3,8 @@
 **Removes AI provenance marks from your own text and pictures, on your own machine.**
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/main-window-dark.png">
-  <img alt="Wipemark's main window: a list of dropped documents and pictures, each row cleaned, with its status and the name of its result" src="docs/assets/screenshots/main-window.png">
+  <source media="(prefers-color-scheme: dark)" srcset="media/out/screenshots/main-window-dark.png">
+  <img alt="Wipemark's main window: a list of dropped documents and pictures, each row cleaned, with its status and the name of its result" src="media/out/screenshots/main-window.png">
 </picture>
 
 Wipemark is a native desktop application for **macOS on Apple Silicon** and
@@ -32,7 +32,7 @@ Your file stays as it is: the result is written beside it, as
 `name.cleaned.ext` or `name.rewritten.ext`. Every result comes with a
 report of what was done, and of what cannot be established.
 
-<a href="docs/assets/video/wipemark-intro.mp4"><img alt="Watch the introduction to Wipemark (video)" src="docs/assets/video/wipemark-intro-poster.png" width="720"></a>
+<a href="media/out/video/wipemark-intro.mp4"><img alt="Watch the introduction to Wipemark (video)" src="media/out/video/wipemark-intro-poster.png" width="720"></a>
 
 **Version 0.1.0** · [Download](https://github.com/GigLaboCom/wipemark-app/releases/latest) · [Release notes](docs/release/0.1.0.md) · [Licence: FSL-1.1-ALv2](#licence)
 
@@ -81,7 +81,7 @@ Every result is filed on three shelves. The third is never empty.
 A picture's third shelf starts with the marks no eye can see in the
 pixels. Wipemark does not look for those, and it does not remove them.
 
-<img alt="The Report window: verifiable, best-effort and not established" src="docs/assets/screenshots/report.png" width="720">
+<img alt="The Report window: verifiable, best-effort and not established" src="media/out/screenshots/report.png" width="720">
 
 ### Text
 
@@ -140,7 +140,7 @@ pixels. Wipemark does not look for those, and it does not remove them.
   mark may have moved, and the mark must no longer be found. Otherwise
   nothing is written.
 
-<img alt="A picture before and after: the visible mark in its corner removed" src="docs/assets/screenshots/picture-before-after.png" width="720">
+<img alt="A picture before and after: the visible mark in its corner removed" src="media/out/screenshots/picture-before-after.png" width="720">
 
 ### Rewriting
 
@@ -166,10 +166,7 @@ pixels. Wipemark does not look for those, and it does not remove them.
   Russian**, and can be edited on the Rewriting page. *Shipped* is the
   default profile and *Keep voice* can be chosen; you can save your own.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/compare-dark.png">
-  <img alt="The Compare window: a rewritten text beside its original, the changes marked" src="docs/assets/screenshots/compare.png">
-</picture>
+<img alt="The Compare window: a rewritten text beside its original, the changes marked" src="media/out/screenshots/compare.png">
 
 ### The windows
 
@@ -186,8 +183,8 @@ pixels. Wipemark does not look for those, and it does not remove them.
 The windows are in **English, German and Russian**, with light, dark or
 system appearance.
 
-<img alt="The panel, summoned over another application, with a dropped file and its findings" src="docs/assets/screenshots/panel.png" width="480">
-<img alt="Settings, the Engine page: who rewrites, and where a rewrite goes" src="docs/assets/screenshots/settings-engine.png" width="720">
+<img alt="The panel, summoned over another application, with a dropped file and its findings" src="media/out/screenshots/panel.png" width="480">
+<img alt="Settings, the Engine page: who rewrites, and where a rewrite goes" src="media/out/screenshots/settings-engine.png" width="720">
 
 ### The command line
 
@@ -213,7 +210,7 @@ The command line refuses to write over an existing result; `-o` names
 the target explicitly. Every command's codes are in
 [docs/architecture/cli.md](docs/architecture/cli.md).
 
-<img alt="wipemark-cli inspect and clean in a terminal" src="docs/assets/screenshots/cli.png" width="720">
+<img alt="wipemark-cli inspect and clean in a terminal" src="media/out/screenshots/cli.png" width="720">
 
 ### The MCP server, for agents
 

@@ -114,6 +114,11 @@ Thumbs.db
 /ci/linux-builder/vendor/
 
 # ── The product website (scripts/site/build.sh) ───────────────────────
-# site/dist/ is assembled from site/ and docs/assets/ on every build and
+# site/dist/ is assembled from site/ and media/out/ on every build and
 # deployed as it is; the sources are what is committed.
 /site/dist/
+
+# ── Generated media (media/README.md) ──────────────────────────────────
+# Screenshots, clips, the video and the site's icons, made by the tools in
+# media/; regenerated, never committed (the owner, 2026-10-16).
+/media/out/

@@ -1,7 +1,8 @@
 # wipemark — the product website on GitHub Pages, by hand only.
 #
 # Runs scripts/site/build.sh, which assembles site/dist/ from site/ and the
-# screenshots and the video under docs/assets/, and publishes that directory
+# generated assets under media/out/ (gitignored, so absent here until they
+# have a home this job can fetch from), and publishes that directory
 # with GitHub's own Pages actions. Nothing triggers it but a person
 # (workflow_dispatch): a push never deploys the site. site/README.md has the
 # one-time setup (Settings › Pages › Source: GitHub Actions) and the

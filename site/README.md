@@ -11,13 +11,18 @@ can serve it as it is.
 | `style.css` | the one stylesheet, light and dark by `prefers-color-scheme`, the application's palette |
 | `site.js` | shows an empty labelled frame for a screenshot or a video that is not there yet; the page works without it |
 | `icons.svg` | the application's own Font Awesome Free glyphs as one sprite |
-| `favicon.ico`, `icon-192.png`, `apple-touch-icon.png`, `og-image.png` | made from the application icon by `scripts/site/images.sh` |
+| `favicon.ico`, `icon-192.png`, `apple-touch-icon.png`, `og-image.png`, `icons.svg` | not in `site/`: made from the application's icon and glyphs by `media/site-images/images.sh` into `media/out/site/`, copied to the site's root by the build |
 | `robots.txt`, `sitemap.xml` | carry `__SITE_ORIGIN__`, written in by the build |
 
-The screenshots and the video are not in `site/`. They live in
-`docs/assets/screenshots/` and `docs/assets/video/`, and the page names them
-as `assets/screenshots/…` and `assets/video/…`. `scripts/site/build.sh` puts
-the two together in `site/dist/` (gitignored), which is what a host serves.
+The screenshots and the video are not in `site/` and not in git: they are
+generated into `media/out/screenshots/` and `media/out/video/` (gitignored;
+`media/README.md` says by what, and where they will be kept is still open),
+and the page names them as `assets/screenshots/…` and `assets/video/…`.
+`scripts/site/build.sh` puts the pages and those files together in
+`site/dist/` (gitignored), which is what a host serves. So, until the assets
+have a home of their own, build and deploy from a machine that has
+`media/out/`; the Pages workflow on GitHub has no `media/out/` and builds the
+pages with empty frames.
 
 ## Build and preview
 
@@ -86,15 +91,15 @@ Content-Security-Policy. GitHub Pages takes files up to 100 MB.
 ## Images
 
 ```sh
-scripts/site/images.sh
+media/site-images/images.sh
 ```
 
 redraws `icons.svg`, the favicon, the touch icon and `og-image.png` from
 `apps/wipemark-app/assets/icon/icon.png` and `assets/icons/`. The Open Graph
-picture is `scripts/site/og-image.html`, drawn by a headless Chrome; edit
+picture is `media/site-images/og-image.html`, drawn by a headless Chrome; edit
 that file, not the PNG. Every output is written without metadata. It needs
-python3, ImageMagick 7 and Chrome or Chromium. The outputs are committed, so
-the build needs none of them.
+python3, ImageMagick 7 and Chrome or Chromium. The outputs go to
+`media/out/site/` and are not committed (`media/README.md`).
 
 ## Editing the words
 
@@ -146,7 +151,8 @@ Where the facts come from, to check them when the product changes:
    `<details>` marked `OWNER` in `index.html`). If 0.1.0 ships signed and
    notarized, delete that block.
 5. **Screenshots and the video.** Build with `--strict` once
-   `docs/assets/screenshots/` and `docs/assets/video/` are in. If the video
+   `media/out/screenshots/`, `media/out/video/` and `media/out/site/` are
+   there, and decide where the assets live so CI can fetch them. If the video
    has speech, add a captions track (`<track kind="captions" …>`).
 6. **Third-party notices.** The footer links to `NOTICE` on `main`, which
    exists only once PR #1 is merged. `NOTICE` mentions an epic number in its
