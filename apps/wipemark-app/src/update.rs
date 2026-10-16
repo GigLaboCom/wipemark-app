@@ -165,7 +165,7 @@ pub fn work_now(cx: &App) -> Work {
     let (cleaning, rewriting) = cx
         .try_global::<crate::queue::Table>()
         .map_or((false, false), |table| table.0.read(cx).at_work(cx));
-    let engine_busy = crate::engine_host::hosted(cx).is_some_and(|host| host.read(cx).busy() > 0);
+    let engine_busy = crate::engine_host::hosted(cx).is_some_and(|host| host.read(cx).held());
     Work {
         rewriting: rewriting || engine_busy,
         cleaning,

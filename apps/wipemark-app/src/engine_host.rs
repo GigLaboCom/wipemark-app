@@ -1415,10 +1415,11 @@ impl EngineHost {
         &self.loaded
     }
 
-    /// How many jobs run on the engine now — an update's gate (D788): a
-    /// rewrite, an agent's, a Check.
-    pub fn busy(&self) -> usize {
-        self.handle.busy()
+    /// Whether anything holds the engine now — the count the Unload reads
+    /// (D801), and an update's gate (D788): a rewrite, an agent's, a Check,
+    /// a template's check.
+    pub fn held(&self) -> bool {
+        self.handle.in_use().is_some() || self.handle.busy() > 0
     }
 
     /// How much of the weights the load under way has read, from 0 to 1 —
