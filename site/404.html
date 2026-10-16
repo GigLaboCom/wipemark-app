@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Page not found — Wipemark</title>
+  <meta name="robots" content="noindex">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="color-scheme" content="light dark">
+  <!-- A host serves this page at whatever path was missing, so every link
+       here is absolute: scripts/site/build.sh writes the site's origin in. -->
+  <link rel="icon" href="__SITE_ORIGIN__/favicon.ico" sizes="any">
+  <link rel="stylesheet" href="__SITE_ORIGIN__/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="__SITE_ORIGIN__/">
+        <img src="__SITE_ORIGIN__/icon-192.png" alt="" width="30" height="30">
+        <span>Wipemark</span>
+      </a>
+    </div>
+  </header>
+
+  <main id="main" class="not-found">
+    <div class="container">
+      <span class="kicker">404</span>
+      <h1>This page is not here.</h1>
+      <p class="lead">The address may be mistyped, or the page may have moved.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="__SITE_ORIGIN__/">Go to the Wipemark home page</a>
+        <a class="btn btn-secondary" href="__SITE_ORIGIN__/#download">Download</a>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>© 2026 GigLabo and Denis Esakov. Licensed under FSL-1.1-ALv2.</p>
+    </div>
+  </footer>
+</body>
+</html>
