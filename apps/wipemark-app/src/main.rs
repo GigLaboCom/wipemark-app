@@ -53,6 +53,7 @@ mod engine_host;
 // registrar on GNOME (D641).
 mod gnome;
 mod hotkey;
+mod hover;
 mod icon;
 #[cfg(target_os = "linux")]
 mod integrate;
@@ -119,6 +120,7 @@ use crate::clipboard::Clipboard;
 use crate::duty::{Duty, Performer};
 use crate::engine_host::{EngineHandle, EngineHost, Loaded};
 use crate::hotkey::Registration;
+use crate::hover::Tip as _;
 use crate::icon::{Icon, IconName};
 use crate::placement::Origin;
 use crate::queue::{Queue, QueueEvent, Road};
@@ -822,7 +824,7 @@ impl Shell {
                     .outline()
                     .icon(IconName::FileImport)
                     .label(SharedString::from(t(Message::ToolbarImport)))
-                    .tooltip(SharedString::from(t(Message::ToolbarImportTooltip)))
+                    .tip(SharedString::from(t(Message::ToolbarImportTooltip)))
                     .on_click(move |_: &ClickEvent, window, cx| {
                         queue.update(cx, |queue, cx| queue.import(window, cx));
                     }),
@@ -836,7 +838,7 @@ impl Shell {
                         paste_label,
                         &args!("count" => count),
                     )))
-                    .tooltip(SharedString::from(t(Message::ToolbarPasteTooltip)))
+                    .tip(SharedString::from(t(Message::ToolbarPasteTooltip)))
                     .disabled(count == 0)
                     .on_click(move |_: &ClickEvent, _, cx| {
                         let handed = Clipboard::take(cx);
@@ -854,7 +856,7 @@ impl Shell {
                     .outline()
                     .icon(IconName::Broom)
                     .label(SharedString::from(t(Message::ToolbarCleanAll)))
-                    .tooltip(SharedString::from(t(Message::ToolbarCleanAllTooltip)))
+                    .tip(SharedString::from(t(Message::ToolbarCleanAllTooltip)))
                     .disabled(waiting == 0)
                     .on_click(move |_: &ClickEvent, _, cx| {
                         cleaning.update(cx, |queue, cx| queue.clean_all(cx));
@@ -866,7 +868,7 @@ impl Shell {
                     .outline()
                     .icon(IconName::Pen)
                     .label(SharedString::from(t(Message::ToolbarRewriteAll)))
-                    .tooltip(SharedString::from(t(Message::ToolbarRewriteAllTooltip)))
+                    .tip(SharedString::from(t(Message::ToolbarRewriteAllTooltip)))
                     .disabled(rewritable == 0)
                     .on_click(move |_: &ClickEvent, _, cx| {
                         rewriting.update(cx, |queue, cx| queue.ask_rewrite_all(cx));
@@ -883,7 +885,7 @@ impl Shell {
                         } else {
                             Message::ToolbarPause
                         })))
-                        .tooltip(SharedString::from(t(if paused {
+                        .tip(SharedString::from(t(if paused {
                             Message::ToolbarResumeTooltip
                         } else {
                             Message::ToolbarPauseTooltip
@@ -903,7 +905,7 @@ impl Shell {
                         .ghost()
                         .icon(IconName::Trash)
                         .label(SharedString::from(t(Message::ToolbarClearFinished)))
-                        .tooltip(SharedString::from(t(Message::ToolbarClearFinishedTooltip)))
+                        .tip(SharedString::from(t(Message::ToolbarClearFinishedTooltip)))
                         .on_click(move |_: &ClickEvent, _, cx| {
                             clearing.update(cx, |queue, cx| queue.clear_finished(cx));
                         }),
@@ -919,7 +921,7 @@ impl Shell {
                             .ghost()
                             .icon(IconName::CircleQuestion)
                             .label(SharedString::from(t(Message::ToolbarHelp)))
-                            .tooltip(SharedString::from(t(Message::ToolbarHelpTooltip))),
+                            .tip(SharedString::from(t(Message::ToolbarHelpTooltip))),
                     )
                     .content(|_, _, cx| help(cx)),
             )
@@ -1001,7 +1003,7 @@ impl Render for Shell {
                         Button::new("open-settings")
                             .xsmall()
                             .ghost()
-                            .tooltip(t(Message::SettingsTitle))
+                            .tip(t(Message::SettingsTitle))
                             .child(Icon::new(IconName::Gear).small().color(muted))
                             .on_click(|_: &ClickEvent, window, cx| {
                                 window.dispatch_action(Box::new(OpenSettings), cx);
@@ -1594,6 +1596,10 @@ fn main() {
             integrate::start();
             // Must come before anything else touches a component or a theme.
             gpui_component::init(cx);
+            // Every window built after this tells GPUI when the pointer
+            // has left it, so no hover — and no tooltip — outlives the
+            // pointer (F34, D795).
+            hover::init(cx);
             // After it: `bind_keys` wants the keymap that call sets up.
             settings::init(cx);
             // Escape and Enter, scoped to a dialog's own key context so

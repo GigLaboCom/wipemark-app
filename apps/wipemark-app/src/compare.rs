@@ -219,6 +219,7 @@ use wipemark_store::entry::Action;
 use crate::chrome::Forward;
 use crate::cleaner::{self, Cleaner};
 use crate::diff::{Diff, Grain, Padding, Rows, Side};
+use crate::hover::Tip as _;
 use crate::icon::{Icon, IconName};
 use crate::result::{self, Offer, ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
@@ -1050,10 +1051,10 @@ impl Marks {
 
 impl LineDecorationProvider for Marks {
     fn line_decorations(&self, rows: Range<usize>, cx: &App) -> Vec<LineDecoration> {
-        let theme = cx.theme();
-        let (marker, tint) = match self.side {
-            Side::Original => (GutterMarker::DiffRemoved, theme.danger.opacity(0.16)),
-            Side::Result => (GutterMarker::DiffAdded, theme.success.opacity(0.16)),
+        let tint = line_tint(self.side, cx.theme());
+        let marker = match self.side {
+            Side::Original => GutterMarker::DiffRemoved,
+            Side::Result => GutterMarker::DiffAdded,
         };
         self.within(rows)
             .iter()
@@ -1066,6 +1067,17 @@ impl LineDecorationProvider for Marks {
     }
 }
 
+/// The tint across a whole line that differs, for `side`: the side's
+/// colour — the danger red on the original, the success green on the
+/// result — at a sixth of its strength, over whatever the row has under it.
+/// What a mark within that line stands out from (D798).
+fn line_tint(side: Side, theme: &Theme) -> Hsla {
+    match side {
+        Side::Original => theme.danger.opacity(0.16),
+        Side::Result => theme.success.opacity(0.16),
+    }
+}
+
 /// The marks within a line one side paints: the words — or characters
 /// — of a changed passage that the other side does not have.
 ///
@@ -1075,9 +1087,9 @@ impl LineDecorationProvider for Marks {
 /// so the answer is for the two texts as they stand when the question
 /// is put — and it is put on the background executor, because the
 /// comparison is. The colour is chosen when it is asked, from the
-/// theme of the moment: the library keeps the answer as painted, so a
-/// theme switch re-tints these at the next asking, which is the next
-/// edit, and not before.
+/// theme of the moment, and the library keeps the answer as painted —
+/// so a theme switch that moves the colour asks both sides again
+/// ([`CompareView::retint`], D797).
 pub struct Inline {
     side: Side,
     grain: Grain,
@@ -1136,18 +1148,32 @@ impl DocumentColorProvider for Inline {
 /// The hue is the side's — the danger red the original's line marks
 /// use, the success green the result's — at a lightness the theme's
 /// text reads over: the library recolours text it paints a colour
-/// behind, black over a light one and white over a dark one, so a
-/// light theme gets a light tint and a dark theme a dark one. Opaque,
-/// so what it covers of the line tint does not shift the shade.
+/// behind, black over a light one and white over a dark one (by HSL
+/// lightness, at 0.5), so a light theme gets a light tint and a dark
+/// theme a dark one. Opaque, so what it covers of the line tint does not
+/// shift the shade.
+///
+/// The light theme's is the side's hue at saturation 0.55 and lightness
+/// 0.80, as it always was (D799). The dark theme's is set per side,
+/// because a red and a green of one lightness are far apart in luminance:
+/// each carries white text at 4.5:1 or better, stands 3:1 off the editor's
+/// ground and 2.5:1 off its own line's tint, and keeps its lightness at
+/// least 0.05 under the 0.5 where the library would turn the text black
+/// (D798; `the_dark_word_marks_meet_wcag_contrast` measures it).
 fn tone(side: Side, theme: &Theme) -> Color {
     let base = match side {
         Side::Original => theme.danger,
         Side::Result => theme.success,
     };
+    let (s, l) = match (theme.is_dark(), side) {
+        (false, _) => (0.55, 0.80),
+        (true, Side::Original) => (0.80, 0.45),
+        (true, Side::Result) => (0.55, 0.32),
+    };
     let tint = Hsla {
         h: base.h,
-        s: 0.55,
-        l: if theme.is_dark() { 0.30 } else { 0.80 },
+        s,
+        l,
         a: 1.0,
     };
     let rgba: Rgba = tint.into();
@@ -1157,6 +1183,11 @@ fn tone(side: Side, theme: &Theme) -> Color {
         blue: rgba.b,
         alpha: rgba.a,
     }
+}
+
+/// Both sides' [`tone`], original's first, in `theme`.
+fn tones(theme: &Theme) -> [Color; 2] {
+    [tone(Side::Original, theme), tone(Side::Result, theme)]
 }
 
 /// Byte spans of `text`, cut into one range per line in the editor's
@@ -1520,6 +1551,10 @@ struct CompareView {
     original_track: Track,
     /// The result's scrolling, as the window last saw it.
     result_track: Track,
+    /// The colours of the marks within a line, original's and result's, in
+    /// the theme the window last saw — what a theme update is compared
+    /// against before both sides are asked again (D797).
+    tones: [Color; 2],
     /// Where each pane's top stood in every frame painted — `(original,
     /// result)` — for a test to see what a frame showed, not what the
     /// frames after it settled on (D449).
@@ -1735,6 +1770,10 @@ impl CompareView {
         // ⌘Q and the tray's Quit ask no window: what autosave would have
         // saved a moment later is saved now, or waited for (D440).
         subscriptions.push(cx.on_app_quit(|view, cx| view.at_quit(cx)));
+        // A theme that moves the colour of a mark within a line: both sides
+        // are asked again, the library keeping the colour it was answered
+        // in (F35, D797).
+        subscriptions.push(cx.observe_global::<Theme>(|view, cx| view.retint(cx)));
 
         let mut view = Self {
             focus,
@@ -1758,6 +1797,7 @@ impl CompareView {
             followed: 0,
             original_track: Track::default(),
             result_track: Track::default(),
+            tones: tones(cx.theme()),
             #[cfg(test)]
             frames: Rc::default(),
             target,
@@ -2051,6 +2091,32 @@ impl CompareView {
             };
             original.set_scroll_offset(back, cx);
         });
+    }
+
+    /// Put the finer question to both sides again when the theme has moved
+    /// the colour a mark within a line is painted in (F35, D797).
+    ///
+    /// The library keeps a document colour as it was answered, and asks
+    /// again only when the text under it changes — so a window open across
+    /// a switch to Dark went on painting the light theme's marks, light
+    /// boxes with black text in a dark window, until the next keystroke;
+    /// on the original, whose text never changes, for good. `refresh` is
+    /// the library's own "ask again at the next frame": no edit, so neither
+    /// the result's undo history nor the original's selection is touched.
+    /// A theme update that moves neither colour — the same theme put again,
+    /// a font — asks nothing.
+    fn retint(&mut self, cx: &mut Context<Self>) {
+        let now = tones(cx.theme());
+        if now == self.tones {
+            return;
+        }
+        self.tones = now;
+        if self.comparison.grain == Grain::Lines {
+            return;
+        }
+        self.original.update(cx, |state, cx| state.refresh(cx));
+        let result = self.result.read(cx).state().clone();
+        result.update(cx, |state, cx| state.refresh(cx));
     }
 
     /// Put the original's cursor on the line that stands where the
@@ -3575,7 +3641,7 @@ impl Render for CompareView {
                                 MadeKind::Cleaned => Message::CompareReset,
                                 MadeKind::Rewritten { .. } => Message::CompareResetRewritten,
                             })))
-                            .tooltip(SharedString::from(t(match self.kind {
+                            .tip(SharedString::from(t(match self.kind {
                                 MadeKind::Cleaned => Message::CompareResetTooltip,
                                 MadeKind::Rewritten { .. } => Message::CompareResetRewrittenTooltip,
                             })))
@@ -3597,7 +3663,7 @@ impl Render for CompareView {
                                     .small()
                                     .ghost()
                                     .icon(IconName::CircleQuestion)
-                                    .tooltip(SharedString::from(t(Message::CompareHelp))),
+                                    .tip(SharedString::from(t(Message::CompareHelp))),
                             )
                             .content(move |_, _, cx| help(comparison, cx)),
                     ),
@@ -4004,6 +4070,212 @@ mod tests {
             "the cat sat\n",
             "the empty edit was not empty"
         );
+    }
+
+    /// D797 (F35): the library keeps a mark within a line in the colour it
+    /// was answered in, so a theme that moves the tone puts the finer
+    /// question to both sides again — and a theme update that moves no
+    /// tone puts it to neither. Without the window's watch on the theme
+    /// both counts stay at nought, and a window open across a switch to
+    /// Dark goes on painting the light theme's marks.
+    #[gpui::test]
+    fn a_theme_switch_puts_the_finer_question_to_both_sides_again(cx: &mut TestAppContext) {
+        let (view, cx) = window_with(cx, "the cat sat\n", Comparison::default());
+        let (original, result) = cx.update(|_, cx| {
+            let view = view.read(cx);
+            (view.original.clone(), view.result.clone())
+        });
+        cx.update(|window, cx| {
+            result.update(cx, |result, cx| {
+                result.set_text("the dog sat\n", window, cx)
+            });
+        });
+        settle(cx);
+
+        let (left, right) = (Rc::new(Cell::new(0u32)), Rc::new(Cell::new(0u32)));
+        cx.update(|_, cx| {
+            let counting: Rc<dyn DocumentColorProvider> = Rc::new(Counting(left.clone()));
+            original.update(cx, |original, _| {
+                original.lsp_mut().document_color_provider = Some(counting);
+            });
+            let counting: Rc<dyn DocumentColorProvider> = Rc::new(Counting(right.clone()));
+            result.read(cx).state().clone().update(cx, |state, _| {
+                state.lsp_mut().document_color_provider = Some(counting);
+            });
+        });
+
+        // The theme the window opened in, put again: no tone moved.
+        cx.update(|window, cx| Theme::change(gpui_component::ThemeMode::Light, Some(window), cx));
+        settle(cx);
+        assert_eq!(
+            (left.get(), right.get()),
+            (0, 0),
+            "a theme update that moved no tone asked again"
+        );
+
+        cx.update(|window, cx| Theme::change(gpui_component::ThemeMode::Dark, Some(window), cx));
+        settle(cx);
+        assert!(left.get() >= 1, "the original kept the light theme's marks");
+        assert!(right.get() >= 1, "the result kept the light theme's marks");
+    }
+
+    /// WCAG 2.x relative luminance of an opaque sRGB colour.
+    fn luminance(colour: Rgba) -> f32 {
+        let linear = |channel: f32| {
+            if channel <= 0.04045 {
+                channel / 12.92
+            } else {
+                ((channel + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(colour.r) + 0.7152 * linear(colour.g) + 0.0722 * linear(colour.b)
+    }
+
+    /// WCAG 2.x contrast ratio, 1 to 21.
+    fn contrast(one: Rgba, other: Rgba) -> f32 {
+        let (one, other) = (luminance(one), luminance(other));
+        (one.max(other) + 0.05) / (one.min(other) + 0.05)
+    }
+
+    /// `top` over an opaque `under`, blended as the window blends it: in
+    /// the sRGB values themselves, GPUI drawing into a BGRA8Unorm surface.
+    fn over(top: Hsla, under: Rgba) -> Rgba {
+        let top: Rgba = top.into();
+        let mix = |a: f32, b: f32| a * top.a + b * (1.0 - top.a);
+        Rgba {
+            r: mix(top.r, under.r),
+            g: mix(top.g, under.g),
+            b: mix(top.b, under.b),
+            a: 1.0,
+        }
+    }
+
+    /// A mark within a line as the library paints it: the provider's
+    /// colour, through the `Rgba` the library makes of it.
+    fn mark_of(side: Side, theme: &Theme) -> Rgba {
+        let colour = tone(side, theme);
+        Rgba {
+            r: colour.red,
+            g: colour.green,
+            b: colour.blue,
+            a: colour.alpha,
+        }
+    }
+
+    /// The text the library paints over a mark — black over a colour of
+    /// HSL lightness 0.5 or more, white under it (gpui-component
+    /// `split_runs_by_bg_segments`, `input/base/element.rs:3953`).
+    fn text_over(mark: Rgba) -> Rgba {
+        let lightness = Hsla::from(mark).l;
+        if lightness >= 0.5 {
+            gpui::black().into()
+        } else {
+            gpui::white().into()
+        }
+    }
+
+    /// What the panes are painted on: the highlight theme's editor
+    /// background, or the field's, as the library's editor style takes it
+    /// — in the dark theme a translucent one, over the window's own.
+    fn editor_ground(theme: &Theme) -> Rgba {
+        let editor = theme
+            .highlight_theme
+            .style
+            .editor_background
+            .unwrap_or_else(|| theme.input_background());
+        over(editor, theme.background.into())
+    }
+
+    /// The theme `mode` puts on screen, as the application has it.
+    fn theme_in(mode: gpui_component::ThemeMode, cx: &TestAppContext) -> Theme {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            Theme::change(mode, None, cx);
+            cx.theme().clone()
+        })
+    }
+
+    /// D798 (F35): in the dark theme a mark within a line carries its text
+    /// at WCAG AA (4.5:1, SC 1.4.3), stands out from the editor's ground
+    /// at 3:1 (SC 1.4.11), and from the tint of the line it is painted on
+    /// at 2.5:1 — every colour read from the theme the window paints with,
+    /// the text the one the library picks. Not 3:1 from the line: with
+    /// light text that cannot be had on the result's side (4.5:1 for the
+    /// text caps the mark's luminance at 0.183, 3:1 off a green line needs
+    /// 0.186). The old dark tone, `s 0.55, l 0.30`, had the original's
+    /// mark at 1.4:1 from its line and 1.8:1 from the ground, and this was
+    /// red.
+    #[gpui::test]
+    fn the_dark_word_marks_meet_wcag_contrast(cx: &TestAppContext) {
+        let theme = theme_in(gpui_component::ThemeMode::Dark, cx);
+        assert!(theme.is_dark());
+        let ground = editor_ground(&theme);
+        for side in [Side::Original, Side::Result] {
+            let mark = mark_of(side, &theme);
+            let text = text_over(mark);
+            let line = over(line_tint(side, &theme), ground);
+            let (reads, from_line, from_ground) = (
+                contrast(text, mark),
+                contrast(mark, line),
+                contrast(mark, ground),
+            );
+            eprintln!(
+                "dark {side:?}: text on mark {reads:.2}, mark on its line {from_line:.2}, \
+                 mark on the ground {from_ground:.2}"
+            );
+            assert!(reads >= 4.5, "{side:?}: text on its mark at {reads:.2}:1");
+            assert!(
+                from_line >= 2.5,
+                "{side:?}: mark on its line at {from_line:.2}:1"
+            );
+            assert!(
+                from_ground >= 3.0,
+                "{side:?}: mark on the ground at {from_ground:.2}:1"
+            );
+        }
+    }
+
+    /// D799 (F35): the light theme's marks are what they were — the side's
+    /// hue at saturation 0.55 and lightness 0.80, black text on them — and
+    /// their text still reads at AA.
+    #[gpui::test]
+    fn the_light_word_marks_are_as_they_were(cx: &TestAppContext) {
+        let theme = theme_in(gpui_component::ThemeMode::Light, cx);
+        assert!(!theme.is_dark());
+        let ground = editor_ground(&theme);
+        for side in [Side::Original, Side::Result] {
+            let base = match side {
+                Side::Original => theme.danger,
+                Side::Result => theme.success,
+            };
+            let was: Rgba = Hsla {
+                h: base.h,
+                s: 0.55,
+                l: 0.80,
+                a: 1.0,
+            }
+            .into();
+            let mark = mark_of(side, &theme);
+            assert_eq!(mark, was, "{side:?}: the light theme's mark moved");
+            let text = text_over(mark);
+            assert_eq!(
+                text,
+                gpui::black().into(),
+                "{side:?}: the light text changed"
+            );
+            let line = over(line_tint(side, &theme), ground);
+            eprintln!(
+                "light {side:?}: text on mark {:.2}, mark on its line {:.2}, \
+                 mark on the ground {:.2}",
+                contrast(text, mark),
+                contrast(mark, line),
+                contrast(mark, ground),
+            );
+            assert!(
+                contrast(text, mark) >= 4.5,
+                "{side:?}: light text on its mark"
+            );
+        }
     }
 
     /// The two sides are read across, line against line: the first

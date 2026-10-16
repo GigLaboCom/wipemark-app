@@ -756,7 +756,7 @@
   dispatches that action, the road a keystroke takes; the editor's
   `undo` and `cut` are `pub(super)` upstream and could not be called
   anyway. The tooltip asks the window what the action is bound to
-  (`tooltip_with_action`), never a table of ours.
+  (`hover::Tip::tip_with_action`, D796), never a table of ours.
   `the_toolbar_undoes_what_the_keystroke_would` goes red with the
   dispatch deleted. **What does not fit the pane goes behind a more
   button** (D758–D760): the strip paints the run of buttons from its
@@ -1076,6 +1076,32 @@
   **not** gated by a test: two attempts stayed green with the protection
   deleted, and a test that cannot fail is worse than none — it is checked
   against the running window instead, and `dialog.rs` says so.
+* **A tooltip goes with its control, and with the pointer** (F34, D795,
+  D796). Every tooltip of ours is GPUI's own, attached with
+  `hover::Tip` — `.tip(text)` or `.tip_with_action(text, action,
+  context)` on a `Button` or an id'd `div` — in gpui-component's
+  `Tooltip` look, and never with a `tooltip(…)`: gpui-component's
+  managed tooltip lives in one overlay per window that only the control's
+  own hover-out or a press on it takes down, so a control no longer
+  painted (Pause as the queue drains, a row scrolled out of its list, the
+  panel's Clean as the panel clears) left its tooltip up until another
+  tooltip or a press. GPUI's own is registered by its element in every
+  frame the element is painted and goes with it; it shows at the pointer,
+  and the window draws it after every deferred overlay — over a dialog
+  too, which a control behind a dialog's backdrop, never hovered, cannot
+  ask for. And every window tells GPUI when the pointer has left it:
+  `hover::Edge`, a gpui-base `Root` plugin that `hover::init` registers
+  before the first window, so it is in every window with no window's code
+  asked, turns an exit with no button held into a move to just outside.
+  GPUI 0.3.8 keeps the last position inside on an exit, so every hover in
+  the window — tooltips, hover styles, a preview's card — outlived the
+  pointer. `every_tooltip_is_attached_through_tip`,
+  `a_tooltip_goes_with_its_control`,
+  `a_tooltip_goes_when_the_pointer_leaves_the_window`,
+  `the_pointer_leaving_a_window_is_told_to_gpui` and
+  `a_drag_leaving_the_window_keeps_its_place` are the gates; the write-up
+  for upstream is [gpui-pin.md](gpui-pin.md), "The pointer leaving a
+  window, and tooltips".
 * **A downloaded model is verified, resumable, and never repaired
   silently.** The catalogue is data (`manifests/models.v1.json`), every
   entry pins a **commit** rather than a branch, and its sha256 and size
