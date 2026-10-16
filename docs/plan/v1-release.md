@@ -27,16 +27,20 @@ D580–D589. `feat/e0-e6-shell` at `e648dc6` is the release candidate's base.*
 
 1. **«Да» на слияние PR #1 в `main`** и на тег `wipemark-v0.1.0`. Без вашего
    слова я `main` не трогаю.
-2. **Подпись macOS — готова, ждёт шести секретов.** Подпись Developer ID и
+2. **Подпись macOS — готова, секреты на месте.** Подпись Developer ID и
    нотаризация идут в GitHub Actions при релизе (`release.yml`, D775–D779);
    на этом Mac подпись проверена, приложение с ней запускается и находит
-   Metal. Нужно добавить в `GigLaboCom/wipemark-app` шесть секретов с теми же
-   именами, что у lazy-shot: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
-   `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_ISSUER`,
-   `APPLE_API_KEY_CONTENT`. Сейчас их нет ни одного. Пошагово —
-   [packaging.md](../architecture/packaging.md), «The owner's checklist».
-   Без них `.dmg` выйдет без подписи, и macOS при первом запуске это скажет.
-3. **Подтвердить, что 0.1.0 бесплатная.**
+   Metal. Шесть секретов `APPLE_*` добавлены в `GigLaboCom/wipemark-app`
+   2026-10-16: сертификат и ключ App Store Connect проверены перед записью,
+   соглашение Apple Developer Program принято, `notarytool` отвечает.
+3. **Обновления (D780–D789).** Worker giglabo уже знает `wipemark`
+   (`heretic-releases-api` `310f54f`). До релиза с проверкой обновлений:
+   запустить `scripts/release/update-keys.sh` и закоммитить открытые ключи,
+   завести окружение `releases` (только теги `wipemark-v*`) и положить в него
+   `WIPEMARK_UPDATE_SIGNING_KEY`, `WIPEMARK_UPDATE_SIGNING_KEY_PASSWORD` и
+   `RELEASES_PUBLISH_TOKEN` (значение — Watchword `mnemovi-publish-token`).
+   Пошагово — [packaging.md](../architecture/packaging.md).
+4. **Подтвердить, что 0.1.0 бесплатная.**
 
 ## 1. What ships (D580)
 
