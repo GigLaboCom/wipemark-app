@@ -1,4 +1,8 @@
-# Packaging on Linux — the AppImage and the .deb
+# Packaging — the AppImage and the .deb on Linux, the .dmg on macOS
+
+The macOS half — the bundle, the Developer ID signature, notarization and
+the secrets they need — is [its own section](#macos--wipemarkapp-the-dmg-developer-id-and-notarization)
+at the end (P3, D775–D779).
 
 Wipemark 0.1.0 ships on Linux as **`Wipemark-<version>-x86_64.AppImage`** and
 **`wipemark_<version>_amd64.deb`**, built from one tree in one pinned image and
@@ -13,8 +17,9 @@ scripts/verify/release/appimage-gate.sh dist/Wipemark-0.1.0-x86_64.AppImage
 scripts/verify/release/deb-gate.sh dist/wipemark_0.1.0_amd64.deb
 ```
 
-`.github/workflows/release.yml` runs those three on a `wipemark-v*` tag (into a
-draft release) and by hand (into the run's artifacts).
+`.github/workflows/release.yml` runs those three on a `wipemark-v*` tag (job
+`linux`, its files attached to the draft release by `release-linux`) and by
+hand (into the run's artifacts).
 
 ## The builder (D600, D601)
 
@@ -261,6 +266,318 @@ GNOME desktop); without it the row says GNOME offers no shortcut it can set.
 ## What is not here
 
 A `.tar.gz` (D609: the AppImage is the portable artifact; the AppDir is that
-tree), signatures (appimagetool says gpg is missing; signing is stage two with
-macOS's), update information (zsync), a Flatpak, a build for glibc older than
+tree), signatures on the Linux files (appimagetool says gpg is missing; stage
+two), update information (zsync), a Flatpak, a build for glibc older than
 2.39, and aarch64.
+
+## macOS — Wipemark.app, the .dmg, Developer ID and notarization
+
+Wipemark ships on macOS as **`Wipemark-<version>-arm64.dmg`**: `Wipemark.app`
+and a link to `/Applications`, Apple Silicon only (P3, D583). Three scripts make
+it, and the release lane runs them on `macos-14` (job `macos`):
+
+```sh
+cargo build --release --locked --features llama-native -p wipemark-app -p wipemark-cli
+scripts/release/macos/bundle.sh target/release dist                 # the bundle, ad hoc, and its .dmg
+scripts/release/macos/sign-and-notarize.sh dist/Wipemark.app dist   # Developer ID, notarized, stapled
+```
+
+`dmg.sh` makes the image for both (`hdiutil`, UDZO, the app and a link to
+`/Applications`; no `create-dmg`, which drives Finder through AppleScript).
+**Without the signing secrets the release is `bundle.sh`'s .dmg, signed ad
+hoc** — macOS blocks its first open, and the job's summary and the release
+notes say so (D583). With them, `sign-and-notarize.sh` replaces that .dmg
+with a signed, notarized and stapled one.
+
+### The bundle
+
+```
+Wipemark.app/Contents/
+  Info.plist            com.GigLabo.wipemark; the version `wipemark --version` prints; LSMinimumSystemVersion 12.0
+  MacOS/wipemark        the application (CFBundleExecutable)
+  MacOS/wipemark-cli    the command line, beside it (P3)
+  MacOS/libggml-cpu.so, libggml-metal.so, libggml-blas.so
+                        ggml's backends: wipemark_llama::Runtime loads them from the executable's own directory
+  Frameworks/libllama.0.3.0.dylib, libggml.0.22.0.dylib, libggml-base.0.22.0.dylib, and their version links
+  Resources/icon.icns, NOTICE, LICENSE.md, THIRD-PARTY.md
+  _CodeSignature/CodeResources, and CodeResources (the stapled ticket) once notarized
+```
+
+`bundle.sh` swaps the build's one absolute rpath (llama.cpp's prebuilt `lib/`)
+for `@executable_path/../Frameworks`, refuses any other, checks that no Mach-O
+in the bundle names a path outside it, and runs both `--version`s from the
+bundle with no loader variables (P4). **`THIRD-PARTY.md` is written into every
+bundle** by `scripts/release/third-party.py --target aarch64-apple-darwin`
+with the prebuilt archive's `LICENSE-llama.cpp` (0.1.0: 617 crates, 316
+distinct licence texts); a bundle without it is not made (D779). `NOTICE` and
+`LICENSE.md` are copied beside it.
+
+### What is signed, and how (D776, D777)
+
+`sign-and-notarize.sh`, inside out, each with `codesign --force --options
+runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY"`:
+
+| order | what | where |
+|---|---|---|
+| 1 | `libllama`, `libggml`, `libggml-base` (the real files; the version links are links) | `Contents/Frameworks` |
+| 2 | `wipemark-cli` and the three ggml backends | `Contents/MacOS` |
+| 3 | anything else that is a Mach-O (none in 0.1.0) | wherever it is |
+| 4 | the bundle, which signs `wipemark` and seals the resources | `Wipemark.app` |
+| 5 | the .dmg, made again around the stapled app | `dist/` |
+
+Every Mach-O is found by what `file` says it is, not by its name, and signed
+one by one; `--deep` is used only to verify (Apple advises against signing with
+it). After signing the script checks, and stops on any miss: `codesign
+--verify --deep --strict`; each Mach-O has the hardened-runtime flag, a secure
+timestamp, a Developer ID Application authority and the bundle's team; the
+bundle carries no entitlements; both `--version`s run from the signed bundle,
+so the libraries linked at launch pass library validation. Seen red once
+each (2026-10-16): a truncated backend stops it at "codesign refused
+MacOS/libggml-cpu.so", and the same script with `--options runtime` deleted
+names all eight Mach-Os "no hardened runtime".
+
+**No entitlements (D777).** The hardened runtime's library validation lets a
+process load only code signed by Apple or by its own team. llama.cpp's
+libraries and the backends ggml `dlopen`s are signed in the same pass by the
+same team, so they load without `com.apple.security.cs.disable-library-validation`.
+Nothing else asks for an exception: Metal compiles its shaders in Apple's own
+compiler service (no `allow-jit`), the bundle needs no `DYLD_*` variable (P4,
+and the hardened runtime ignores them), and the application sends no Apple
+Events and is not sandboxed. The keychain, the global shortcut (Carbon), the
+menu-bar item and the loopback MCP port need none. Proved on this Mac, below.
+A future need is a decision and an edit of the script, which refuses a bundle
+that carries entitlements.
+
+**Notarized twice, stapled twice.** The app goes first (`ditto -c -k
+--keepParent` to a zip, `xcrun notarytool submit --wait`, `xcrun stapler
+staple` on the app); then the .dmg is made around the stapled app, signed,
+submitted and stapled. A stapled image lets Gatekeeper find the ticket when
+the image is opened offline; a stapled app keeps its own ticket once it is
+dragged to `/Applications`, so its first open needs no network either.
+lazy-shot notarizes only the .dmg; the second submission costs a few minutes.
+A submission that is not `Accepted` prints Apple's log (`notarytool log`) and
+stops the job. Last, Gatekeeper is asked what a downloading Mac will ask, and
+both must say `accepted` and `source=Notarized Developer ID`:
+
+```sh
+spctl -a -t exec -vv dist/Wipemark.app
+spctl -a -t open --context context:primary-signature -vv dist/Wipemark-0.1.0-arm64.dmg
+```
+
+Notarization uses an **App Store Connect API key** (`notarytool --key
+~/private_keys/AuthKey_<id>.p8 --key-id --issuer`), as lazy-shot does: no Apple
+ID, no app-specific password, no two-factor prompt, and the key can be revoked
+alone.
+
+### In the release lane (D775, D778)
+
+The shape is lazy-shot's (`giglabo/heretic-lazy-shot`,
+`.github/workflows/build-client.yml` and `docs/reference-github-actions.md`
+§4–§6): **one build job per platform and one release job per platform**.
+`release-linux` needs only `linux` and `release-macos` only `macos`, so a red
+lane on one platform never keeps the other's files off the release. On a
+`wipemark-v*` tag each attaches its files to **one draft release** named
+"Wipemark <version>" with `softprops/action-gh-release@v2`, which finds the
+draft the other job made; the two take turns (a job concurrency group,
+`release-publish-<tag>`) so two drafts are never made at once. By hand
+(`workflow_dispatch`, platform `all`, `linux` or `macos`) the files only go to
+the run's artifacts (`wipemark-macos`: the .dmg and its `.sha256`).
+
+The `macos` job: checkout with the submodule, the pinned toolchain
+(`rustup toolchain install`), the cargo registry cached (the target directory
+is rebuilt every time), the build, `bundle.sh`, then **Signing secrets**,
+which looks at the six secrets below: all six set is a Developer ID release;
+none set is an ad hoc one, with a warning; **some but not all fails the
+job**, naming the missing ones — a half-configured lane would publish
+something between the two. With all six: lazy-shot's **Import macOS
+certificate** step (the .p12 decoded into a keychain of the run's own, random
+password, `set-key-partition-list` so `codesign` never prompts, the keychain
+made the only one searched), lazy-shot's **Write Apple API key** step (the
+.p8 to `~/private_keys/AuthKey_<APPLE_API_KEY>.p8`), `sign-and-notarize.sh`,
+and a step that deletes the keychain and the key whatever happened. **Sums
+and summary** writes the .dmg's sha256 and the job's summary: "Signed with a
+Developer ID, notarized and stapled" with Gatekeeper's answers, or "Signed ad
+hoc, not notarized" with where the secrets come from.
+
+**The secrets** — lazy-shot's names, so what the owner holds for it serves here:
+
+| secret | what it holds |
+|---|---|
+| `APPLE_CERTIFICATE` | the Developer ID Application certificate **with its private key**, exported as a .p12, base64 |
+| `APPLE_CERTIFICATE_PASSWORD` | the password the .p12 was exported with |
+| `APPLE_SIGNING_IDENTITY` | `Developer ID Application: Alena Esakova (M8AM5QVKBL)`, as `security find-identity -v -p codesigning` prints it |
+| `APPLE_API_KEY` | the App Store Connect API key's **Key ID** (10 characters) |
+| `APPLE_API_ISSUER` | the App Store Connect **Issuer ID** (a UUID) |
+| `APPLE_API_KEY_CONTENT` | the whole `AuthKey_<KeyID>.p8` file, its BEGIN and END lines included |
+
+On 2026-10-16 `GigLaboCom/wipemark-app` has **none** of them, and the
+organisation `GigLaboCom` only `GITLEAKS_LICENSE`. `giglabo/heretic-lazy-shot`
+has all six, but GitHub never shows a secret's value, so they are added here
+again from the files they were made from (the checklist below).
+
+**Where this lane differs from lazy-shot's**, and why:
+
+- **No Tauri.** lazy-shot builds with `tauri-action` and lets Tauri's bundler
+  make the .app; here `bundle.sh` lays the bundle out, and every Mach-O in it
+  — llama.cpp's dylibs in `Contents/Frameworks`, the backends and the CLI in
+  `Contents/MacOS` — is signed by `sign-and-notarize.sh` one by one, not with
+  `codesign --deep`. No `dylibbundler`: the build leaves one rpath, which
+  `bundle.sh` rewrites and checks.
+- **The app is stapled too**, not only the .dmg (above).
+- **The draft stays a draft.** lazy-shot's release job publishes
+  (`draft: false`, notes generated from commits); here a person publishes,
+  with `docs/release/<version>.md` as the notes.
+- **The secrets reach only the steps that sign** — never `cargo build`, whose
+  build scripts are third-party code. lazy-shot sets `APPLE_CERTIFICATE` and
+  `APPLE_API_KEY_CONTENT` on the whole job, to test them in an `if:`; here a
+  step reads all six once and says which road the job takes.
+- **Half the secrets is an error**, where lazy-shot signs without notarizing.
+- **The .dmg is `hdiutil`'s**, as MnemoVi's is, not `create-dmg`'s.
+- `concurrency` does not cancel a release in progress.
+
+The workflow cannot be run from a branch before it reaches GitHub, and the tag
+path cannot be run without a tag; `actionlint` 1.7.12 (with shellcheck 0.11.0)
+passes on it.
+
+### By hand
+
+On a Mac whose login keychain holds the identity (this one does):
+
+```sh
+# Sign and check, no notarization: the local proof
+APPLE_SIGNING_IDENTITY="Developer ID Application: Alena Esakova (M8AM5QVKBL)" \
+  scripts/release/macos/sign-and-notarize.sh --sign-only /path/to/a/copy/Wipemark.app
+
+# The whole road, with the API key's .p8 at ~/private_keys/AuthKey_<KeyID>.p8
+# (or APPLE_API_KEY_PATH=/path/to/AuthKey.p8)
+APPLE_SIGNING_IDENTITY="Developer ID Application: Alena Esakova (M8AM5QVKBL)" \
+APPLE_API_KEY=<KeyID> APPLE_API_ISSUER=<IssuerID> \
+  scripts/release/macos/sign-and-notarize.sh dist/Wipemark.app dist
+```
+
+The first `codesign` from a terminal may make macOS ask whether `codesign` may
+use the key ("Always Allow" ends that). Sign a **copy**: the script clears the
+bundle's extended attributes and signs in place.
+
+### Checking a .dmg
+
+```sh
+codesign --verify --strict --verbose=2 Wipemark-0.1.0-arm64.dmg
+spctl -a -t open --context context:primary-signature -vv Wipemark-0.1.0-arm64.dmg
+                                       # accepted / source=Notarized Developer ID
+xcrun stapler validate Wipemark-0.1.0-arm64.dmg     # The validate action worked!
+# once installed
+codesign --verify --deep --strict --verbose=2 /Applications/Wipemark.app
+spctl -a -t exec -vv /Applications/Wipemark.app     # accepted / source=Notarized Developer ID
+codesign -dv /Applications/Wipemark.app 2>&1 | grep -E 'flags|TeamIdentifier|Timestamp'
+                                       # flags=0x10000(runtime), TeamIdentifier=M8AM5QVKBL
+```
+
+A .dmg downloaded through a browser carries the quarantine flag that a local
+build lacks. Opened once on a Mac, a notarized one asks only "“Wipemark” is
+an app downloaded from the Internet. Are you sure you want to open it?" — the
+first notarized draft is to be checked that way once (the release notes'
+install steps depend on it).
+
+### The local proof (2026-10-16)
+
+A copy of `dist-next/Wipemark.app` (0.1.0, `bundle.sh`'s ad hoc bundle, built
+on this Mac that morning) signed with `--sign-only` on this Mac (macOS 26.7.1) with the login keychain's
+identity, no keychain prompt:
+
+```
+    verified: 7 + 1 Mach-O, team M8AM5QVKBL, hardened runtime, timestamped, no entitlements
+    wipemark --version: wipemark 0.1.0
+    wipemark-cli --version: wipemark-cli 0.1.0
+$ codesign --verify --deep --strict --verbose=2 Wipemark.app
+Wipemark.app: valid on disk
+Wipemark.app: satisfies its Designated Requirement
+$ codesign -d --entitlements - Wipemark.app
+Executable=…/Wipemark.app/Contents/MacOS/wipemark          (nothing else: no entitlements)
+$ codesign -dv --verbose=4 Wipemark.app
+CodeDirectory v=20500 size=68992 flags=0x10000(runtime) hashes=2149+3 location=embedded
+Authority=Developer ID Application: Alena Esakova (M8AM5QVKBL)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+TeamIdentifier=M8AM5QVKBL
+$ spctl -a -t exec -vv Wipemark.app                        (exit 3, as expected before notarization)
+Wipemark.app: rejected
+source=Unnotarized Developer ID
+origin=Developer ID Application: Alena Esakova (M8AM5QVKBL)
+```
+
+Started once with `open -n Wipemark.app --env WIPEMARK_DATA_DIR=<scratch>`,
+the running process's signature read `flags=0x10000(runtime)` and
+`TeamIdentifier=M8AM5QVKBL`, its log said
+
+```
+INFO wipemark-backends wipemark_llama::runtime: ggml backends registered devices=BLAS, MTL0, CPU dirs=["…/Wipemark.app/Contents/MacOS", …]
+```
+
+and `lsof` showed all six llama.cpp files mapped from the signed bundle —
+`Frameworks/libllama.0.3.0.dylib`, `libggml.0.22.0.dylib`,
+`libggml-base.0.22.0.dylib`, `MacOS/libggml-cpu.so`, `libggml-blas.so`,
+`libggml-metal.so` — none from the build tree: library validation let every
+one of them in with no entitlement. SIGTERM quit it ("quitting on SIGTERM"),
+with no crash report.
+
+The image `dmg.sh` made around the signed app, signed as the script signs it,
+reads `valid on disk` / `satisfies its Designated Requirement`, and `spctl -a
+-t open --context context:primary-signature -vv` says `rejected`,
+`source=Unnotarized Developer ID` — the answer before notarization.
+
+### What is not here (macOS)
+
+An Intel or universal build, a `.pkg`, automatic updates (Sparkle), the
+application started on the runner after signing (P6's macOS part: the CLI's
+checks on the runner are still to be written), and a check of the downloaded
+.dmg's first open from a browser (above).
+
+### The owner's checklist
+
+What to add to **`GigLaboCom/wipemark-app`** (Settings › Secrets and variables ›
+Actions › New repository secret, or `gh secret set` as below). Repository
+secrets, not organisation ones: only this repository needs the certificate.
+`release.yml` runs only on a tag and by hand, never on a pull request, so no
+fork can reach them.
+
+1. **The certificate, as a .p12.** On the Mac that holds it (this one): open
+   **Keychain Access**, choose the **login** keychain and **My Certificates**,
+   find **Developer ID Application: Alena Esakova (M8AM5QVKBL)** — the arrow
+   beside it shows its private key; if there is no key under it, this is the
+   wrong Mac. Select the certificate row, **File › Export Items…**, format
+   **Personal Information Exchange (.p12)**, save it as `DeveloperID.p12`,
+   and give it a password when asked. If lazy-shot's `.p12` is still kept
+   somewhere, that one serves as it is, with its password.
+2. **`APPLE_CERTIFICATE`** — the .p12, base64:
+   `base64 -i DeveloperID.p12 | gh secret set APPLE_CERTIFICATE -R GigLaboCom/wipemark-app`
+3. **`APPLE_CERTIFICATE_PASSWORD`** — the password from step 1:
+   `gh secret set APPLE_CERTIFICATE_PASSWORD -R GigLaboCom/wipemark-app` (it asks for the value
+   and does not show it).
+4. **`APPLE_SIGNING_IDENTITY`** — the name, exactly:
+   `gh secret set APPLE_SIGNING_IDENTITY -R GigLaboCom/wipemark-app --body "Developer ID Application: Alena Esakova (M8AM5QVKBL)"`
+5. **The App Store Connect API key.** Reuse lazy-shot's if its `.p8` file is
+   still kept. Otherwise, signed in to **App Store Connect** as the account
+   holder or an admin: **Users and Access › Integrations › App Store Connect
+   API › Team Keys**, the **+** button, a name ("wipemark notarization") and
+   the access **Developer**, **Generate**. Download `AuthKey_<KeyID>.p8` — Apple
+   offers the download **once** — and note the **Key ID** (in the key's row)
+   and the **Issuer ID** (above the table). Then:
+   - **`APPLE_API_KEY`** — the Key ID:
+     `gh secret set APPLE_API_KEY -R GigLaboCom/wipemark-app`
+   - **`APPLE_API_ISSUER`** — the Issuer ID:
+     `gh secret set APPLE_API_ISSUER -R GigLaboCom/wipemark-app`
+   - **`APPLE_API_KEY_CONTENT`** — the whole file:
+     `gh secret set APPLE_API_KEY_CONTENT -R GigLaboCom/wipemark-app < AuthKey_<KeyID>.p8`
+
+   (An Apple ID with an app-specific password also works with `notarytool`,
+   but neither lazy-shot nor this lane uses it: the key needs no two-factor
+   prompt and is revoked alone.)
+6. **Check:** `gh secret list -R GigLaboCom/wipemark-app` shows the six names.
+   Then **Actions › release › Run workflow**, platform **macos**: the `macos`
+   job's summary must say "Signed with a Developer ID, notarized and stapled",
+   and its artifact `wipemark-macos` holds the .dmg.
+7. **Afterwards:** delete `DeveloperID.p12` and the `.p8` from Downloads, or
+   keep them only in a password manager. If notarization is refused with an
+   agreement error, the Apple Developer Program's latest agreement is waiting
+   to be accepted at developer.apple.com.
