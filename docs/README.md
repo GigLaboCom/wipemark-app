@@ -41,6 +41,7 @@
 | [sdd/visible-marks.md](sdd/visible-marks.md) | visible marks on AI pictures — the study (GeminiWatermarkTool, every vendor, invisible marks) and the E12 architecture; the plan is [plan/E12-visible-marks.md](plan/E12-visible-marks.md) |
 | [plan/E12-R-recon.md](plan/E12-R-recon.md) | the restoration measured, then made more precise (E12-R1…R12): the regression over real files, the corpora, the JPEG planes, the analytics, the bench with ground truth, the planar inverse, `consistency`, the value inside the codec's interval, the blend model where the evidence asks, models at a stated trigger, and Grok — twelve self-contained steps, proposed D490–D502 (D301–D313 before the merge) |
 | [sdd/hooks.md](sdd/hooks.md) | every hook in this repository across five meanings of the word, and the ones that deliberately do not exist |
+| [sdd/self-update.md](sdd/self-update.md) | how Wipemark would learn of a new version and replace itself: lazy-shot's update check and the giglabo release service behind it, read with file:line and the live JSON; the design — the manifest on `releases.giglabo.com`, a signed release statement per artifact, consent, the install on macOS and in an AppImage, the CLI, the tests — proposed D780–D789, with the owner's questions |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | submodule setup, the pin script, the gates |
 | [../manifests/README.md](../manifests/README.md) | model manifest shape and why it ships empty |
 
