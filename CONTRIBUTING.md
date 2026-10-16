@@ -56,7 +56,7 @@ shared code drifts.
 ## Before you push
 
 ```sh
-cargo +nightly fmt --all -- --check
+rustup run nightly rustfmt --edition 2021 --check $(find crates apps -name '*.rs')
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 scripts/check-dep-direction.sh
