@@ -10,6 +10,7 @@ outlive a Watchword entry, narrower than `architecture/`.
 | [line-decorations.md](line-decorations.md) | the `LineDecorationProvider` patch our gpui-component fork carries: what it paints in the Compare window (screenshots), the API, who uses it, where the fork lives since it moved to `GigLaboCom`, what upstream has instead, and what any replacement must do |
 | [visible-marks.md](visible-marks.md) | visible watermarks on AI pictures: GeminiWatermarkTool read at `7c6a99f` and measured, what every vendor stamps (Gemini, OpenAI, Grok, …) with sources, what invisible marks remain, and the vendor-neutral architecture of epic E12 — profiles as data, two proofs before a pixel changes, one writer |
 | [hooks.md](hooks.md) | every hook in this repository across five unrelated meanings of the word, and the ones that deliberately do not exist |
+| [self-update.md](self-update.md) | the update check: what lazy-shot and the giglabo release service do (read at fixed commits, the live JSON fetched), and the design for Wipemark — signed metadata on `releases.giglabo.com`, consent, the install per platform; proposed D780–D789 |
 
 ## How these differ from the neighbours
 
