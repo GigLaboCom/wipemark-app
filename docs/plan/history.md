@@ -204,6 +204,24 @@ result, an edited result asked about first
   Red first, each guard deleted once:
   `a_rewrites_end_written_late_never_lands_on_the_rows_next_action`, then
   `a_clean_that_ended_is_not_undone_by_a_read_from_before_it`.
+- `fix/clean-after-not-rewritten-race-2` (D809, 2026-10-18), from CI's
+  Linux lane (gate run 39072616003: the same test timing out on `main`).
+  The third interleaving: a journal read could say *Not rewritten* before
+  the table had drained the item's last stages and its end, and heard after
+  a Clean pressed on it they set the row back over the clean. An item's
+  events now move a row only while it is still on that item's rewrite
+  (`hears_its_item`). Red first, the guard and each of its arms deleted
+  once: `a_rewrites_events_heard_late_never_undo_the_clean_pressed_on_its_end`
+  and `a_rewrites_stages_heard_after_its_end_never_reopen_the_row`. Under
+  load, 7 timeouts in 1019 runs before, none in 3182 after (one run of
+  those failed otherwise, its rewrite ended `stopped`: the batch queue's
+  own race, left for its own fix). A wait that times out now says what it
+  last saw (`until_seeing`). The sibling
+  `a_rows_rewrite_is_one_item_with_its_source_format_and_destination`
+  flaked for a reason of its own, in the test: it read the batch queue's
+  stored row the moment the handle listed the item, a moment before the
+  queue's thread stores it (4 in 1135 runs). It now waits for the row
+  (none in 1200).
 **The macOS acceptance of 2026-10-15** brought, all merged on `feat`:
 - `fix/f29-cli-symlink` (D734; F29): a `wipemark-cli` linked into the PATH
   finds the bundle's llama.cpp backends, because the program's own

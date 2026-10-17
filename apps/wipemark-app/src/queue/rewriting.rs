@@ -354,7 +354,7 @@ impl Queue {
             BatchEvent::Job { .. } => return,
             BatchEvent::Interrupted { item } => {
                 self.chunks.remove(&item);
-                if let Some(row) = self.rows.iter_mut().find(|row| row.item == Some(item)) {
+                if let Some(row) = self.row_on(item, false) {
                     row.status = Status::RewriteQueued;
                 }
             }
@@ -367,7 +367,7 @@ impl Queue {
                     .work
                     .as_ref()
                     .is_some_and(|work| journal::consented(&work.queue, item));
-                if let Some(row) = self.rows.iter_mut().find(|row| row.item == Some(item)) {
+                if let Some(row) = self.row_on(item, true) {
                     // A caller's text went back to whoever asked; the
                     // person's went where a window's goes — over the row's
                     // own result, never "to the caller", who is gone.
@@ -421,9 +421,19 @@ impl Queue {
     }
 
     fn set_rewriting(&mut self, item: ItemId, chunk: Option<(u32, u32)>) {
-        if let Some(row) = self.rows.iter_mut().find(|row| row.item == Some(item)) {
+        if let Some(row) = self.row_on(item, false) {
             row.status = Status::Rewriting(chunk);
         }
+    }
+
+    /// The row a batch queue event about `item` moves: the row that names
+    /// the item, while its status still takes the item's word
+    /// ([`hears_its_item`]; `end`, whether the event is the item's end).
+    fn row_on(&mut self, item: ItemId, end: bool) -> Option<&mut Row> {
+        self.rows
+            .iter_mut()
+            .find(|row| row.item == Some(item))
+            .filter(|row| hears_its_item(&row.status, end))
     }
 
     /// Items in the batch queue that have not ended — every surface's.
@@ -1120,6 +1130,34 @@ fn refreshed(current: &Status, action: Action, phase: Phase, entry: &Entry) -> O
         Status::Queued | Status::Cleaning | Status::Done(_) => None,
         Status::RewriteQueued | Status::Rewriting(_) if !phase.is_end() => None,
         _ => Some(status_of(action, phase, entry)),
+    }
+}
+
+/// Whether a row whose status is `current` still takes the batch queue's
+/// word about the item it names — `end`, the item's end; otherwise its
+/// start, a stage of its job or its interruption (D809).
+///
+/// The table hears an item down two roads: the queue's own events, drained
+/// once a [`TICK`], and the journal, read again when its bookkeeper wrote.
+/// The bookkeeper can have written the item's end before the table drained
+/// the events that came before it, so a read can tell the row the end
+/// first — and the person can act on it, Clean on a row that says *Not
+/// rewritten* (D720), before the item's last events are heard. Those are
+/// older than what the row says, and move nothing:
+///
+/// * a clean of this session — queued, cleaning or done — is the person's,
+///   kept against the item's events as [`refreshed`] keeps it against a
+///   read;
+/// * an end already said is kept against a start, a stage or an
+///   interruption, which came before it — the end's own event, after them,
+///   says the same end.
+///
+/// A row still on the item — queued or rewriting — takes all of it.
+fn hears_its_item(current: &Status, end: bool) -> bool {
+    match current {
+        Status::RewriteQueued | Status::Rewriting(_) => true,
+        Status::Recorded(said) => end && said.action == Action::Rewrite,
+        Status::Waiting | Status::Queued | Status::Cleaning | Status::Done(_) => false,
     }
 }
 

@@ -607,7 +607,13 @@ own number stays the element id (two id spaces). A row says who asked
   window rewrite's end, while a caller's end is written by the call that
   waits for it, so the command line's own update (the file it wrote) comes
   last (D313, D321). A start heard late never reopens an ended row
-  (`Journal::update_open`).
+  (`Journal::update_open`), and an end written late never lands on a row
+  moved on to another item or a clean (`Journal::update_item`). The table
+  hears an item down two roads, the queue's events once a tick and the
+  journal when it was written, and keeps a row against whichever word is
+  older than what the row says: a read from before a clean of this session
+  (`refreshed`), and the item's events heard after the row moved on — to a
+  clean, or to the end a read told it first (`hears_its_item`, D809).
 * **A caller's call is the action's, not the row's** (D730). Which rewrite
   is a caller's — its text back to whoever asked, its end written by the
   waiting call, abandoned at a launch — is read off its batch-queue item,
