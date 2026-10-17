@@ -39,10 +39,13 @@ D580–D589. `feat/e0-e6-shell` at `e648dc6` is the release candidate's base.*
    окружение `releases` заведено (только теги `wipemark-v*`), в нём
    `WIPEMARK_UPDATE_SIGNING_KEY` и `WIPEMARK_UPDATE_SIGNING_KEY_PASSWORD`;
    оба закрытых ключа с паролями — файл в Watchword
-   `wipemark-update-signing-keys-2026-10-17`. **Остался
-   `RELEASES_PUBLISH_TOKEN`:** значение из Watchword `mnemovi-publish-token`
-   сервис не принимает (401), нужен текущий `PUBLISH_TOKEN` Worker или его
-   замена. Пошагово — [packaging.md](../architecture/packaging.md).
+   `wipemark-update-signing-keys-2026-10-17` и
+   `~/Documents/cert/wipemark-update-keys/`. `PUBLISH_TOKEN` сервиса
+   сменён (старый из `mnemovi-publish-token` сервис уже не принимал): оба
+   Worker, Woodpecker MnemoVi и `RELEASES_PUBLISH_TOKEN` здесь; значение —
+   Watchword `giglabo-releases-publish-token-2026-10-17` и
+   `~/Documents/cert/giglabo-releases-publish-token.txt`. Все три секрета
+   обновления на месте. Пошагово — [packaging.md](../architecture/packaging.md).
 4. **Подтвердить, что 0.1.0 бесплатная.**
 
 ## 1. What ships (D580)

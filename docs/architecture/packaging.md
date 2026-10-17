@@ -582,7 +582,8 @@ them. **They were made on 2026-10-17** (working `24b967e7176fb3b2`, backup
 release that carries the updater. Both private halves, encrypted, each
 with its password, are one file in Watchword,
 `wipemark-update-signing-keys-2026-10-17` (with a README naming which is
-which); no other copy was kept.
+which), and the same files are on the owner's Mac beside the Apple
+certificate, in `~/Documents/cert/wipemark-update-keys/`.
 
 **What installs.** A Developer ID, notarized `Wipemark.app` in a writable
 folder (D786) and an AppImage in a writable folder (D787) replace
@@ -649,15 +650,18 @@ fork can reach them.
 
 **The update (D782, D783)** — once, before the first release that carries
 the updater. Unlike the six above, these are **Environment** secrets, in
-`releases`, so a branch cannot reach the signing key. **Done 2026-10-17:**
-steps 8–11 (the keys, the Environment admitting only `wipemark-v*` tags,
-the working key and its password). **Not yet:** step 12 — the value in
-Watchword `mnemovi-publish-token` (2026-07-06) is refused by
-releases.giglabo.com (401, as a wrong token is), so the service's
-`PUBLISH_TOKEN` has changed since; until step 12, the `publish-update`
-job of a published release fails, naming the missing secret, and nothing
-is offered. Step 13: the backup key is in the same Watchword file, beside
-the working one.
+`releases`, so a branch cannot reach the signing key. **Done 2026-10-17,
+all of steps 8–13.** For step 12 the service's token was rotated: the value
+in Watchword `mnemovi-publish-token` (2026-07-06) was refused by
+releases.giglabo.com (401, as a wrong token is), so a new `PUBLISH_TOKEN`
+was set on both Workers (`heretic-releases-api` and `-staging`), in
+MnemoVi's Woodpecker (`mnemoria-lvkb`, `publish_token`) and here as
+`RELEASES_PUBLISH_TOKEN`; both Workers accept it and refuse a wrong one. It
+is the Watchword file `giglabo-releases-publish-token-2026-10-17` (with a
+README saying where it is set and how to rotate it) and
+`~/Documents/cert/giglabo-releases-publish-token.txt`. Step 13: the backup
+key is in the same Watchword file as the working one, and in
+`~/Documents/cert/wipemark-update-keys/`.
 
 8. **The keys.** On this Mac, with Homebrew's OpenSSL 3:
    `scripts/release/update-keys.sh <working key path> <backup key path>`,
