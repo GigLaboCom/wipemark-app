@@ -6,10 +6,17 @@
 # as a mode of its own, on `main` only, the way the industry usually runs
 # it: not a gate, not on every push or pull request.
 #
-# When: a push to `main` (a merged pull request), and by hand
-# (`gh workflow run coverage.yml --ref <branch>`, or the Actions tab).
-# A manual run needs this file on the default branch first; that is how
-# GitHub finds a `workflow_dispatch` workflow.
+# When (D808, the owner, 2026-10-17): once a week, Monday 02:17 UTC, on
+# `main`, and by hand (`gh workflow run coverage.yml --ref <branch>`, or
+# the Actions tab). Not on a push to `main`: a merge there comes just
+# before a release, and a report that gates nothing has no business in the
+# release's way — whether the tests pass is the gate's question, on every
+# push and pull request. A scheduled run whose `main` is the commit the
+# last successful report already measured stops after one small job, with
+# a notice; a manual run always measures. A manual run needs this file on
+# the default branch first; that is how GitHub finds a `workflow_dispatch`
+# workflow. GitHub pauses a schedule after 60 days with no activity in the
+# repository; the Actions tab turns it back on.
 #
 # What: the workspace tests (`cargo test --workspace`'s set, less the
 # tests heavy under coverage, below) once, under LLVM's source-based
@@ -49,9 +56,13 @@
 name: coverage
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "17 2 * * 1"
   workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
 
 concurrency:
   group: coverage-${{ github.ref }}
@@ -65,10 +76,45 @@ env:
   RUST_BACKTRACE: "1"
 
 jobs:
+  # A week with nothing merged measures nothing: the schedule's run asks
+  # which commit the last successful report was made on, and stops when
+  # `main` has not moved since. By hand it always goes on.
+  changed:
+    name: anything new since the last report
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      measure: ${{ steps.last.outputs.measure }}
+    steps:
+      - name: The last report's commit
+        id: last
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != schedule ]; then
+            echo "measure=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last="$(gh run list -R "$GITHUB_REPOSITORY" --workflow coverage.yml --branch main \
+            --status success -L 1 --json headSha --jq '.[0].headSha // ""')"
+          if [ "$last" = "$GITHUB_SHA" ]; then
+            echo "measure=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Coverage not measured::main is still at ${GITHUB_SHA:0:7}, which the last report already measured."
+          else
+            echo "measure=true" >> "$GITHUB_OUTPUT"
+            echo "main is at ${GITHUB_SHA:0:7}; the last report measured ${last:-nothing yet}."
+          fi
+
   coverage:
     name: coverage (workspace tests, report only)
+    needs: changed
+    if: needs.changed.outputs.measure == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    # A hang's limit, not the run's length: D807 puts the tests at 25 to 32
+    # minutes and the build at about five.
+    timeout-minutes: 120
     steps:
       - name: Free disk space
         run: |

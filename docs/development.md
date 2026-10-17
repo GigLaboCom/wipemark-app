@@ -161,7 +161,7 @@ The other workflows:
 | workflow | what it runs |
 |---|---|
 | `.github/workflows/llama-source.yml` | llama.cpp from source, on changes to the llama crates, weekly and by hand. The macOS job also lints the workspace with clippy, which is the only lint the `cfg(target_os = "macos")` code gets. |
-| `.github/workflows/coverage.yml` | the workspace tests under cargo-llvm-cov, on a push to `main` and by hand; a report, never a gate |
+| `.github/workflows/coverage.yml` | the workspace tests under cargo-llvm-cov, weekly on `main` when it has moved and by hand (D808); a report, never a gate |
 | `.github/workflows/release.yml` | the release lane; see below |
 
 **The native gates.** None of the gates above compiles llama.cpp. A
