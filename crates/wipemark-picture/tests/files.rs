@@ -161,6 +161,7 @@ fn marked(kind: Kind, seed: u64) -> (Raster, Raster) {
 // ------------------------------------------------------------- tests
 
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_marked_png_is_restored_and_nothing_else_moves() {
     let catalogue = synthetic_catalogue();
     let iccp = chunk(
@@ -224,6 +225,7 @@ fn a_marked_png_is_restored_and_nothing_else_moves() {
 }
 
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_marked_webp_is_restored_losslessly() {
     let catalogue = synthetic_catalogue();
     let (original, marked) = marked(Kind::Fractal, 11);
@@ -240,6 +242,7 @@ fn a_marked_webp_is_restored_losslessly() {
 /// A picture with no mark is not re-encoded: the output is the metadata
 /// pass's, byte for byte.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn nothing_restored_is_strip_byte_for_byte() {
     let catalogue = synthetic_catalogue();
     let plain = picture(Kind::ValueNoise, W, H, 21, Layout::Rgb8);
@@ -375,6 +378,7 @@ fn an_animated_png_is_not_examined_and_says_so() {
 
 /// The JSON carries both passes and the picture's shelf, in ASCII.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn the_picture_report_json_carries_both_passes_and_the_shelf() {
     let catalogue = synthetic_catalogue();
     let (_, marked) = marked(Kind::Fractal, 41);

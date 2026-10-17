@@ -104,6 +104,12 @@ default = []
 # shim that refuses every load, `llama-native` with llama.cpp built in.
 local-llama = ["wipemark-pipeline/local-llama", "wipemark-engine/local-llama"]
 llama-native = ["local-llama", "wipemark-pipeline/llama-native", "dep:wipemark-llama-sys"]
+# Tests only, never the program (D805): the slow tier — every test over
+# 60 s in an ordinary gate run (`tests/visible.rs`'
+# `a_night_sky_wallpaper_is_clean`) — is ignored without it, so neither
+# `cargo test --workspace`, CI nor coverage runs it. Forwards nothing.
+# `scripts/test-slow.sh` turns it on; nothing else may.
+slow-tests = []
 
 [lints]
 workspace = true

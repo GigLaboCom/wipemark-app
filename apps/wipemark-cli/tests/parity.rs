@@ -73,6 +73,7 @@ fn library(bytes: &[u8], name: &str) -> Vec<u8> {
 }
 
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn the_cli_cleans_to_the_windows_table() {
     let out = std::env::temp_dir().join(format!("wipemark-cli-parity-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&out);

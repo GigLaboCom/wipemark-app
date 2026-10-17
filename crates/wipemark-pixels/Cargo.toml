@@ -37,6 +37,12 @@ thiserror.workspace = true
 # it. Parked, 2026-10-10 (D521): no fresh Gemini target (D520), so no
 # sub-step's condition can be measured; the code is kept here, not removed.
 blend-preview = []
+# Tests only, never the library (D805): the slow tier — every test over 60 s
+# in an ordinary gate run (`false_positives.rs`' four,
+# `no_refinement_ends_smoother_than_its_surroundings`) — is ignored without
+# it, so neither `cargo test --workspace`, CI nor coverage runs it.
+# `scripts/test-slow.sh` turns it on; nothing else may.
+slow-tests = []
 
 [dev-dependencies]
 # Only to prove the asset conversion: every `.wma` sample is max(R, G, B)

@@ -126,12 +126,40 @@ cargo test   -p gpui-pre-linux --locked          # the carried crate is not a me
 Coverage is a workflow of its own, `.github/workflows/coverage.yml`: on
 a push to `main` and by hand (`gh workflow run coverage.yml --ref
 <branch>`, once the file is on `main`) — never a gate and never on a pull
-request. It runs the workspace tests once under cargo-llvm-cov and
-reports — a per-file summary in the run's page, `lcov.info` and an HTML
-view as the `coverage` artifact — with no threshold. It replaced the
-mutation tables (the owner, 2026-10-06,
-`wipemark-mutations-not-needed-2026-10-06`). A covered line was executed,
-not asserted on.
+request. It runs the workspace tests once under cargo-llvm-cov, less the
+tests heavy under it (below), and reports — a per-file summary in the
+run's page, `lcov.info` and an HTML view as the `coverage` artifact —
+with no threshold. It replaced the mutation tables (the owner,
+2026-10-06, `wipemark-mutations-not-needed-2026-10-06`). A covered line
+was executed, not asserted on.
+
+**The slow tier runs by hand, never in CI** (D805–D807, the owner,
+2026-10-17). Every test that ran past a minute in an ordinary gate run
+(run 38977019041, Linux or macOS) is ignored unless its crate's
+`slow-tests` feature is on — eight: `wipemark-pixels`' four in
+`tests/false_positives.rs` and `no_refinement_ends_smoother_than_its_surroundings`
+(`tests/interval.rs`), `wipemark-picture`'s
+`a_lossless_source_is_never_refined` and `no_restoration_is_smoothed`
+(`tests/interval.rs`), the CLI's `a_night_sky_wallpaper_is_clean`
+(`tests/visible.rs`). No gate above, no CI lane and no coverage run turns
+the feature on, so any change under `crates/wipemark-pixels`,
+`crates/wipemark-picture` or the CLI's picture path (its image commands,
+`tests/visible.rs`) runs the slow tier by hand before pushing:
+
+```sh
+scripts/test-slow.sh    # the three crates' tests, every one, each crate's slow-tests on, --locked
+```
+
+About 12½ minutes on the owner's M3 Pro with the build warm (748 s; the
+false-positive suite is 266 s of it). A feature and not `-- --ignored`,
+which would also run the measurements (`tests/measure.rs` and the rest). Coverage
+passes by more: every other test past a minute under cargo-llvm-cov (run
+38977019032 — 72, the app's unit tests among them) carries
+`#[cfg_attr(coverage, ignore = "heavy under coverage: …")]`, skipped there
+and run by every gate; `cfg(coverage)` is declared in the root
+`Cargo.toml` for `unexpected_cfgs`. A test moves into or out of either
+tier only by a run's log (`gh run view <id> --log`, read by
+`scripts/test-tiers.py flagged`), recorded as a decision.
 
 `local-llama` compiles `LocalEngine` over a shim that refuses every
 load — no cmake, no libclang, which the CI image has neither of — so it
@@ -379,6 +407,7 @@ the gate test named there is what holds each one.
 **Process**
 - Every script stays in the repository with a header saying what it is for.
 - Tests must be able to fail: red first, the protection deleted once to watch it go red. No mutation tables; coverage is the measure.
+- A test past a minute in the gate is the slow tier, run by hand (`scripts/test-slow.sh`) and never in CI; one past a minute only under coverage is skipped there alone; a test changes tier only by a run's log (D805–D807).
 
 ## Specs and statuses
 
@@ -437,5 +466,5 @@ with `"think": false` (D709).
 and the socket go. A second signal ends the process at once.
 
 Everything else is stage two (§4 of the release plan). The next free
-decision block is **D805** (D800–D804 are the main window's Unload for the model on this machine, F36; D795–D799 make a tooltip go with the pointer and with its control, F34, and Compare's dark word marks readable, F35; D790–D794 hold one Wipemark per data directory and hand `--panel`/`--show` over on macOS too, F33; D780–D789 are the update check and self-update through giglabo's releases service, `docs/sdd/self-update.md`; D775–D779 sign the macOS release with the Developer ID and notarize it in the release lane on a tag, as lazy-shot does, ad hoc without the six `APPLE_*` secrets; D770–D774 pin the submodule to the owner's fork `glani/gpui-component` `editor-gutter-menu`, gpui-kit `next` plus #3520 and #3521, for Compare's per-line menu, until upstream merges both; D761–D764 make a row's Open with say so, and its Copy the result copy whatever the result is — a text file's as its text, a picture's as the picture, F32; D758–D760 hand the buttons that do not fit Compare's result strip to a more menu; D755–D757 put the submodule back on upstream gpui-kit `next`; D752–D754 make a window close itself after the event that asked, on macOS by AppKit's close, F23; D750–D751 make a caller's row look as a window's row of the same thing, F28; D748–D749 make Compare's words fit its window, F27; D745–D747 make the engine say it is starting until the first models scan lands, F26; D740–D744 make no process reach `exit` with a local model loaded, F31; D735–D739 make the panel on macOS come and go on its own, F30; D734 makes the program's own directory a link's target, F29; D729–D733 make a row's actions depend on what is on disk, never on where the row came from; D728 makes AppKit window changes outside a GPUI update, F24; D723–D727 are the panel's nine anchors; D722 is the tray's Show/Hide panel item; D721 puts Compare's wrap on by default; D703–D708 are Redo a row's, D709–D714 F20/F19's, D715–D719 F1/F7's, D720 where the two meet; D702 is the macOS acceptance's Rewrite all; D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
+decision block is **D808** (D805–D807 split the slow tests off: the slow tier, run by hand with `scripts/test-slow.sh` and never in CI, and the tests heavy under coverage, skipped there only; D800–D804 are the main window's Unload for the model on this machine, F36; D795–D799 make a tooltip go with the pointer and with its control, F34, and Compare's dark word marks readable, F35; D790–D794 hold one Wipemark per data directory and hand `--panel`/`--show` over on macOS too, F33; D780–D789 are the update check and self-update through giglabo's releases service, `docs/sdd/self-update.md`; D775–D779 sign the macOS release with the Developer ID and notarize it in the release lane on a tag, as lazy-shot does, ad hoc without the six `APPLE_*` secrets; D770–D774 pin the submodule to the owner's fork `glani/gpui-component` `editor-gutter-menu`, gpui-kit `next` plus #3520 and #3521, for Compare's per-line menu, until upstream merges both; D761–D764 make a row's Open with say so, and its Copy the result copy whatever the result is — a text file's as its text, a picture's as the picture, F32; D758–D760 hand the buttons that do not fit Compare's result strip to a more menu; D755–D757 put the submodule back on upstream gpui-kit `next`; D752–D754 make a window close itself after the event that asked, on macOS by AppKit's close, F23; D750–D751 make a caller's row look as a window's row of the same thing, F28; D748–D749 make Compare's words fit its window, F27; D745–D747 make the engine say it is starting until the first models scan lands, F26; D740–D744 make no process reach `exit` with a local model loaded, F31; D735–D739 make the panel on macOS come and go on its own, F30; D734 makes the program's own directory a link's target, F29; D729–D733 make a row's actions depend on what is on disk, never on where the row came from; D728 makes AppKit window changes outside a GPUI update, F24; D723–D727 are the panel's nine anchors; D722 is the tray's Show/Hide panel item; D721 puts Compare's wrap on by default; D703–D708 are Redo a row's, D709–D714 F20/F19's, D715–D719 F1/F7's, D720 where the two meet; D702 is the macOS acceptance's Rewrite all; D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
 history of every merge is [docs/plan/history.md](docs/plan/history.md).

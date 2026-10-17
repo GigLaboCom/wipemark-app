@@ -1064,6 +1064,7 @@ mod tests {
     /// the third shelf is the report's own: a picture's leads with the
     /// pixels' claim, and none is ever empty.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn every_outcome_has_its_three_shelves() {
         let scratch = Scratch::new("shelves");
         let localizer = english();
@@ -1133,6 +1134,7 @@ mod tests {
     /// The Markdown copy in every language: no isolate, nothing Layer A
     /// would remove, all five titles — over every ending.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn the_markdown_copy_carries_nothing_layer_a_would_remove() {
         let scratch = Scratch::new("markdown");
         let endings = every_kind(&scratch);
@@ -1163,6 +1165,7 @@ mod tests {
     /// pass or its metadata pass carries — one this build has no sentence
     /// for — is shown, as itself, in the report's order, and never dropped.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn the_third_shelf_is_the_reports_own() {
         use wipemark_picture::Visible;
         let scratch = Scratch::new("own-shelf");
@@ -1199,6 +1202,7 @@ mod tests {
     /// a shelf off, and still leads with the pixels' claim — not examined is
     /// not clean — then the metadata pass's ids, in its order (X4).
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn a_picture_not_examined_still_leads_with_the_pixels_claim() {
         use wipemark_picture::{NotExamined, Visible};
         let scratch = Scratch::new("not-examined");

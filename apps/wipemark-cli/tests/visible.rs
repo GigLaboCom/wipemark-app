@@ -273,6 +273,7 @@ fn an_outline_left_is_said_and_exits_three() {
 /// quantisation intervals by DCT-POCS (D472: the 4:4:4 one's 8 × 8
 /// checker is gone). The JSON says how.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_jpeg_at_95_is_restored_in_its_planes_and_refined_with_nothing_left() {
     let scratch = Scratch::new("planes");
     for (name, planar) in [
@@ -343,6 +344,7 @@ fn a_fringe_left_in_colour_is_said_and_exits_three() {
 /// takes its checker away, and the lossy WebP — no intervals to choose in
 /// — is where a texture is still left (with its colour fringe, above).
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_texture_left_on_a_lossy_picture_is_said_and_exits_three() {
     let scratch = Scratch::new("texture");
     scratch.file("art.webp", &real("scroll-1040-q90.webp"));
@@ -492,6 +494,7 @@ fn a_cut_out_sticker_is_clean() {
 /// Only skies the correlation does propose a sparkle on are used, or the
 /// test would pass without the second proof ever being asked.
 #[test]
+#[cfg_attr(not(feature = "slow-tests"), ignore = "slow: scripts/test-slow.sh")]
 fn a_night_sky_wallpaper_is_clean() {
     let scratch = Scratch::new("aurora");
     let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));

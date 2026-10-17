@@ -245,6 +245,14 @@ unused_async = "warn"
 [workspace.lints.rustdoc]
 private_intra_doc_links = "allow"
 
+# cargo-llvm-cov builds every crate with `--cfg coverage` (unless it is
+# given `--no-cfg-coverage`), and the tests too heavy under its
+# instrumentation say `#[cfg_attr(coverage, ignore = …)]` (D806). Declared
+# here, where every member takes its lints, so `unexpected_cfgs` knows the
+# name under clippy's `-D warnings`.
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
+
 # A debug build of a GPUI app is unusable if the framework itself is
 # unoptimised — scrolling drops to single-digit FPS. Cost is paid once
 # per gpui bump, not per edit of our own crates.

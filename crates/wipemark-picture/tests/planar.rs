@@ -56,6 +56,7 @@ fn restored(name: &str, report: &PictureReport) -> Restored {
 /// left (R0: the pixels pass with no planes, the product's path before
 /// D471); the restoration says it was planar.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_420_mark_restored_by_planes_has_less_fringe() {
     let catalogue = Catalogue::shipped().unwrap();
     for name in ["thinking-1040-q95-420.jpg", "victory-1040-q95-420.jpg"] {
@@ -101,6 +102,7 @@ fn a_420_mark_restored_by_planes_has_less_fringe() {
 /// refinement ever runs on a lossless source, S6); the 4:4:4 JPEG's is
 /// the old restoration refined by DCT-POCS (D472), never planar.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_444_jpeg_and_a_png_take_the_old_path_byte_for_byte() {
     let catalogue = Catalogue::shipped().unwrap();
     for name in ["torch-1025-q95-444.jpg", "torch-1025.png"] {
@@ -144,6 +146,7 @@ fn a_444_jpeg_and_a_png_take_the_old_path_byte_for_byte() {
 /// is what the file stored, to within a level at the 95th percentile, on
 /// every 4:2:0 fixture — measured in the planes.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn the_planar_inverse_is_still_an_inverse() {
     for name in [
         "thinking-1040-q95-420.jpg",
@@ -166,6 +169,7 @@ fn the_planar_inverse_is_still_an_inverse() {
 /// and nothing asked. `decode` alone, which the proof re-reads the output
 /// with, still hands out no planes.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn the_product_takes_the_planes_on_a_subsampled_jpeg() {
     let name = "victory-1040-q95-420.jpg";
     let bytes = fixture(name);

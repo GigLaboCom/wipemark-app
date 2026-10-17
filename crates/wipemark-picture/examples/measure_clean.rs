@@ -1118,6 +1118,7 @@ mod tests {
     /// the pad — meeting the mark; the same seed draws the same ones, another
     /// seed others.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn the_rectangles_keep_clear_of_a_finding_and_follow_the_seed() {
         let catalogue = Catalogue::shipped().unwrap();
         let chosen: Vec<&Profile> = catalogue.profiles().iter().collect();
@@ -1219,6 +1220,7 @@ mod tests {
     /// textured exactly when its texture margin is over 1 — and some are
     /// said, so the agreement is not over nothing.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn the_margins_say_what_the_product_says() {
         let catalogue = Catalogue::shipped().unwrap();
         let chosen: Vec<&Profile> = catalogue.profiles().iter().collect();
