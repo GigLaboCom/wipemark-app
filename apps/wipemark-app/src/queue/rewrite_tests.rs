@@ -118,6 +118,17 @@ pub(super) fn until(
     what: &str,
     done: impl Fn(&mut VisualTestContext) -> bool,
 ) {
+    until_seeing(cx, what, done, |_| String::new());
+}
+
+/// [`until`], and on a timeout what `seen` says it last saw — a wait that
+/// failed on a runner nobody can watch says where it stopped.
+pub(super) fn until_seeing(
+    cx: &mut VisualTestContext,
+    what: &str,
+    done: impl Fn(&mut VisualTestContext) -> bool,
+    seen: impl Fn(&mut VisualTestContext) -> String,
+) {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         cx.executor().advance_clock(super::rewriting::TICK);
@@ -125,9 +136,50 @@ pub(super) fn until(
         if done(cx) {
             return;
         }
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        if Instant::now() >= deadline {
+            let seen = seen(cx);
+            assert!(
+                seen.is_empty(),
+                "timed out waiting for {what}; last seen: {seen}"
+            );
+            panic!("timed out waiting for {what}");
+        }
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+/// The table's rows as their statuses stand, and the journal's as its rows
+/// say them — what a wait on the two prints when it times out.
+pub(super) fn table_and_journal(
+    queue: &gpui::Entity<Queue>,
+    work: &Work,
+    cx: &mut VisualTestContext,
+) -> String {
+    let table: Vec<String> = cx.update(|_, cx| {
+        let queue = queue.read(cx);
+        queue
+            .rows
+            .iter()
+            .map(|row| {
+                format!(
+                    "row {} (entry {:?}, item {:?}): {:?}",
+                    row.id, row.entry, row.item, row.status
+                )
+            })
+            .collect()
+    });
+    let journal: Vec<String> = work
+        .journal
+        .rows()
+        .iter()
+        .map(|row| {
+            format!(
+                "journal {}: {} {} item {:?} ended {:?} {}",
+                row.id, row.action, row.state, row.item, row.ended, row.entry
+            )
+        })
+        .collect();
+    format!("{table:#?} {journal:#?}")
 }
 
 pub(super) fn ids(queue: &gpui::Entity<Queue>, cx: &mut VisualTestContext) -> Vec<u64> {
@@ -157,7 +209,12 @@ fn a_rows_rewrite_is_one_item_with_its_source_format_and_destination(cx: &mut Te
 
     let id = ids(&queue, cx)[0];
     queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
-    until(cx, "the push", |_| !work.queue.items().is_empty());
+    until_seeing(
+        cx,
+        "the push",
+        |_| !work.queue.items().is_empty(),
+        |cx| table_and_journal(&queue, &work, cx),
+    );
     let items = work.queue.items();
     assert_eq!(items.len(), 1, "one row, one item");
     assert_eq!(items[0].source, wipemark_queue::Shown::File(source.clone()));
@@ -174,6 +231,22 @@ fn a_rows_rewrite_is_one_item_with_its_source_format_and_destination(cx: &mut Te
         items[0].destination.as_ref().and_then(Destination::file),
         Some(scratch.0.join("article.rewritten.md"))
     );
+    // The handle lists the item the moment it is pushed; the queue's own
+    // thread stores it a moment later.
+    until_seeing(
+        cx,
+        "the stored item",
+        |_| {
+            !work
+                .journal
+                .store()
+                .queue()
+                .rows()
+                .expect("rows")
+                .is_empty()
+        },
+        |cx| table_and_journal(&queue, &work, cx),
+    );
     let stored = work.journal.store().queue().rows().expect("rows");
     assert!(
         stored[0].item.contains(r#""format":"markdown""#),
@@ -181,19 +254,29 @@ fn a_rows_rewrite_is_one_item_with_its_source_format_and_destination(cx: &mut Te
         stored[0].item
     );
 
-    until(cx, "the end", |cx| status(&queue, cx) == "rewritten");
+    until_seeing(
+        cx,
+        "the end",
+        |cx| status(&queue, cx) == "rewritten",
+        |cx| table_and_journal(&queue, &work, cx),
+    );
     let written = std::fs::read_to_string(scratch.0.join("article.rewritten.md"))
         .expect("the rewrite beside the file");
     assert_ne!(written, PARAGRAPH);
     assert_eq!(std::fs::read(&cleaned).expect("read"), b"a clean's result");
     assert_eq!(std::fs::read_to_string(&source).expect("read"), PARAGRAPH);
 
-    until(cx, "the journal", |_| {
-        work.journal
-            .rows()
-            .first()
-            .is_some_and(|row| row.state == "done" && row.action == "rewrite")
-    });
+    until_seeing(
+        cx,
+        "the journal",
+        |_| {
+            work.journal
+                .rows()
+                .first()
+                .is_some_and(|row| row.state == "done" && row.action == "rewrite")
+        },
+        |cx| table_and_journal(&queue, &work, cx),
+    );
     let entry = Entry::from_json(&work.journal.rows()[0].entry);
     assert!(
         matches!(&entry.result, Some(Delivered::File { path, .. }) if path.ends_with("article.rewritten.md")),
@@ -2166,7 +2249,12 @@ fn a_row_whose_rewrite_rewrote_nothing_is_cleaned_by_its_clean(cx: &mut TestAppC
     cx.run_until_parked();
     let id = ids(&queue, cx)[0];
     queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
-    until(cx, "the end", |cx| status(&queue, cx) == "not-rewritten");
+    until_seeing(
+        cx,
+        "the end",
+        |cx| status(&queue, cx) == "not-rewritten",
+        |cx| table_and_journal(&queue, &work, cx),
+    );
 
     let (labels, why) = cx.update(|_, cx| {
         let queue = queue.read(cx);
@@ -2190,7 +2278,12 @@ fn a_row_whose_rewrite_rewrote_nothing_is_cleaned_by_its_clean(cx: &mut TestAppC
     queue.update(cx, |queue, cx| {
         super::clean_step(id, super::again_of(queue.status_of(id).expect("the row")))(queue, cx);
     });
-    until(cx, "the clean", |cx| status(&queue, cx) == "cleaned");
+    until_seeing(
+        cx,
+        "the clean",
+        |cx| status(&queue, cx) == "cleaned",
+        |cx| table_and_journal(&queue, &work, cx),
+    );
     let cleaned = scratch.0.join("a.cleaned.md");
     let text = std::fs::read_to_string(&cleaned).expect("the cleaned result");
     assert!(!text.contains('\u{200B}'), "{text:?}");
@@ -2273,4 +2366,147 @@ fn a_clean_that_ended_is_not_undone_by_a_read_from_before_it(cx: &mut TestAppCon
         cx.run_until_parked();
     }
     assert_eq!(status(&queue, cx), "cleaned");
+}
+
+/// Every event of the one item `carried` hears — its start, its job's
+/// events, an interruption, its end — up to and with the end: what the
+/// table's own channel carries for it, read off a subscription of the
+/// test's.
+fn the_items_events(carried: &flume::Receiver<BatchEvent>) -> Vec<BatchEvent> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut heard = Vec::new();
+    loop {
+        let event = carried.recv_deadline(deadline).expect("the item's end");
+        let end = matches!(event, BatchEvent::Ended { .. });
+        if matches!(
+            event,
+            BatchEvent::Started { .. }
+                | BatchEvent::Job { .. }
+                | BatchEvent::Interrupted { .. }
+                | BatchEvent::Ended { .. }
+        ) {
+            heard.push(event);
+        }
+        if end {
+            return heard;
+        }
+    }
+}
+
+/// D809: the table hears a rewrite down two roads — the batch queue's
+/// events, drained once a tick, and the journal, read again when the
+/// bookkeeper wrote — and the bookkeeper can write the end before the
+/// table has drained the events that came before it. A read then says *Not
+/// rewritten* first; Clean is pressed (D720), the clean runs and ends, and
+/// only then are the item's last stages, an interruption and its end
+/// heard. They are older than the clean, and the row stays cleaned. Forced
+/// here by handing the table the item's events again, off a subscription of
+/// the test's, once the clean has ended — as its own channel hands them
+/// over when it lags. Let any of them move a row that has moved on to a
+/// clean and the row says *Not rewritten* over the clean that ran, and once
+/// the writer catches up the clean's summary, never the clean: red. That is
+/// how CI saw it (`a_row_whose_rewrite_rewrote_nothing_is_cleaned_by_its_clean`
+/// timing out, gate run 39072616003, Linux, 2026-10-17).
+#[gpui::test]
+fn a_rewrites_events_heard_late_never_undo_the_clean_pressed_on_its_end(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("clean-against-late-events");
+    let marked = format!("The build\u{200B} {}\n{OTHER}", &PARAGRAPH[10..]);
+    let source = scratch.file("a.md", marked.as_bytes());
+    let work = work(FakeEngine::answering(|_, _| String::new()));
+    let carried = work.queue.subscribe();
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the end", |cx| status(&queue, cx) == "not-rewritten");
+    let mut late = the_items_events(&carried);
+    let Some(&BatchEvent::Ended { item, .. }) = late.last() else {
+        panic!("no end: {late:?}");
+    };
+    assert!(
+        late.iter().any(|event| matches!(
+            event,
+            BatchEvent::Job {
+                event: Event::Stage { .. },
+                ..
+            }
+        )),
+        "no stage: {late:?}"
+    );
+    // A pause that interrupted it, heard as late as the rest.
+    late.insert(late.len() - 1, BatchEvent::Interrupted { item });
+
+    queue.update(cx, |queue, cx| {
+        super::clean_step(id, super::again_of(queue.status_of(id).expect("the row")))(queue, cx);
+    });
+    until_seeing(
+        cx,
+        "the clean",
+        |cx| status(&queue, cx) == "cleaned",
+        |cx| table_and_journal(&queue, &work, cx),
+    );
+    queue.update(cx, |queue, cx| {
+        for event in late {
+            queue.heard_batch(event, cx);
+        }
+    });
+    assert_eq!(
+        status(&queue, cx),
+        "cleaned",
+        "the rewrite's events heard late undid the clean"
+    );
+
+    until(cx, "the clean in the journal", |_| {
+        work.journal.rows()[0].action == "clean"
+    });
+    for _ in 0..3 {
+        cx.executor().advance_clock(super::rewriting::TICK * 10);
+        cx.run_until_parked();
+    }
+    assert_eq!(status(&queue, cx), "cleaned");
+}
+
+/// D809: an end the row already says — read from the journal before the
+/// table drained the item's events — is kept against the item's start and
+/// stages heard after it: they came before the end, and the end's own
+/// event, heard after them, says the same end. Let a stage move a row that
+/// says its rewrite's end and the row reads *Rewriting* again, a moment
+/// after it read *Not rewritten*, its Clean greyed again under the
+/// person's pointer: red.
+#[gpui::test]
+fn a_rewrites_stages_heard_after_its_end_never_reopen_the_row(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("end-against-late-stages");
+    let marked = format!("The build\u{200B} {}\n{OTHER}", &PARAGRAPH[10..]);
+    let source = scratch.file("a.md", marked.as_bytes());
+    let work = work(FakeEngine::answering(|_, _| String::new()));
+    let carried = work.queue.subscribe();
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the end", |cx| status(&queue, cx) == "not-rewritten");
+    let mut late = the_items_events(&carried);
+    let end = late.pop().expect("the end");
+    assert!(
+        late.iter()
+            .any(|event| matches!(event, BatchEvent::Started { .. })),
+        "no start: {late:?}"
+    );
+
+    queue.update(cx, |queue, cx| {
+        for event in late {
+            queue.heard_batch(event, cx);
+        }
+    });
+    assert_eq!(
+        status(&queue, cx),
+        "not-rewritten",
+        "the rewrite's stages heard late reopened its end"
+    );
+    queue.update(cx, |queue, cx| queue.heard_batch(end, cx));
+    assert_eq!(status(&queue, cx), "not-rewritten");
 }
