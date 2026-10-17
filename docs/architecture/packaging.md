@@ -574,17 +574,23 @@ No Cloudflare or R2 credential ever reaches GitHub: the service presigns.
 
 **Keys.** `crates/wipemark-update/keys/` holds the public halves
 (`<role>-<id>.pem`) and `crates/wipemark-update/src/keys.rs` the same keys
-as a table; a test holds the two equal. **Until the owner runs
-`scripts/release/update-keys.sh` both are empty, and every build says it
-cannot check for updates** — it asks nothing of the network and believes
-nothing. A build made before the keys are committed never learns of them:
-the first release that carries the updater must be cut after the commit.
+as a table; a test holds the two equal. A build without them says it
+cannot check for updates — it asks nothing of the network and believes
+nothing — and a build made before the keys are committed never learns of
+them. **They were made on 2026-10-17** (working `24b967e7176fb3b2`, backup
+`1077cd1e3c1da702`) and committed before 0.1.0, so 0.1.0 is the first
+release that carries the updater. Both private halves, encrypted, each
+with its password, are one file in Watchword,
+`wipemark-update-signing-keys-2026-10-17` (with a README naming which is
+which), and the same files are on the owner's Mac beside the Apple
+certificate, in `~/Documents/cert/wipemark-update-keys/`.
 
 **What installs.** A Developer ID, notarized `Wipemark.app` in a writable
 folder (D786) and an AppImage in a writable folder (D787) replace
 themselves; a `.deb`, an ad hoc bundle (no APPLE_* secrets), a translocated
 or read-only copy only say a version is out and offer a verified download.
-0.1.0 has no updater: its users install the next version by hand once.
+0.1.0 carries the updater and the keys; its check is off until the person
+turns it on.
 
 **The next release notes** (`docs/release/<version>.md`) drop 0.1.0's
 "Updates" limitation, add `updates/` to the data folder's list (an update's
@@ -644,7 +650,18 @@ fork can reach them.
 
 **The update (D782, D783)** — once, before the first release that carries
 the updater. Unlike the six above, these are **Environment** secrets, in
-`releases`, so a branch cannot reach the signing key.
+`releases`, so a branch cannot reach the signing key. **Done 2026-10-17,
+all of steps 8–13.** For step 12 the service's token was rotated: the value
+in Watchword `mnemovi-publish-token` (2026-07-06) was refused by
+releases.giglabo.com (401, as a wrong token is), so a new `PUBLISH_TOKEN`
+was set on both Workers (`heretic-releases-api` and `-staging`), in
+MnemoVi's Woodpecker (`mnemoria-lvkb`, `publish_token`) and here as
+`RELEASES_PUBLISH_TOKEN`; both Workers accept it and refuse a wrong one. It
+is the Watchword file `giglabo-releases-publish-token-2026-10-17` (with a
+README saying where it is set and how to rotate it) and
+`~/Documents/cert/giglabo-releases-publish-token.txt`. Step 13: the backup
+key is in the same Watchword file as the working one, and in
+`~/Documents/cert/wipemark-update-keys/`.
 
 8. **The keys.** On this Mac, with Homebrew's OpenSSL 3:
    `scripts/release/update-keys.sh <working key path> <backup key path>`,

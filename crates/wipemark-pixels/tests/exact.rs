@@ -23,6 +23,7 @@ fn lossless() -> ExamineOptions {
 /// its row's place is found by the row, verified, restored to within one
 /// level everywhere, and the restoration says it is exact.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_composited_mark_comes_back_within_one_level() {
     let catalogue = synthetic_catalogue();
     let v1 = synthetic_v1();
@@ -72,6 +73,7 @@ fn a_composited_mark_comes_back_within_one_level() {
 /// row's mark was proved, not only when no row was proposed — finds the
 /// mark where it is, proves and restores it; searched, so never exact.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_mark_a_pixel_off_its_row_is_found_by_the_search() {
     let catalogue = synthetic_catalogue();
     let row = small_row(W, H, 48);
@@ -114,6 +116,7 @@ fn a_mark_a_pixel_off_its_row_is_found_by_the_search() {
 /// that refused it by gain, and a quarter or half a pixel off is not that
 /// place ([`wipemark_pixels::ROW_PLACE`]).
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_mark_half_a_pixel_off_its_row_is_proved_by_the_search() {
     let catalogue = synthetic_catalogue();
     let row = small_row(W, H, 48);
@@ -232,6 +235,7 @@ fn a_proof_is_not_restored_onto_a_raster_of_another_size() {
 /// edge. The outline check measures it over the bound (D238), says an
 /// outline is left, and the mark counts as still in the result.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn an_outline_left_by_another_map_is_said() {
     let catalogue = synthetic_catalogue();
     let small = synthetic_v1().small;
@@ -267,6 +271,7 @@ fn an_outline_left_by_another_map_is_said() {
 /// D157: the picture's alpha is never written, whatever the restoration
 /// does to the colour.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn the_alpha_channel_is_never_written() {
     let catalogue = synthetic_catalogue();
     let original = picture(Kind::ValueNoise, W, H, 3, Layout::Rgba8);
@@ -387,6 +392,7 @@ fn a_resampled_row_is_never_exact() {
 
 /// A lossy source is never exact, however clean the arithmetic.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_lossy_source_is_never_exact() {
     let catalogue = synthetic_catalogue();
     let original = picture(Kind::Gradient, W, H, 11, Layout::Rgb8);
@@ -409,6 +415,7 @@ fn a_lossy_source_is_never_exact() {
 /// Nothing verified, nothing written: an unmarked picture comes out of
 /// `clean` identical.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn nothing_is_changed_when_nothing_is_verified() {
     let catalogue = synthetic_catalogue();
     for layout in [Layout::Rgb8, Layout::Rgba8] {
@@ -451,6 +458,7 @@ fn a_white_mark_on_white_noise_is_not_proved() {
 /// (a step under half a level), so the absolute measure (D244) cannot see
 /// it; the contour's share can (over a quarter), and the outline is said.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_lopsided_outline_is_said_by_its_share() {
     let catalogue = synthetic_catalogue();
     let small = synthetic_v1().small;
@@ -542,6 +550,7 @@ fn composite_with_at_its_defaults_is_composite() {
 /// (D246) — to within a level of the picture under it, and `exact` says so
 /// wherever nothing clamped. Nothing outside the mark moves.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_canonical_composite_comes_back_exact() {
     let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
     // (profile, map, picture size, margin): V1's small row, V2's 1024 row
@@ -617,6 +626,7 @@ fn a_canonical_composite_comes_back_exact() {
 /// measure is in 8-bit levels whatever the depth: the 257 stored levels a
 /// 16-bit raster has to one 8-bit level are not a departure.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_composited_mark_is_consistent_to_rounding() {
     let catalogue = synthetic_catalogue();
     let v1 = synthetic_v1();
@@ -683,6 +693,7 @@ fn clamped_samples_are_left_out_and_counted() {
 /// what the opacity takes, above the input it came from. Two 8-bit levels
 /// on a 16-bit raster too, where they are 514 stored ones.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_restoration_off_by_one_level_is_seen() {
     let catalogue = synthetic_catalogue();
     let v1 = synthetic_v1();

@@ -153,6 +153,7 @@ fn measure_the_methods_on_the_committed_crops() {
 /// everywhere and nothing the product writes is said to be a smoothed
 /// patch. `--nocapture` prints the ratios the E12-R8 report gives.
 #[test]
+#[cfg_attr(not(feature = "slow-tests"), ignore = "slow: scripts/test-slow.sh")]
 fn no_restoration_is_smoothed() {
     let mut seen = 0;
     for name in names(&[".jpg", ".webp"]) {
@@ -191,6 +192,7 @@ fn no_restoration_is_smoothed() {
 /// `|after| ≤ |before| + max(abs, 5 % of before)`, 0.2 for the steps and
 /// 0.01 for the share). Written, proved, and no mark left.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn the_4_4_4_texture_falls_under_its_bound() {
     let bytes = read("torch-1025-q95-444.jpg");
     let (_, before) = refined(&bytes, Refine::None).unwrap();
@@ -241,6 +243,7 @@ fn the_4_4_4_texture_falls_under_its_bound() {
 /// restoration wrote in lies inside its quantisation interval —
 /// `consistency_dct` is 0 by construction, and is said.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn after_the_data_projection_every_coefficient_is_in_its_interval() {
     for name in [
         "torch-1025-q95-444.jpg",
@@ -601,6 +604,7 @@ fn the_recomputed_coefficients_are_the_files() {
 /// before the one rounding to a level — `consistency_px ≤ 2h` on every
 /// committed JPEG it refines, in RGB (4:4:4) and in the planes (4:2:0).
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn pixel_pocs_keeps_its_interval() {
     let mut seen = 0;
     for name in names(&[".jpg"]) {
@@ -626,6 +630,7 @@ fn pixel_pocs_keeps_its_interval() {
 /// product's (D472) or another — the bytes written and the report are the
 /// inverse's, and nothing says `interval`.
 #[test]
+#[cfg_attr(not(feature = "slow-tests"), ignore = "slow: scripts/test-slow.sh")]
 fn a_lossless_source_is_never_refined() {
     for name in names(&[".png"]) {
         let bytes = read(&name);
@@ -650,6 +655,7 @@ fn a_lossless_source_is_never_refined() {
 /// says neither, nor `smoothed` while it is false. The product's `clean`
 /// writes the refined JSON (D472).
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_refined_restoration_says_how_in_its_json() {
     let bytes = read("torch-1025-q95-444.jpg");
     let (_, alone) = refined(&bytes, Refine::None).unwrap();

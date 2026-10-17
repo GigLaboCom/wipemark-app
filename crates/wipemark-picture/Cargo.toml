@@ -39,6 +39,13 @@ image = { version = "0.25", default-features = false, features = ["jpeg"] }
 # exist only in such a build. The coordinator removes the feature once the
 # decisions land.
 blend-preview = ["wipemark-pixels/blend-preview"]
+# Tests only, never the library (D805): the slow tier — every test over 60 s
+# in an ordinary gate run (`tests/interval.rs`'
+# `a_lossless_source_is_never_refined` and `no_restoration_is_smoothed`) —
+# is ignored without it, so neither `cargo test --workspace`, CI nor
+# coverage runs it. Not forwarded to `wipemark-pixels`: each crate's slow
+# tests are its own. `scripts/test-slow.sh` turns it on; nothing else may.
+slow-tests = []
 
 [dev-dependencies]
 # The pixels suite's generators are borrowed by `#[path]`, and they pin

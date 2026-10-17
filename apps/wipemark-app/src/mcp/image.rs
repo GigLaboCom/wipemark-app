@@ -306,6 +306,7 @@ mod tests {
     /// marked as one that would still carry provenance: no image comes
     /// back, for either signal (the verifier's V11).
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn a_result_that_still_carries_provenance_is_refused() {
         let bytes = fixture("c2pa-jumbf.jpg");
         let options = wipemark_picture::PictureOptions {
@@ -357,6 +358,7 @@ mod tests {
     /// restored, no outline, `marks_left` false — and inspecting what came
     /// back finds nothing.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn a_real_gemini_mark_comes_off_over_mcp() {
         let bytes = fixture("gemini/torch-1025.png");
         let answer: serde_json::Value =
@@ -384,6 +386,7 @@ mod tests {
     /// catalogue names it, taken off with no outline and no mark left, and
     /// what comes back carries none (D570, D571).
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn a_real_grok_mark_from_x_comes_off_over_mcp() {
         let bytes = fixture("grok-x/HUVfYqgWkAAOhiJ.jpeg");
         let answer: serde_json::Value =
@@ -451,6 +454,7 @@ mod tests {
     /// manifest would move the pictures the index points at, and that is
     /// refused rather than rewritten.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn a_removal_that_would_move_an_mpf_picture_is_refused() {
         let jpeg = fixture("c2pa-jumbf.jpg");
         let mut mpf = vec![0xFF, 0xD8, 0xFF, 0xE2, 0x00, 0x0E];

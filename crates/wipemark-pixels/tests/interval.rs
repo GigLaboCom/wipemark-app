@@ -177,6 +177,7 @@ fn text_is_not_smoothed_away() {
 /// method ends on a smoothed patch — over every procedural background,
 /// saved 4:4:4 and 4:2:0 at 95 and 90. `--nocapture` prints each ratio.
 #[test]
+#[cfg_attr(not(feature = "slow-tests"), ignore = "slow: scripts/test-slow.sh")]
 fn no_refinement_ends_smoother_than_its_surroundings() {
     let mut refined_any = 0;
     for kind in KINDS {
