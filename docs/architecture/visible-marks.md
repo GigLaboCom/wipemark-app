@@ -680,6 +680,23 @@ cargo test -p wipemark-pixels --release --test measure -- --ignored --nocapture
   MCP server run on them too.
 * Unit tests in every module. The synthetic sparkle is an astroid drawn from its
   equation.
+* **Two tiers run outside the ordinary road** (D805–D807, the owner,
+  2026-10-17). The **slow tier** — every test past a minute in an ordinary
+  gate run: `tests/false_positives.rs`' four, this crate's
+  `tests/interval.rs` `no_refinement_ends_smoother_than_its_surroundings`,
+  `wipemark-picture`'s `tests/interval.rs`
+  `a_lossless_source_is_never_refined` and `no_restoration_is_smoothed`,
+  and the CLI's `a_night_sky_wallpaper_is_clean` — is ignored unless its
+  crate's `slow-tests` feature is on, so `cargo test --workspace`, the
+  gate, CI and coverage pass it by. Before pushing any change to this
+  crate, `wipemark-picture` or the CLI's picture path, run it by hand:
+  `scripts/test-slow.sh` (the three crates' tests, every one, with the
+  features on). **Heavy under coverage** — the tests past a minute only
+  under cargo-llvm-cov: eleven of `tests/exact.rs`, one of
+  `tests/assets.rs`, and in `wipemark-picture` most of `real.rs`,
+  `lossy.rs`, `planar.rs`, `files.rs`, `interval.rs`, `search_gain.rs`,
+  `consistency.rs` and `interval_env.rs` — are ignored under
+  `cfg(coverage)` only: every gate still runs them.
 
 ## Calibration (E12-2)
 

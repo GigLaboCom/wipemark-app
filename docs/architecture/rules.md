@@ -1944,4 +1944,22 @@
   re-run every round: those are not needed for now (the owner,
   2026-10-06, Watchword `wipemark-mutations-not-needed-2026-10-06`), and
   coverage is the measure wanted next.
+* **A slow test runs by hand, and coverage passes by what is heavy under
+  it — both by measurement, never by feel** (D805–D807, the owner,
+  2026-10-17). The **slow tier** is every test libtest said "has been
+  running for over 60 seconds" about in an ordinary gate run (run
+  38977019041, its Linux or its macOS job): it carries
+  `#[cfg_attr(not(feature = "slow-tests"), ignore = "slow: scripts/test-slow.sh")]`,
+  its crate has a `slow-tests` feature that enables and forwards nothing,
+  and no gate, CI lane or coverage run turns it on —
+  `scripts/test-slow.sh` does, and is run by hand before pushing any change
+  under `crates/wipemark-pixels`, `crates/wipemark-picture` or the CLI's
+  picture path. A test past a minute only under cargo-llvm-cov (run
+  38977019032) carries `#[cfg_attr(coverage, ignore = "heavy under coverage: …")]`:
+  every gate still runs it, coverage does not (cargo-llvm-cov sets
+  `cfg(coverage)`; the root `Cargo.toml` declares it for `unexpected_cfgs`).
+  A test enters or leaves either tier only by a later run's log
+  (`scripts/test-tiers.py flagged` lists what libtest flagged in it),
+  named in the decision that moves it. `-- --ignored` is not the slow tier: it also
+  runs the measurements, which are `#[ignore]` for good.
 

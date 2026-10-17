@@ -98,6 +98,7 @@ fn jpeg_of(raster: &Raster, quality: u8) -> Vec<u8> {
 /// more than half a level, the samples are clamped and counted — under
 /// three in a hundred.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_real_mark_is_proved_at_its_row_and_restored() {
     for name in MARKED {
         let bytes = fixture(name);
@@ -157,6 +158,7 @@ fn a_real_mark_is_proved_at_its_row_and_restored() {
 /// bound — so the band is held to the picture in absolute levels too
 /// (D244), and the outline is said: the mark counts as left.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_flattened_copy_is_restored_with_its_outline_said() {
     let (_, cleaned) = clean(&fixture("crying-1025.png"), &shipped()).unwrap();
     let Visible::Examined { report, .. } = &cleaned.visible else {
@@ -179,6 +181,7 @@ fn a_flattened_copy_is_restored_with_its_outline_said() {
 /// outline 1.9 levels dark (D244). So the search restores what the row
 /// does, pixel for pixel of the support, and leaves no outline.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_real_mark_off_its_row_is_searched_with_the_measured_map() {
     let catalogue = Catalogue::shipped().unwrap();
     let options = ExamineOptions::default();
@@ -214,6 +217,7 @@ fn a_real_mark_off_its_row_is_searched_with_the_measured_map() {
 /// average within a tenth of a level of what it was, where the map is
 /// only noise.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn the_square_around_a_real_mark_is_left_as_it_was() {
     let catalogue = Catalogue::shipped().unwrap();
     let map = &catalogue
@@ -273,6 +277,7 @@ fn the_square_around_a_real_mark_is_left_as_it_was() {
 /// `crying` is a re-saved copy (no C2PA, a flattened background) whose
 /// blue fits 254.8, the one outlier of the 22.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn the_sparkle_leaves_no_ghost() {
     let catalogue = Catalogue::shipped().unwrap();
     let map = &catalogue
@@ -351,6 +356,7 @@ fn the_sparkle_leaves_no_ghost() {
 /// the loop): under `TEXTURE_LEVELS` at 95, and at 90 within
 /// `TEXTURE_RATIO` of the picture around it.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_real_mark_saved_as_jpeg_leaves_a_texture_that_is_said() {
     for name in MARKED {
         let raster = raster_of(&fixture(name));
@@ -405,6 +411,7 @@ fn a_real_mark_saved_as_jpeg_leaves_a_texture_that_is_said() {
 /// these in their planes, where the fringe falls under the bound
 /// (`tests/planar.rs`, `the_product_takes_the_planes_on_a_subsampled_jpeg`).
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said() {
     for name in [
         "torch-1025-q95-420.jpg",
@@ -442,6 +449,7 @@ fn a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said() {
 /// share is measured where the codec stored it and neither crop is
 /// refused (`tests/planar.rs`, `tests/lossy.rs`).
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_subsampled_jpeg_is_refused_or_said_by_where_its_blocks_fall() {
     for (name, at, refused) in [
         ("victory-1040-q95-420.jpg", 880, false),
@@ -480,6 +488,7 @@ fn a_subsampled_jpeg_is_refused_or_said_by_where_its_blocks_fall() {
 /// the bound was set; the product's DCT-POCS (D472) leaves it smoother
 /// still, and says nothing either.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_texture_an_eye_barely_finds_is_not_said() {
     let name = "fine-1040-q98-444.jpg";
     let (_, product) = clean(&fixture(name), &shipped()).unwrap();
@@ -510,6 +519,7 @@ fn a_texture_an_eye_barely_finds_is_not_said() {
 /// 10: over `TEXTURE_LEVELS` twice over, and not said, because the grain
 /// is the picture's.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_grain_the_picture_has_is_not_said_under_a_real_mark() {
     let raster = raster_of(&fixture("anchor-green-1025.png"));
     let (_, cleaned) = clean(&jpeg_of(&raster, 95), &shipped()).unwrap();
@@ -535,6 +545,7 @@ fn a_grain_the_picture_has_is_not_said_under_a_real_mark() {
 /// were. Wherever the mark is proved, it is restored within the outline
 /// bound; and it is proved in most of them.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_real_mark_shrunk_with_its_picture_is_restored_within_the_outline_bound() {
     let lossy = ExamineOptions {
         source: Fidelity::Lossy,
@@ -600,6 +611,7 @@ fn a_real_mark_shrunk_with_its_picture_is_restored_within_the_outline_bound() {
 /// and restored, the channels clamped back to 0 and counted — not exact —
 /// and no outline left. Under the old one-level rule it was refused.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_real_mark_on_a_saturated_green_is_restored() {
     let bytes = fixture("anchor-green-1025.png");
     let (out, cleaned) = clean(&bytes, &shipped()).unwrap();
@@ -647,6 +659,7 @@ fn gwt_catalogue() -> Catalogue {
 /// noise far from the sparkle is not subtracted (D241). Subtracted, it
 /// darkened the square by about a level, visible on a flat background.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn gwts_own_map_leaves_the_square_around_a_real_mark_alone() {
     let gwt = gwt_catalogue();
     let map = &gwt
@@ -706,6 +719,7 @@ fn gwts_own_map_leaves_the_square_around_a_real_mark_alone() {
 /// with room for an 8-bit capture (D240), still proves the mark. The rule
 /// it replaced — a level, amplified by `1/(1 − α)` — refused it (21 % out).
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn gwts_own_map_still_proves_the_mark_on_a_saturated_green() {
     let gwt = gwt_catalogue();
     let options = PictureOptions {

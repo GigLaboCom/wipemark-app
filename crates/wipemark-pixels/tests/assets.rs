@@ -188,6 +188,7 @@ fn every_asset_matches_its_catalogue_hash() {
 /// A shipped map composited onto generated pictures comes back off to
 /// within a level, by the row, and the report says which profile.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_shipped_mark_comes_back_within_one_level() {
     let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
     let v1 = catalogue.profile("gemini-sparkle-v1").unwrap();

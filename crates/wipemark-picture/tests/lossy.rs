@@ -132,6 +132,7 @@ const XMP_AI: &str = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
     </rdf:RDF></x:xmpmeta>";
 
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_marked_jpeg_is_restored_and_re_encoded() {
     let catalogue = synthetic_catalogue();
     let rect = small_row(W, H, 48);
@@ -204,6 +205,7 @@ fn a_marked_jpeg_is_restored_and_re_encoded() {
 /// which rotation was lost, as `strip` does, though the file was written
 /// by `reframe` around a re-encoded picture.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_restoration_with_all_metadata_reports_the_lost_rotation() {
     let catalogue = synthetic_catalogue();
     let mut original = picture(Kind::Gradient, W, H, 3, Layout::Rgb8);
@@ -239,6 +241,7 @@ fn a_restoration_with_all_metadata_reports_the_lost_rotation() {
 /// recovery made of the rest. It is not restored: the metadata is cleaned
 /// as by `strip`, the pixels are not examined, and that is inconclusive.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_corrupted_scan_is_not_restored() {
     let catalogue = synthetic_catalogue();
     let mut marked = picture(Kind::Gradient, W, H, 4, Layout::Rgb8);
@@ -299,6 +302,7 @@ fn a_corrupted_scan_is_not_restored() {
 }
 
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_grey_jpeg_stays_grey() {
     let catalogue = synthetic_catalogue();
     let grey: Vec<u16> = (0..W * H)
@@ -427,6 +431,7 @@ fn shipped() -> PictureOptions<'static> {
 /// terms, are the same through both. `victory-1025-q95-420.jpg` is the
 /// crop the RGB path refuses by its 16-pixel grid (1.06 %, D252).
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn inspect_and_clean_measure_one_out_of_range() {
     let bytes = gemini("victory-1025-q95-420.jpg");
     let inspected = inspect(&bytes, &shipped()).unwrap();
@@ -453,6 +458,7 @@ fn inspect_and_clean_measure_one_out_of_range() {
 /// over, or lies in a chroma block whose mean `α` is — that mean taken
 /// here, over the block's four pixels, not by the code under test.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn nothing_outside_the_mark_moved() {
     let catalogue = Catalogue::shipped().unwrap();
     for name in ["victory-1040-q95-420.jpg", "torch-1025-q95-420.jpg"] {

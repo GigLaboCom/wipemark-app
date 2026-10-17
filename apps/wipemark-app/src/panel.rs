@@ -2246,6 +2246,7 @@ mod tests {
     /// greyed: nothing is left to clean. This retires the series' deviation
     /// 17.
     #[gpui::test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn a_drop_on_the_panel_is_looked_at_and_cleaned(cx: &mut gpui::TestAppContext) {
         let (listed, cx) = Listed::new("drop", false, cx);
         let marked = listed.file(

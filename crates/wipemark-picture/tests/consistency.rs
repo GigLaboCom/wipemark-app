@@ -27,6 +27,7 @@ fn shipped() -> PictureOptions<'static> {
 /// none of it is `exact`; the measure does not ask whether the map is the
 /// vendor's, only whether the inverse is still an inverse of the data.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn an_exact_inverse_is_consistent_to_rounding() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/image/gemini");
     let mut names: Vec<String> = std::fs::read_dir(&dir)

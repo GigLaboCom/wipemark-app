@@ -11,11 +11,34 @@
 # A manual run needs this file on the default branch first; that is how
 # GitHub finds a `workflow_dispatch` workflow.
 #
-# What: the workspace tests (`cargo test --workspace`'s set, nothing else)
-# once, under LLVM's source-based coverage via cargo-llvm-cov, with the
-# vendored gpui-component left out of the figures. No threshold and no
-# failure on a low figure: it reports. No external service and no token:
-# the figures stay in the run.
+# What: the workspace tests (`cargo test --workspace`'s set, less the
+# tests heavy under coverage, below) once, under LLVM's source-based
+# coverage via cargo-llvm-cov, with the vendored gpui-component left out of
+# the figures. No threshold and no failure on a low figure: it reports. No
+# external service and no token: the figures stay in the run.
+#
+# What it leaves out, and why (D805–D807, the owner, 2026-10-17): the
+# first run on `main`, 38977019032, was cancelled at the 300-minute limit
+# two hours into `wipemark-pixels`' false-positive suite; under the
+# instrumentation the visible-mark search runs 30 to 70 times slower than
+# in the gate. Two tiers, each by a measured rule:
+#   * the slow tier — every test past a minute in an ordinary gate run
+#     (gate run 38977019041), behind each crate's `slow-tests` feature —
+#     is never run here nor in any CI lane. It is local only:
+#     `scripts/test-slow.sh`, by hand, before pushing a change to the
+#     pixels, the picture crate or the CLI's picture path (CLAUDE.md,
+#     "Gates");
+#   * heavy under coverage — every other test past a minute in run
+#     38977019032 (72, the application's unit tests among them) carries
+#     `#[cfg_attr(coverage, ignore = …)]`. cargo-llvm-cov builds with
+#     `--cfg coverage` unless given `--no-cfg-coverage`, so they are
+#     skipped here and nowhere else: every gate runs them.
+# The lines only those tests reach read as not covered. What is left was
+# estimated at 25 to 32 minutes of tests (D807); most of it is
+# `wipemark-pixels`' `interval.rs`, `v2_rows.rs`, `verify.rs` and
+# `outline.rs`, which the first run never reached. A test joins or leaves
+# a tier only by a run's log: `gh run view <id> --log`, then
+# `scripts/test-tiers.py flagged`.
 #
 # Output: the per-file summary in the run's page (the job summary); the
 # artifact `coverage` holding `lcov.info` (for an editor's gutter or any

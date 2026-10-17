@@ -24,6 +24,11 @@
 //!   it restores them.
 //!
 //! The counts are printed (`--nocapture`) and recorded in the report.
+//!
+//! All four are the slow tier (D805): each ran past a minute in the gate
+//! (the suite, 700 s on Linux), so `cargo test --workspace`, CI and
+//! coverage pass them by, and `scripts/test-slow.sh` runs them — by hand,
+//! before pushing any change to the visible-mark search or its proof.
 
 mod support;
 
@@ -318,6 +323,7 @@ fn never_restored(
 }
 
 #[test]
+#[cfg_attr(not(feature = "slow-tests"), ignore = "slow: scripts/test-slow.sh")]
 fn no_procedural_negative_is_ever_restored() {
     let catalogue = synthetic_catalogue();
     let shipped = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
@@ -423,6 +429,7 @@ fn word_style(style: Word) -> &'static str {
 }
 
 #[test]
+#[cfg_attr(not(feature = "slow-tests"), ignore = "slow: scripts/test-slow.sh")]
 fn no_night_sky_wallpaper_is_reported() {
     let catalogue = synthetic_catalogue();
     let shipped = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
@@ -455,6 +462,7 @@ fn no_night_sky_wallpaper_is_reported() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "slow-tests"), ignore = "slow: scripts/test-slow.sh")]
 fn no_lookalike_blend_is_ever_restored() {
     let catalogue = synthetic_catalogue();
     let (mut reported, mut total) = (0usize, 0usize);
@@ -526,6 +534,7 @@ fn no_lookalike_blend_is_ever_restored() {
 /// the range term decides nothing, and this gate holds the planes to
 /// "never restore", not to the range.
 #[test]
+#[cfg_attr(not(feature = "slow-tests"), ignore = "slow: scripts/test-slow.sh")]
 fn no_negative_or_lookalike_is_restored_from_subsampled_planes() {
     use wipemark_pixels::synth::jpeg_planes;
     use wipemark_pixels::{clean_with, Sampling};

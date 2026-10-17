@@ -2586,6 +2586,7 @@ mod tests {
     /// A real Gemini output: proved, restored, written beside; inspecting
     /// the result finds no visible mark.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn a_gemini_mark_comes_off_and_is_written_beside() {
         let scratch = Scratch::new("torch");
         let (source, outcome) = clean_fixture(&scratch, "gemini/torch-1025.png");
@@ -2605,6 +2606,7 @@ mod tests {
     /// The outline left on a flat background: written with what could be
     /// done, and said to be partly clean.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn a_mark_with_its_outline_left_is_written_and_said() {
         let scratch = Scratch::new("crying");
         let (_, outcome) = clean_fixture(&scratch, "gemini/crying-1025.png");
@@ -2652,6 +2654,7 @@ mod tests {
     /// AI provenance metadata goes, and a second inspection of the result
     /// finds none.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn ai_metadata_is_removed_and_gone_on_reinspection() {
         let scratch = Scratch::new("metadata");
         for (name, written) in [
@@ -2730,6 +2733,7 @@ mod tests {
     /// block as AI provenance, which is why the look needs no clause of its
     /// own for one (D281); this pins that on the real file.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn a_picture_marked_by_c2pa_alone_is_looked_at_and_cleaned_alike() {
         use wipemark_image::MetadataKind;
         let scratch = Scratch::new("c2pa-alone");
@@ -2775,6 +2779,7 @@ mod tests {
     /// characters it changes — counted, not rows — a picture by what is on
     /// it, and nothing written by the look.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn the_look_agrees_with_the_clean() {
         let scratch = Scratch::new("look");
         let homes = scratch.homes();
@@ -3246,6 +3251,7 @@ mod tests {
     /// taken row is held to the exit of the same input's `fresh` row — it is
     /// the fresh clean, under the row's own name.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn the_windows_clean_to_the_clis_table() {
         let fixtures = PathBuf::from(format!("{}/../../fixtures", env!("CARGO_MANIFEST_DIR")));
         let table =

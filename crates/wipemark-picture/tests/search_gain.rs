@@ -187,6 +187,7 @@ fn the_shipped_searches_carry_d530s_bands() {
 /// taking the profile's `verify.gain` for the search, and with the bands
 /// removed from `manifests/marks.v1.json`.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_weaker_mark_resized_with_its_picture_is_refused_by_the_search() {
     let shipped = Catalogue::shipped().unwrap();
     let off = off();
@@ -224,6 +225,7 @@ fn a_weaker_mark_resized_with_its_picture_is_refused_by_the_search() {
 /// 0.96 here, and 0.96–1.02 on the bench): under 64 pixels a true mark
 /// shrunk or resized reads as low, so the band is a row's window (D530).
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn a_mark_at_its_own_opacity_resized_with_its_picture_is_still_proved() {
     let shipped = Catalogue::shipped().unwrap();
     let options = ExamineOptions::default();
@@ -251,6 +253,7 @@ fn fixture(name: &str) -> Raster {
 /// shipped windows, at `k*` 1.06 — the corpus's 63 read 1.04–1.06 — and
 /// restored. Red with the large band's upper end under 1.06.
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn the_vendors_mark_resized_with_its_picture_is_still_proved_by_the_search() {
     let shipped = Catalogue::shipped().unwrap();
     let options = ExamineOptions::default();

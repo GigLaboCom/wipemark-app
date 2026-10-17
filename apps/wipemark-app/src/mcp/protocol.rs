@@ -2740,6 +2740,7 @@ pub(crate) mod tests {
     /// the pixel domain on it, in the text block and the structured content
     /// alike — and the text block is ASCII.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn every_image_answer_carries_the_third_shelf() {
         // A picture's shelf: invisible marks in the pixels first, then
         // core's three.
@@ -2788,6 +2789,7 @@ pub(crate) mod tests {
     /// remove; and what comes back from a marked picture inspects clean of
     /// provenance.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn the_base64_round_trip_is_byte_identical() {
         let plain = fixture("exif-xmp.webp");
         let response = image_call("clean_image", &plain, "");
@@ -2822,6 +2824,7 @@ pub(crate) mod tests {
     /// Every way a picture tool can fail to run is an `isError` result
     /// naming why, with no report and no image.
     #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
     fn every_image_refusal_is_an_error_result_naming_why() {
         let jpeg = fixture("c2pa-jumbf.jpg");
         let mut mpf = vec![0xFF, 0xD8, 0xFF, 0xE2, 0x00, 0x0E];

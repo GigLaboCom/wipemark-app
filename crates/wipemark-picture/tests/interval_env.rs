@@ -11,6 +11,7 @@ use wipemark_picture::{clean, PictureOptions, Visible, REFINE};
 use wipemark_pixels::{Catalogue, Method, Refine};
 
 #[test]
+#[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
 fn the_product_refines_by_dct_pocs_whatever_the_environment_says() {
     assert_eq!(REFINE, Refine::Dct);
     let bytes = std::fs::read(
