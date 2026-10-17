@@ -29,7 +29,18 @@ use sha2::{Digest, Sha256};
 // BEGIN KEYS — written by scripts/release/update-keys.sh. Each entry is
 // (role, key id, the raw 32-byte public key in hex), and keys/<role>-<id>.pem
 // is the same key as PEM.
-const COMPILED: &[(&str, &str, &str)] = &[];
+const COMPILED: &[(&str, &str, &str)] = &[
+    (
+        "working",
+        "24b967e7176fb3b2",
+        "c47f652f16059eb47d2a2859d361db7f5b149f5e21010c3bb20ae988a34e832b",
+    ),
+    (
+        "backup",
+        "1077cd1e3c1da702",
+        "70ed45e5f14eed26748143b9c3d6b5344483e7b9008ffcbeb1dc276115dec7d5",
+    ),
+];
 // END KEYS
 
 /// The DER prefix of an Ed25519 `SubjectPublicKeyInfo` (RFC 8410): what

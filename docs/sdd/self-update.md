@@ -1483,7 +1483,10 @@ sections above were brought into line.
   the General page and `wipemark-cli update --check` say "This build carries
   no key to verify a new version's signature, so it cannot check for
   updates", the automatic check never runs, and the one-time notice is not
-  shown.
+  shown. The keys were made and committed on 2026-10-17, before 0.1.0
+  (working `24b967e7176fb3b2`, backup `1077cd1e3c1da702`); a debug build
+  of that commit reads the live, empty `/downloads/wipemark` and says
+  0.1.0 is the newest verified version, exit 0.
 * **`apps/wipemark-app/src/update.rs`** — the `Updates` entity (a GPUI
   global): detection off the GPUI thread, the schedule (`due`), Check now,
   Skip, the Download… into the Downloads folder, Update and restart, Update

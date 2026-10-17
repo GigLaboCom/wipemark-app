@@ -34,12 +34,15 @@ D580–D589. `feat/e0-e6-shell` at `e648dc6` is the release candidate's base.*
    2026-10-16: сертификат и ключ App Store Connect проверены перед записью,
    соглашение Apple Developer Program принято, `notarytool` отвечает.
 3. **Обновления (D780–D789).** Worker giglabo уже знает `wipemark`
-   (`heretic-releases-api` `310f54f`). До релиза с проверкой обновлений:
-   запустить `scripts/release/update-keys.sh` и закоммитить открытые ключи,
-   завести окружение `releases` (только теги `wipemark-v*`) и положить в него
-   `WIPEMARK_UPDATE_SIGNING_KEY`, `WIPEMARK_UPDATE_SIGNING_KEY_PASSWORD` и
-   `RELEASES_PUBLISH_TOKEN` (значение — Watchword `mnemovi-publish-token`).
-   Пошагово — [packaging.md](../architecture/packaging.md).
+   (`heretic-releases-api` `310f54f`). 2026-10-17: ключи сделаны и
+   открытые половины закоммичены (0.1.0 — первый выпуск с обновлением),
+   окружение `releases` заведено (только теги `wipemark-v*`), в нём
+   `WIPEMARK_UPDATE_SIGNING_KEY` и `WIPEMARK_UPDATE_SIGNING_KEY_PASSWORD`;
+   оба закрытых ключа с паролями — файл в Watchword
+   `wipemark-update-signing-keys-2026-10-17`. **Остался
+   `RELEASES_PUBLISH_TOKEN`:** значение из Watchword `mnemovi-publish-token`
+   сервис не принимает (401), нужен текущий `PUBLISH_TOKEN` Worker или его
+   замена. Пошагово — [packaging.md](../architecture/packaging.md).
 4. **Подтвердить, что 0.1.0 бесплатная.**
 
 ## 1. What ships (D580)
