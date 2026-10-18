@@ -222,6 +222,19 @@ result, an edited result asked about first
   stored row the moment the handle listed the item, a moment before the
   queue's thread stores it (4 in 1135 runs). It now waits for the row
   (none in 1200).
+- `fix/queue-job-vanished-race` (D810, 2026-10-18): the batch queue's own
+  race that D809's stress run met once. flume's `Selector` looks for a
+  message and then asks whether the senders are gone, apart; a job that
+  sent its end and ended between the two was reported gone with the end
+  still in its channel, and a finished rewrite failed `stopped`. The queue
+  now hears what the channel holds, in order, and fails `stopped` only a
+  job gone with no end (`job_vanished`). Red first, the drain taken out:
+  `a_job_closed_with_its_end_still_in_its_channel_ends_as_the_job_said`;
+  the other half, `a_job_closed_with_no_end_is_heard_out_and_fails_as_stopped`.
+  With the window widened on purpose (a 20 µs sleep in a patched flume),
+  812 of 6000 items ended `stopped` before and none of 12 000 after; at
+  flume's own width, 0 in 93 600 before and 0 in 48 000 after in the
+  queue crate.
 **The macOS acceptance of 2026-10-15** brought, all merged on `feat`:
 - `fix/f29-cli-symlink` (D734; F29): a `wipemark-cli` linked into the PATH
   finds the bundle's llama.cpp backends, because the program's own
