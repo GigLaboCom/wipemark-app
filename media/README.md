@@ -15,13 +15,22 @@ regenerated").
 | `site-images/` | the website's favicon, touch icon, header logo, glyph sprite and Open Graph picture, from the application's own icon and glyphs | `media/out/site/` |
 
 `scripts/site/build.sh` puts the website's pages (`site/`) and these outputs
-together in `site/dist/`. The README names its pictures as `media/out/…`.
+together in `site/dist/`.
+
+**The one exception: the README's screenshots** (the owner, 2026-10-18: "add
+the main screenshots too"). Eight stills from `media/out/screenshots/` are
+committed in `docs/screenshots/`, so the README shows them on GitHub, and
+the README names its pictures there. The main window, its dark twin and
+Compare are scaled to 1600 pixels (ffmpeg, lanczos), twice the README's
+column, and the before-and-after picture to a 1600-pixel JPEG; the others are
+as taken, already smaller. `compare-dark.png` is left out. A still taken again is
+copied over its namesake in the same way, never added beside it.
 
 ## Where the outputs will be kept — open
 
-Until the owner decides, the outputs exist only where they were generated, so
-the README's pictures resolve on that machine alone and the website is built
-and deployed from it. The choices:
+Until the owner decides, the other outputs exist only where they were
+generated, so the video and the website are built and deployed from that
+machine. The choices:
 
 - **Cloudflare R2 behind a `giglabo.com` subdomain**, as lazy-shot keeps its
   media: one place for the site, the README (by absolute URL) and the video,
