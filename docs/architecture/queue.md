@@ -539,6 +539,17 @@ queue handle's own flag, set by its thread, never a query on the shared
 connection, and the count of open items is `Queue::states` — ids and
 states, no stored report cloned.
 
+**A finished rewrite is never failed as stopped** (D810). The batch
+queue's thread waits on the handle's commands and the running job's events
+at once, through flume's `Selector`, and that selector can say the job's
+channel closed with the job's end still in it: it looks for a message, then
+asks whether the senders are gone, and a job that sends its end and ends
+between the two looks is reported gone. The queue hears what the channel
+holds, in order, before it believes the close (`Worker::job_vanished`);
+only a job whose channel closed with no end in it — its thread gone without
+saying how — ends as *Rewrite failed* (`stopped`). It was D809's one stray
+failure under load: a rewrite ended `stopped` before it said anything.
+
 **Remove** on a row an agent or the command line is waiting for is greyed
 while its rewrite is queued or running, its reason under it (D355): Cancel
 ends the item and the caller is told. Should an item go anyway — removed
@@ -607,7 +618,13 @@ own number stays the element id (two id spaces). A row says who asked
   window rewrite's end, while a caller's end is written by the call that
   waits for it, so the command line's own update (the file it wrote) comes
   last (D313, D321). A start heard late never reopens an ended row
-  (`Journal::update_open`).
+  (`Journal::update_open`), and an end written late never lands on a row
+  moved on to another item or a clean (`Journal::update_item`). The table
+  hears an item down two roads, the queue's events once a tick and the
+  journal when it was written, and keeps a row against whichever word is
+  older than what the row says: a read from before a clean of this session
+  (`refreshed`), and the item's events heard after the row moved on — to a
+  clean, or to the end a read told it first (`hears_its_item`, D809).
 * **A caller's call is the action's, not the row's** (D730). Which rewrite
   is a caller's — its text back to whoever asked, its end written by the
   waiting call, abandoned at a launch — is read off its batch-queue item,

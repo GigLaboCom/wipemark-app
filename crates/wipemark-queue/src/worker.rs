@@ -567,8 +567,26 @@ impl Worker {
         }
     }
 
-    /// The job's channel closed with no end: its thread is gone.
+    /// The selector said the job's channel closed. Not the last word in
+    /// flume 0.11: its `Selector` looks for a message and then asks whether
+    /// the senders are gone, two looks apart (`RecvSelection::poll`), so a
+    /// job that sends its end and lets go of its channel between the two is
+    /// reported closed with that end still in it — and a finished rewrite
+    /// failed as `stopped` (D810). What the channel holds is heard first, in
+    /// order, as any event is: every sender is gone, so nothing more can
+    /// come, and `try_recv` hands out what was sent before it says so — the
+    /// order flume's own blocking receive keeps. Only a channel that closed
+    /// with no end in it is a job whose thread is gone.
     fn job_vanished(&mut self) {
+        let Some(jobs) = self.current.as_ref().map(|current| current.jobs.clone()) else {
+            return;
+        };
+        while self.current.is_some() {
+            match jobs.try_recv() {
+                Ok(event) => self.job_event(event),
+                Err(_) => break,
+            }
+        }
         if let Some(current) = self.current.take() {
             self.fail(current.item, Failure::Stopped, None);
         }
@@ -742,6 +760,9 @@ impl Worker {
         current.stop = Some(Stop::Shutdown);
         current.handle.cancel();
         let jobs = current.jobs.clone();
+        // A plain receive, not the selector: flume reads "closed" before it
+        // looks for a message, so a close it reports is an empty channel
+        // and needs no drain (D810).
         while self.current.is_some() {
             match jobs.recv_timeout(WIND_DOWN) {
                 Ok(event) => self.job_event(event),
@@ -1061,4 +1082,176 @@ fn failure_value(failure: &Failure) -> Value {
         _ => {}
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use wipemark_engine::fake::FakeEngine;
+    use wipemark_pipeline::cost::{Effort, Executor};
+    use wipemark_pipeline::prepare::TextFormat;
+    use wipemark_pipeline::{Event, Options};
+    use wipemark_store::Store;
+
+    use super::{Command, Outbox, Shared, Subscribers, Worker};
+    use crate::item::{Destination, ItemId, Request, Source, State};
+    use crate::source::Fixed;
+    use crate::{End, Failure, QueueEvent};
+
+    const TEXT: &str = "The build takes about twelve minutes on an ordinary laptop, and the \
+                        second run is much faster because the dependencies are compiled.";
+
+    /// Answers the text block with every two neighbouring words of its first
+    /// half swapped — a rewrite the guards accept (`tests/common`'s `swap`).
+    fn engine() -> FakeEngine {
+        FakeEngine::answering(|request, _| {
+            let begin = "[[[BEGIN TEXT]]]\n";
+            let start = request.prompt.find(begin).expect("a text block") + begin.len();
+            let end = request.prompt[start..]
+                .find("\n[[[END TEXT]]]")
+                .expect("its end");
+            let mut words: Vec<&str> = request.prompt[start..start + end].split(' ').collect();
+            let half = words.len() / 2;
+            for pair in words[..half].chunks_mut(2) {
+                pair.reverse();
+            }
+            words.join(" ")
+        })
+    }
+
+    /// A worker over an in-memory store and a fake engine, with one item
+    /// pushed and started the way the loop starts it: its job runs on a
+    /// thread of its own.
+    fn started() -> (Worker, flume::Receiver<QueueEvent>, ItemId) {
+        let (first, events) = flume::unbounded();
+        let mut worker = Worker::load(
+            Arc::new(Store::in_memory().expect("memory")),
+            Arc::new(Fixed(Arc::new(engine()))),
+            Outbox {
+                first,
+                others: Subscribers::default(),
+            },
+            Arc::new(Mutex::new(Vec::new())),
+            Shared {
+                held: Arc::new(Mutex::new(None)),
+                asking: Arc::new(Mutex::new(None)),
+                paused: Arc::new(AtomicBool::new(false)),
+            },
+        )
+        .expect("loads");
+        let id = ItemId(1);
+        let request = Request {
+            source: Source::Text(TEXT.to_owned()),
+            format: TextFormat::Plain,
+            destination: Destination::Row,
+            options: Options {
+                effort: Effort {
+                    candidates: 1,
+                    rounds: 2,
+                },
+                ..Options::for_executor(Executor::LocalCpu)
+            },
+        };
+        worker.command(Command::Push(id, Box::new(request), None));
+        worker.begin(id);
+        (worker, events, id)
+    }
+
+    /// The running job's channel once its thread is gone: every event it
+    /// sent still in it, its sender dropped — what the selector can report
+    /// as closed (D810).
+    fn closed(worker: &Worker) -> flume::Receiver<Event> {
+        let jobs = worker.current.as_ref().expect("the job runs").jobs.clone();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !jobs.is_disconnected() {
+            assert!(Instant::now() < deadline, "the job never ended");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        jobs
+    }
+
+    /// How `item` ended, from the events said so far.
+    fn ended(events: &flume::Receiver<QueueEvent>, item: ItemId) -> Option<End> {
+        events.try_iter().find_map(|event| match event {
+            QueueEvent::Ended { item: of, end } if of == item => Some(end),
+            _ => None,
+        })
+    }
+
+    fn is_end(event: &Event) -> bool {
+        matches!(
+            event,
+            Event::Finished { .. } | Event::Cancelled { .. } | Event::Failed { .. }
+        )
+    }
+
+    /// D810. flume 0.11's `Selector` looks for a message, then asks whether
+    /// the senders are gone; a job that sends its end and ends between the
+    /// two is reported closed with the end still in its channel. That state,
+    /// made on purpose — the job ran to its end and its thread is gone, its
+    /// events unread — handed to what the selector's `Disconnected` calls:
+    /// the item ends as the job said, done with its rewrite, never
+    /// `stopped`. Take the drain out of `job_vanished` and it fails as
+    /// `stopped`: red.
+    #[test]
+    fn a_job_closed_with_its_end_still_in_its_channel_ends_as_the_job_said() {
+        let (mut worker, events, id) = started();
+        let jobs = closed(&worker);
+        assert!(!jobs.is_empty(), "the job's events are still unread");
+
+        worker.job_vanished();
+
+        assert!(worker.current.is_none());
+        match ended(&events, id) {
+            Some(End::Done(done)) => {
+                assert_ne!(done.text, TEXT, "the rewrite is the job's");
+                assert_eq!(done.report.chunks.len(), 1);
+            }
+            other => panic!("the job finished, and its item ended {other:?}"),
+        }
+        assert_eq!(worker.state_of(id), Some(State::Done));
+    }
+
+    /// The other half: a channel that closed with no end in it is a job
+    /// whose thread is gone. What it did send is heard, its decided chunk
+    /// among it, and the item fails as `stopped`, as before D810. Take the
+    /// failure out of `job_vanished` and the item never ends: red.
+    #[test]
+    fn a_job_closed_with_no_end_is_heard_out_and_fails_as_stopped() {
+        let (mut worker, events, id) = started();
+        let jobs = closed(&worker);
+        let (sender, without_end) = flume::unbounded();
+        for event in jobs.drain().filter(|event| !is_end(event)) {
+            sender.send(event).expect("open");
+        }
+        drop(sender);
+        worker.current.as_mut().expect("the job runs").jobs = without_end;
+
+        worker.job_vanished();
+
+        assert!(worker.current.is_none());
+        let heard: Vec<QueueEvent> = events.try_iter().collect();
+        assert!(
+            heard.iter().any(|event| matches!(
+                event,
+                QueueEvent::Job {
+                    event: Event::ChunkDecided { .. },
+                    ..
+                }
+            )),
+            "every event the job sent is heard"
+        );
+        let end = heard.into_iter().find_map(|event| match event {
+            QueueEvent::Ended { item, end } if item == id => Some(end),
+            _ => None,
+        });
+        assert!(
+            matches!(&end, Some(End::Failed(failure)) if **failure == Failure::Stopped),
+            "a job gone with no end is stopped: {end:?}"
+        );
+        assert_eq!(worker.state_of(id), Some(State::Failed));
+    }
 }
