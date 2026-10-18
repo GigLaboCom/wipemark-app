@@ -423,10 +423,14 @@ Unmark" survives only in keys; the product is Wipemark (Q1, 2026-09-21).
 ## Where it stands
 
 `feat/e0-e6-shell` carries everything. `main` is touched only by the
-owner's word (PR #1). The next step is **0.1.0**
-([docs/plan/v1-release.md](docs/plan/v1-release.md), D580–D583); the owner's
-acceptance is under way
-([reports/v1-acceptance-2026-10-12.md](docs/plan/reports/v1-acceptance-2026-10-12.md)).
+owner's word (PRs #1–#4; GitHub deletes `feat/e0-e6-shell` on every merge,
+so it is pushed back at once). **0.1.0 is released** (2026-10-18): the tag
+`wipemark-v0.1.0` on `main` at `5df1564`, the owner's Publish of the draft,
+and the same three files — the `.dmg` (Developer ID, notarized), the
+AppImage and the `.deb` — on GitHub Releases and on releases.giglabo.com,
+signed for the update check
+([docs/plan/v1-release.md](docs/plan/v1-release.md), D580–D583;
+[reports/v1-acceptance-2026-10-12.md](docs/plan/reports/v1-acceptance-2026-10-12.md)).
 
 On Linux the application runs under **XWayland by default**, through GPUI's
 own platform choice (`WIPEMARK_WAYLAND=1` keeps native Wayland, D611). There

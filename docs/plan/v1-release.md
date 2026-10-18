@@ -5,6 +5,24 @@ deploy the first version, start accepting it; everything else is documented
 and goes to the next iteration, stage two". Decisions for the release are
 D580–D589. `feat/e0-e6-shell` at `e648dc6` is the release candidate's base.*
 
+**Released 2026-10-18.** The tag `wipemark-v0.1.0` is on `main` at `5df1564`
+(PR #4's merge). Release run 39167096061 built the draft in 16 minutes. The
+owner published it at 21:38 UTC, and the update run 39168719980 put the same
+three files on releases.giglabo.com, signed with the working key
+`24b967e7176fb3b2` and read back:
+
+| file | bytes | sha256 |
+|---|---|---|
+| `Wipemark-0.1.0-arm64.dmg` | 25 244 765 | `49cffe62…6b1f45` |
+| `Wipemark-0.1.0-x86_64.AppImage` | 46 279 160 | `15665a4b…419e17` |
+| `wipemark_0.1.0_amd64.deb` | 28 766 776 | `ee16e06a…92ddab` |
+
+The `.dmg` is notarized and stapled, and Gatekeeper accepts it with a
+quarantine flag ("Notarized Developer ID"). The bundled
+`wipemark-cli update --check` reads the live service and says 0.1.0 is the
+newest verified version. Release page:
+https://github.com/GigLaboCom/wipemark-app/releases/tag/wipemark-v0.1.0.
+
 ## Для владельца
 
 **Первая версия — это всё, что уже работает, без новых функций.** Сейчас
