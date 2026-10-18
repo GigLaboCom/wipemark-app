@@ -539,6 +539,17 @@ queue handle's own flag, set by its thread, never a query on the shared
 connection, and the count of open items is `Queue::states` — ids and
 states, no stored report cloned.
 
+**A finished rewrite is never failed as stopped** (D810). The batch
+queue's thread waits on the handle's commands and the running job's events
+at once, through flume's `Selector`, and that selector can say the job's
+channel closed with the job's end still in it: it looks for a message, then
+asks whether the senders are gone, and a job that sends its end and ends
+between the two looks is reported gone. The queue hears what the channel
+holds, in order, before it believes the close (`Worker::job_vanished`);
+only a job whose channel closed with no end in it — its thread gone without
+saying how — ends as *Rewrite failed* (`stopped`). It was D809's one stray
+failure under load: a rewrite ended `stopped` before it said anything.
+
 **Remove** on a row an agent or the command line is waiting for is greyed
 while its rewrite is queued or running, its reason under it (D355): Cancel
 ends the item and the caller is told. Should an item go anyway — removed
