@@ -331,6 +331,24 @@ result, an edited result asked about first
 - **0.1.2 released** (2026-10-19): PR #6 merged as `aa6cd11`, tag
   `wipemark-v0.1.2`, the owner's Publish at 14:51 UTC, the same three files
   on GitHub and releases.giglabo.com — the version to advertise.
+- `release/dmg-layout` (D816–D822, the owner, 2026-10-19: "why is the
+  installer so crooked — can't we make it with an icon and the typical
+  drag-and-drop?"): the `.dmg` had no `.DS_Store` and no volume icon, so
+  Finder showed a default window. `dmg.sh` now makes it with dmgbuild 1.6.7
+  (MIT; a venv of three hash-pinned wheels, `dmgbuild-venv.sh`; setup-python
+  3.12 in the lane), with no Finder and no AppleScript: icon view, 660×400,
+  no bars, 128-point icons, Wipemark at (165, 170) and the Applications link
+  at (495, 170) on a steel-blue background with a straw arrow and no words
+  (`icons/create-dmg-background.sh`, @1x and @2x in one TIFF), Wipemark's
+  volume icon, the helpers hidden; ULFO, 23.1 MB where UDZO was 25.5.
+  `dmg-check.py` checks every image and deletes one that fails — red with
+  the layout and with the background taken out. dmgbuild and the check run
+  under `env -i` (canaries for the six `APPLE_*` never reached them). The
+  update still copies `<mount point>/Wipemark.app`: an env-gated test
+  stages it from the new image and from 0.1.2's, red with the app moved.
+  Seen once in Finder on macOS 26: the title bar takes 32 of the 400 points,
+  the position counts from the screen's bottom, and the labels are black at
+  85% in the dark appearance too.
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice

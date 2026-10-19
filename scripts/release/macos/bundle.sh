@@ -36,15 +36,19 @@
 #   7. checks the packaged programs: no Mach-O in the bundle names a path
 #      outside it (otool -L, LC_RPATH), and both `--version`s run from the
 #      bundle with no loader variables set (P4);
-#   8. makes dist/Wipemark-<version>-arm64.dmg holding the app and a link to
-#      /Applications (dmg.sh), and prints the sizes (P8).
+#   8. makes dist/Wipemark-<version>-arm64.dmg, the installer window around
+#      the app and a link to /Applications, and checks it (dmg.sh,
+#      D816–D822), and prints the sizes (P8).
 #
 # How to run:   cargo build --release --locked --features llama-native \
 #                 -p wipemark-app -p wipemark-cli
-#               scripts/release/macos/bundle.sh [target/release] [dist]
+#               scripts/release/macos/dmgbuild-venv.sh <scratch>/dmgbuild   # once
+#               WIPEMARK_DMGBUILD_VENV=<scratch>/dmgbuild \
+#                 scripts/release/macos/bundle.sh [target/release] [dist]
 # Needs:        macOS, the Xcode command-line tools (install_name_tool, otool,
-#               codesign), hdiutil, plutil, python3 and cargo (the notices;
-#               the registry a build left, or `cargo fetch --locked`).
+#               codesign, SetFile), hdiutil, plutil, python3 and cargo (the
+#               notices; the registry a build left, or `cargo fetch
+#               --locked`), and dmgbuild's venv (dmg.sh).
 # Output:       dist/Wipemark.app and dist/Wipemark-<version>-arm64.dmg; one
 #               line per step. Exit 1 on anything missing or any check failed.
 set -euo pipefail
@@ -58,6 +62,12 @@ contents="$app/Contents"
 fw_rpath='@executable_path/../Frameworks'
 
 [ "$(uname -s)" = Darwin ] || { echo "ERROR: macOS only" >&2; exit 1; }
+# dmg.sh needs it at the end; say so before the bundle is laid out.
+[ -x "${WIPEMARK_DMGBUILD_VENV:-/nonexistent}/bin/python" ] || {
+  echo "ERROR: WIPEMARK_DMGBUILD_VENV does not name dmgbuild's venv — make one:" \
+    "scripts/release/macos/dmgbuild-venv.sh <dir>, then export WIPEMARK_DMGBUILD_VENV=<dir>" >&2
+  exit 1
+}
 [ -z "${WIPEMARK_SIGN_IDENTITY:-}" ] || {
   echo "ERROR: WIPEMARK_SIGN_IDENTITY is gone: this script signs ad hoc, and" \
     "sign-and-notarize.sh signs the bundle it makes with a Developer ID (APPLE_SIGNING_IDENTITY)" >&2

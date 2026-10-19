@@ -239,6 +239,46 @@ mod tests {
         );
     }
 
+    /// A release image read as the update reads it (D822): mounted,
+    /// `<mount point>/Wipemark.app` copied out beside an installed bundle
+    /// and checked as the copy of the image's own version — the team's
+    /// requirement, Gatekeeper, the identity and both programs' versions.
+    /// `WIPEMARK_TEST_DMG` names a notarized `Wipemark-<version>-arm64.dmg`
+    /// (the release lane's, or `scripts/release/macos/dmg.sh` around a
+    /// released app); unset, the test says so and passes, as the live
+    /// model tests do (D186). Run it alone: it mounts where the test above
+    /// does.
+    #[test]
+    fn a_release_image_is_staged_as_the_update_stages_it() {
+        let Some(dmg) = std::env::var_os("WIPEMARK_TEST_DMG").map(PathBuf::from) else {
+            eprintln!("skipped: WIPEMARK_TEST_DMG names no image");
+            return;
+        };
+        let name = dmg.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        let version: Version = name
+            .strip_prefix("Wipemark-")
+            .and_then(|n| n.strip_suffix("-arm64.dmg"))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_else(|| panic!("{name} is not Wipemark-<version>-arm64.dmg"));
+        let dir = tempfile::tempdir().unwrap();
+        let installed = dir.path().join("Applications/Wipemark.app");
+        fs::create_dir_all(installed.join("Contents")).unwrap();
+
+        let staged = stage(&dmg, &installed, &version);
+
+        assert_eq!(staged, Ok(installed.with_file_name(STAGED)));
+        assert!(installed
+            .with_file_name(STAGED)
+            .join("Contents/MacOS/wipemark")
+            .is_file());
+        let point = std::env::temp_dir().join(format!("wipemark-update-{}", std::process::id()));
+        assert!(
+            !point.exists(),
+            "the image is still mounted at {}",
+            point.display()
+        );
+    }
+
     /// Atomicity, and the previous copy kept: after the swap the installed
     /// path is the staged directory itself, and the previous name the old
     /// one. Red by copying instead of renaming.
