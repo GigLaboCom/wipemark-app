@@ -29,9 +29,9 @@ MCP server      The same work for AI agents, on 127.0.0.1, off until you turn it
   <img alt="Wipemark's main window: dropped documents and pictures in one list, each with its kind, its status and its result" src="docs/screenshots/main-window.png">
 </picture>
 
-**Version 0.1.1** · [Download](https://github.com/GigLaboCom/wipemark-app/releases/latest) · [Release notes](docs/release/0.1.1.md) · [Contributing](CONTRIBUTING.md) · [Licence](#licence)
+**Version 0.1.2** · [Download](https://github.com/GigLaboCom/wipemark-app/releases/latest) · [Release notes](docs/release/0.1.2.md) · [Contributing](CONTRIBUTING.md) · [Licence](#licence)
 
-[Features](#features) · [Use cases](#use-cases) · [How it works](#how-it-works) · [Install](#install) · [Quick start](#quick-start) · [Limitations](#limitations-of-011) · [Development](#development)
+[Features](#features) · [Use cases](#use-cases) · [How it works](#how-it-works) · [Install](#install) · [Quick start](#quick-start) · [Limitations](#limitations-of-012) · [Development](#development)
 
 ## Features
 
@@ -317,11 +317,11 @@ Download from **[GitHub Releases](https://github.com/GigLaboCom/wipemark-app/rel
 
 | platform | file |
 |---|---|
-| macOS on Apple Silicon (M1 or later), macOS 12 or later | `Wipemark-0.1.1-arm64.dmg` |
-| Linux x86_64, glibc 2.39 or later (Ubuntu 24.04, Debian 13, Fedora 40 and newer) | `Wipemark-0.1.1-x86_64.AppImage`, or `wipemark_0.1.1_amd64.deb` for Ubuntu and Debian |
+| macOS on Apple Silicon (M1 or later), macOS 12 or later | `Wipemark-0.1.2-arm64.dmg` |
+| Linux x86_64, glibc 2.39 or later (Ubuntu 24.04, Debian 13, Fedora 40 and newer) | `Wipemark-0.1.2-x86_64.AppImage`, or `wipemark_0.1.2_amd64.deb` for Ubuntu and Debian |
 | Windows | not in this version |
 
-The [release notes for 0.1.0](docs/release/0.1.0.md) cover each platform in full,
+The [release notes](docs/release/0.1.2.md) cover each platform in full,
 uninstalling included.
 
 **macOS.** Open the `.dmg` and drag **Wipemark** onto **Applications**.
@@ -337,11 +337,11 @@ graphics driver. The `.deb` installs its dependencies through apt and puts
 `wipemark` and `wipemark-cli` in `/usr/bin/`.
 
 ```sh
-chmod +x Wipemark-0.1.1-x86_64.AppImage
-./Wipemark-0.1.1-x86_64.AppImage                        # the application
-./Wipemark-0.1.1-x86_64.AppImage --cli inspect notes.md # the command line
+chmod +x Wipemark-0.1.2-x86_64.AppImage
+./Wipemark-0.1.2-x86_64.AppImage                        # the application
+./Wipemark-0.1.2-x86_64.AppImage --cli inspect notes.md # the command line
 
-sudo apt install ./wipemark_0.1.1_amd64.deb
+sudo apt install ./wipemark_0.1.2_amd64.deb
 ```
 
 The local model needs a Vulkan driver. The tray icon needs
@@ -405,7 +405,7 @@ wipemark-cli rewrite draft.md                 # writes draft.rewritten.md
 Without the application running, `rewrite` uses the local model; running it
 through an endpoint needs the application.
 
-## Limitations of 0.1.1
+## Limitations of 0.1.2
 
 **Platforms**
 - No Windows build, no Intel Mac build, no Linux build for ARM, no Flatpak,
@@ -522,7 +522,7 @@ Wipemark is **source-available** under the
 - **Two years after each version is released**, that version is also
   available under the
   [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0).
-- Version 0.1.1 is free to use, with no activation or licence key.
+- Version 0.1.2 is free to use, with no activation or licence key.
 
 "Wipemark" and its logo are trademarks of GigLabo and Denis Esakov, and are
 not licensed for other use.

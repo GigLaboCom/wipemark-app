@@ -162,6 +162,15 @@ pub fn first_wait(work: Work) -> Option<Wait> {
 /// What runs in this application now, read from the queue, the engine,
 /// the model downloads and every Compare window.
 pub fn work_now(cx: &App) -> Work {
+    let downloading = hosted(cx)
+        .is_some_and(|updates| updates.read(cx).preferences.read(cx).any_download_running());
+    work_with(downloading, cx)
+}
+
+/// [`work_now`], with whether a model download runs already known: what the
+/// update's own actions ask from inside this entity's `update`, where
+/// reading the entity again through its global aborts (D815).
+fn work_with(downloading: bool, cx: &App) -> Work {
     let (cleaning, rewriting) = cx
         .try_global::<crate::queue::Table>()
         .map_or((false, false), |table| table.0.read(cx).at_work(cx));
@@ -169,8 +178,7 @@ pub fn work_now(cx: &App) -> Work {
     Work {
         rewriting: rewriting || engine_busy,
         cleaning,
-        downloading: hosted(cx)
-            .is_some_and(|updates| updates.read(cx).preferences.read(cx).any_download_running()),
+        downloading,
         unkept_edits: crate::compare::any_holds_unkept_edits(cx),
     }
 }
@@ -336,6 +344,17 @@ impl Updates {
         start: Start,
         cx: &Context<Self>,
     ) -> Self {
+        let updates = Self::idle(preferences, store, start);
+        Self::detect(cx);
+        Self::schedule(cx);
+        updates
+    }
+
+    /// The entity before it looks at anything: what [`Self::new`] starts
+    /// from, and what a test hosts without the thread that looks at the
+    /// installation, whose answer would wake the test's executor from
+    /// outside it.
+    fn idle(preferences: Entity<Preferences>, store: SettingsStore, start: Start) -> Self {
         let Start {
             rows,
             setup_done,
@@ -343,7 +362,7 @@ impl Updates {
             updates_dir,
         } = start;
         let keyring = keyring();
-        let updates = Self {
+        Self {
             preferences,
             store,
             running: wipemark_update::running(),
@@ -369,10 +388,7 @@ impl Updates {
             downloads,
             updates_dir,
             dialog_asked: 0,
-        };
-        Self::detect(cx);
-        Self::schedule(cx);
-        updates
+        }
     }
 
     /// What kind of installation this is — off the GPUI thread, because on
@@ -437,6 +453,12 @@ impl Updates {
             self.check(false, cx);
         }
         scanned
+    }
+
+    /// What runs now, asked without reading this entity through its global:
+    /// every caller is inside this entity's own `update` (D815).
+    fn work(&self, cx: &App) -> Work {
+        work_with(self.preferences.read(cx).any_download_running(), cx)
     }
 
     // ---- what the surfaces read ----
@@ -681,7 +703,7 @@ impl Updates {
         ) {
             return;
         }
-        if first_wait(work_now(cx)).is_some() {
+        if first_wait(self.work(cx)).is_some() {
             return;
         }
         let Some(offer) = self.offer().cloned() else {
@@ -811,7 +833,7 @@ impl Updates {
         let Fetching::Ready { prepared, .. } = &self.fetching else {
             return;
         };
-        if let Some(wait) = first_wait(work_now(cx)) {
+        if let Some(wait) = first_wait(self.work(cx)) {
             tracing::info!(?wait, "updates: staged; waiting for the work to end");
             cx.notify();
             return;
@@ -865,7 +887,7 @@ impl Updates {
         else {
             return;
         };
-        if let Some(wait) = first_wait(work_now(cx)) {
+        if let Some(wait) = first_wait(self.work(cx)) {
             tracing::info!(?wait, "updates: not swapped at quit, work was running");
             return;
         }
@@ -1780,6 +1802,108 @@ mod tests {
                 Some(Wait::Rewrite)
             ),
             [(Act::Cancel, true)]
+        );
+    }
+
+    /// Every action of the update runs inside its own entity's `update` — a
+    /// button's, a download's end, the quit — and asks there what runs. That
+    /// question once read this entity again through its global, and GPUI
+    /// aborted the application ("cannot read Updates while it is already
+    /// being updated"): the owner pressed Update and restart on 2026-10-19
+    /// and Wipemark ended (D815). Red with `work_now` back in `fetch`,
+    /// `try_restart` or `at_quit`.
+    #[gpui::test]
+    fn the_update_s_actions_run_inside_its_own_update(cx: &mut gpui::TestAppContext) {
+        let scratch =
+            std::env::temp_dir().join(format!("wipemark-update-acts-{}", std::process::id()));
+        let homes = crate::retention::Homes {
+            results: scratch.join("results"),
+            kept: scratch.join("kept"),
+        };
+        struct Holder;
+        impl Render for Holder {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let slot: std::rc::Rc<std::cell::RefCell<Option<Entity<Preferences>>>> =
+            std::rc::Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |_, cx| {
+            *held.borrow_mut() = Some(cx.new(|cx| Preferences::for_tests(homes, cx)));
+            Holder
+        });
+        let preferences = slot.take().expect("the window builder ran");
+        // Hosted as `install` hosts it, without the thread that looks at the
+        // installation: its answer would wake this test's executor from
+        // outside it, which GPUI's test scheduler refuses.
+        let updates = cx.update(|_, cx| {
+            let updates = cx.new(|_| {
+                Updates::idle(
+                    preferences,
+                    config::open(None),
+                    Start {
+                        rows: config::UpdateRows::default(),
+                        setup_done: true,
+                        downloads: scratch.join("downloads"),
+                        updates_dir: None,
+                    },
+                )
+            });
+            cx.set_global(Hosted(updates.clone()));
+            updates
+        });
+        // A verified offer and no service to fetch it from: each action gets
+        // past the question of what runs and stops before the network.
+        updates.update(cx, |updates, _| {
+            updates.base = Err("no release service in a test".into());
+            updates.said = Said::Available {
+                offer: Box::new(Offer {
+                    version: Version::new(0, 2, 0),
+                    platform: Platform::MacosAarch64,
+                    format: Format::Dmg,
+                    file: "Wipemark-0.2.0-arm64.dmg".into(),
+                    size: 1,
+                    sha256: [0; 32],
+                    url: String::new(),
+                    key: wipemark_update::testing::Signer::new().id(),
+                }),
+                at: Utc::now(),
+                refused: None,
+            };
+        });
+        updates.update(cx, |updates, cx| updates.update_now(cx));
+        updates.update(cx, |updates, cx| updates.update_on_quit(cx));
+        updates.update(cx, |updates, cx| updates.download(cx));
+        // A staged copy: Restart now swaps — refused here, it names nothing
+        // on disk — and so does the quit.
+        updates.update(cx, |updates, cx| {
+            updates.fetching = Fetching::Ready {
+                prepared: wipemark_update::testing::prepared(),
+                then: Then::OnQuit,
+            };
+            updates.restart_now(cx);
+        });
+        assert!(
+            updates.read_with(cx, |updates, _| matches!(
+                updates.fetching,
+                Fetching::Failed(_)
+            )),
+            "Restart now did not reach the swap"
+        );
+        updates.update(cx, |updates, cx| {
+            updates.fetching = Fetching::Ready {
+                prepared: wipemark_update::testing::prepared(),
+                then: Then::OnQuit,
+            };
+            updates.at_quit(cx);
+        });
+        assert!(
+            updates.read_with(cx, |updates, _| matches!(
+                updates.fetching,
+                Fetching::Swapped
+            )),
+            "the quit did not reach the swap"
         );
     }
 

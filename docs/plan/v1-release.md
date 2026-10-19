@@ -23,6 +23,24 @@ quarantine flag ("Notarized Developer ID"). The bundled
 newest verified version. Release page:
 https://github.com/GigLaboCom/wipemark-app/releases/tag/wipemark-v0.1.0.
 
+**0.1.1, 2026-10-19.** The main window's table scrolls sideways (D811–D813),
+and gpui-kit is back on upstream `next` (D814). The tag `wipemark-v0.1.1` is
+on `main` at `f0f2715` (PR #5's merge). Release run 39250367785 built the
+draft in 17 minutes. The owner published it at 12:36 UTC, and update run
+39253382415 put the files on releases.giglabo.com:
+
+| file | bytes | sha256 |
+|---|---|---|
+| `Wipemark-0.1.1-arm64.dmg` | 25 232 916 | `9ef3eea4…93652c` |
+| `Wipemark-0.1.1-x86_64.AppImage` | 46 262 776 | `99ec0a07…3eb81e` |
+| `wipemark_0.1.1_amd64.deb` | 28 766 380 | `ff615c5b…b2220f` |
+
+Every file was hashed from both GitHub and the service; the bytes are the
+same. Released 0.1.0's own `wipemark-cli update --check` says "Wipemark
+0.1.1 is available, and its signature verified". A self-update install from
+0.1.0 has not been run yet. Notes: `docs/release/0.1.1.md`. Release page:
+https://github.com/GigLaboCom/wipemark-app/releases/tag/wipemark-v0.1.1.
+
 ## Для владельца
 
 **Первая версия — это всё, что уже работает, без новых функций.** Сейчас
