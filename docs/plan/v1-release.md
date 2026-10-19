@@ -60,6 +60,27 @@ whole of 0.1.0's with what changed since. A self-update install is first
 possible from 0.1.2 to the next version. Release page:
 https://github.com/GigLaboCom/wipemark-app/releases/tag/wipemark-v0.1.2.
 
+**0.1.3, 2026-10-19 — the installer window, and the first self-update.** The
+`.dmg` opens as a Mac installer window (D816–D822). The tag
+`wipemark-v0.1.3` is on `main` at `1268b9b` (PR #7's merge, made during a
+GitHub Actions incident on the owner's word, the tree proven by the local
+gates and a by-hand release run, 39279710928). Release run 39281847631
+built the draft; the owner published it at 16:45 UTC and update run
+39288174993 put the files on releases.giglabo.com:
+
+| file | bytes | sha256 |
+|---|---|---|
+| `Wipemark-0.1.3-arm64.dmg` | 23 129 304 | `0828d16c…8b297` |
+| `Wipemark-0.1.3-x86_64.AppImage` | 46 270 968 | `6d680efe…e44193` |
+| `wipemark_0.1.3_amd64.deb` | 28 766 324 | `c02727c7…39ec77` |
+
+The owner's installed 0.1.2 then updated itself from the window: Check now
+found 0.1.3, the download verified, the new copy was staged and checked,
+Restart now swapped it in and relaunched it, and the relaunched 0.1.3
+removed the previous copy — about twenty seconds, silently (nothing says
+"updated"). Release page:
+https://github.com/GigLaboCom/wipemark-app/releases/tag/wipemark-v0.1.3.
+
 ## Для владельца
 
 **Первая версия — это всё, что уже работает, без новых функций.** Сейчас

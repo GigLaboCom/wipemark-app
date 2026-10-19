@@ -419,15 +419,17 @@ Unmark" survives only in keys; the product is Wipemark (Q1, 2026-09-21).
 ## Where it stands
 
 `feat/e0-e6-shell` carries everything. `main` is touched only by the
-owner's word (PRs #1–#6; GitHub deletes `feat/e0-e6-shell` on every merge,
-so it is pushed back at once). **0.1.2 is the latest release** (2026-10-19:
-the tag `wipemark-v0.1.2` on `main` at `aa6cd11`, D815 — the version to
-advertise), after **0.1.1** (the same day, `f0f2715`, D811–D814) and
-**0.1.0** (2026-10-18, `5df1564`). Each is a tag, the owner's
+owner's word (PRs #1–#7; GitHub deletes `feat/e0-e6-shell` on every merge,
+so it is pushed back at once). **0.1.3 is the latest release** (2026-10-19:
+the tag `wipemark-v0.1.3` on `main` at `1268b9b`, the `.dmg` an installer
+window, D816–D822), after **0.1.2** (the same day, `aa6cd11`, D815),
+**0.1.1** (`f0f2715`, D811–D814) and **0.1.0** (2026-10-18, `5df1564`).
+The owner's installed 0.1.2 updated itself to 0.1.3 from the window — the
+first real self-update (Watchword `wipemark-release-0.1.3-2026-10-19`). Each is a tag, the owner's
 Publish of the draft, and the same three files — the `.dmg` (Developer ID,
 notarized), the AppImage and the `.deb` — on GitHub Releases and on
 releases.giglabo.com, signed for the update check; 0.1.0's and 0.1.1's
-`update --check` find 0.1.2, and from 0.1.2 on an install updates itself
+`update --check` find the newest, and from 0.1.2 on an install updates itself
 ([docs/plan/v1-release.md](docs/plan/v1-release.md), D580–D583;
 [reports/v1-acceptance-2026-10-12.md](docs/plan/reports/v1-acceptance-2026-10-12.md)).
 

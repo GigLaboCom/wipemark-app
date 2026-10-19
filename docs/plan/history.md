@@ -331,6 +331,10 @@ result, an edited result asked about first
 - **0.1.2 released** (2026-10-19): PR #6 merged as `aa6cd11`, tag
   `wipemark-v0.1.2`, the owner's Publish at 14:51 UTC, the same three files
   on GitHub and releases.giglabo.com — the version to advertise.
+- **0.1.3 released** (2026-10-19): the `.dmg` an installer window
+  (`release/dmg-layout`, D816–D822), PR #7 merged as `1268b9b`, tag
+  `wipemark-v0.1.3`, the owner's Publish at 16:45 UTC; the owner's 0.1.2
+  updated itself to it from the window, the first real self-update.
 - `release/dmg-layout` (D816–D822, the owner, 2026-10-19: "why is the
   installer so crooked — can't we make it with an icon and the typical
   drag-and-drop?"): the `.dmg` had no `.DS_Store` and no volume icon, so
