@@ -187,7 +187,7 @@ test that stays green with its subject deleted is removed, not kept.
 | platform | how |
 |---|---|
 | Linux | `ci/linux-builder/run-build.sh` builds the AppImage and the `.deb` in a pinned Ubuntu 24.04 builder image (Docker). It runs `scripts/release/linux/build.sh` inside, with the glibc floor (2.39), the shipped manifest and the library policy as gates. `scripts/verify/release/appimage-gate.sh` and `deb-gate.sh` then install and run them on a clean `ubuntu:24.04`. See [architecture/packaging.md](architecture/packaging.md). |
-| macOS | build with `--features llama-native` as above, then `scripts/release/macos/bundle.sh target/release dist` lays out `Wipemark.app` and makes `dist/Wipemark-<version>-arm64.dmg`. It puts llama.cpp's libraries in `Contents/Frameworks` and `wipemark-cli` beside the application. With `WIPEMARK_SIGN_IDENTITY` set it signs with that Developer ID and the hardened runtime; otherwise it signs ad hoc. Notarization is the release lane's step after it. |
+| macOS | build with `--features llama-native` as above, make dmgbuild's venv once (`scripts/release/macos/dmgbuild-venv.sh <dir>`, then `export WIPEMARK_DMGBUILD_VENV=<dir>`), then `scripts/release/macos/bundle.sh target/release dist` lays out `Wipemark.app` and makes `dist/Wipemark-<version>-arm64.dmg`, the installer window, checked as it is made (D816–D822). It puts llama.cpp's libraries in `Contents/Frameworks` and `wipemark-cli` beside the application, and signs ad hoc; the Developer ID, notarization and staple are `scripts/release/macos/sign-and-notarize.sh`'s, after it (`docs/architecture/packaging.md`). |
 
 `.github/workflows/release.yml` runs on a `wipemark-v*` tag and by hand.
 On a tag it uploads the artifacts to a **draft** release, which a person
