@@ -316,6 +316,9 @@ result, an edited result asked about first
   owner, 2026-10-19): #3521 merged that day, #3520 on 2026-10-16, each
   squashed; the tree is the fork's `78348fde` byte for byte, so only
   `.gitmodules` and the pointer move. In 0.1.1.
+- **0.1.1 released** (2026-10-19): PR #5 merged as `f0f2715`, tag
+  `wipemark-v0.1.1`, the owner's Publish at 12:36 UTC, the same three files
+  on GitHub and releases.giglabo.com (`docs/plan/v1-release.md`).
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice

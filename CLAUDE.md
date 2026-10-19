@@ -419,12 +419,14 @@ Unmark" survives only in keys; the product is Wipemark (Q1, 2026-09-21).
 ## Where it stands
 
 `feat/e0-e6-shell` carries everything. `main` is touched only by the
-owner's word (PRs #1–#4; GitHub deletes `feat/e0-e6-shell` on every merge,
-so it is pushed back at once). **0.1.0 is released** (2026-10-18): the tag
-`wipemark-v0.1.0` on `main` at `5df1564`, the owner's Publish of the draft,
-and the same three files — the `.dmg` (Developer ID, notarized), the
-AppImage and the `.deb` — on GitHub Releases and on releases.giglabo.com,
-signed for the update check
+owner's word (PRs #1–#5; GitHub deletes `feat/e0-e6-shell` on every merge,
+so it is pushed back at once). **0.1.1 is the latest release** (2026-10-19:
+the tag `wipemark-v0.1.1` on `main` at `f0f2715`, D811–D814), after **0.1.0**
+(2026-10-18, `wipemark-v0.1.0` at `5df1564`). Each is a tag, the owner's
+Publish of the draft, and the same three files — the `.dmg` (Developer ID,
+notarized), the AppImage and the `.deb` — on GitHub Releases and on
+releases.giglabo.com, signed for the update check; 0.1.0's
+`update --check` finds 0.1.1
 ([docs/plan/v1-release.md](docs/plan/v1-release.md), D580–D583;
 [reports/v1-acceptance-2026-10-12.md](docs/plan/reports/v1-acceptance-2026-10-12.md)).
 
