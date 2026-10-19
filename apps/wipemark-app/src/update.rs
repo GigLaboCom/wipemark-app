@@ -344,6 +344,17 @@ impl Updates {
         start: Start,
         cx: &Context<Self>,
     ) -> Self {
+        let updates = Self::idle(preferences, store, start);
+        Self::detect(cx);
+        Self::schedule(cx);
+        updates
+    }
+
+    /// The entity before it looks at anything: what [`Self::new`] starts
+    /// from, and what a test hosts without the thread that looks at the
+    /// installation, whose answer would wake the test's executor from
+    /// outside it.
+    fn idle(preferences: Entity<Preferences>, store: SettingsStore, start: Start) -> Self {
         let Start {
             rows,
             setup_done,
@@ -351,7 +362,7 @@ impl Updates {
             updates_dir,
         } = start;
         let keyring = keyring();
-        let updates = Self {
+        Self {
             preferences,
             store,
             running: wipemark_update::running(),
@@ -377,10 +388,7 @@ impl Updates {
             downloads,
             updates_dir,
             dialog_asked: 0,
-        };
-        Self::detect(cx);
-        Self::schedule(cx);
-        updates
+        }
     }
 
     /// What kind of installation this is — off the GPUI thread, because on
@@ -1826,18 +1834,24 @@ mod tests {
             Holder
         });
         let preferences = slot.take().expect("the window builder ran");
+        // Hosted as `install` hosts it, without the thread that looks at the
+        // installation: its answer would wake this test's executor from
+        // outside it, which GPUI's test scheduler refuses.
         let updates = cx.update(|_, cx| {
-            install(
-                preferences,
-                config::open(None),
-                Start {
-                    rows: config::UpdateRows::default(),
-                    setup_done: true,
-                    downloads: scratch.join("downloads"),
-                    updates_dir: None,
-                },
-                cx,
-            )
+            let updates = cx.new(|_| {
+                Updates::idle(
+                    preferences,
+                    config::open(None),
+                    Start {
+                        rows: config::UpdateRows::default(),
+                        setup_done: true,
+                        downloads: scratch.join("downloads"),
+                        updates_dir: None,
+                    },
+                )
+            });
+            cx.set_global(Hosted(updates.clone()));
+            updates
         });
         // A verified offer and no service to fetch it from: each action gets
         // past the question of what runs and stops before the network.
