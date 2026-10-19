@@ -312,6 +312,10 @@ result, an edited result asked about first
   `queue/across_tests.rs`; each protection deleted once, red again. Live
   on macOS: Shift and a Quartz line scroll moved the table sideways, so
   macOS hands GPUI the turn on X as X11 and Wayland do.
+- The submodule back on upstream gpui-kit `next` at `146ab45a` (D814, the
+  owner, 2026-10-19): #3521 merged that day, #3520 on 2026-10-16, each
+  squashed; the tree is the fork's `78348fde` byte for byte, so only
+  `.gitmodules` and the pointer move. In 0.1.1.
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
