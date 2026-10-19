@@ -27,7 +27,7 @@ members = [
 exclude = ["vendor/gpui-component", "vendor/gpui-pre-linux"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 # The Functional Source License 1.1 with Apache-2.0 as the future licence
 # (owner, 2026-10-12, D610): the source is public and anyone may use it for
