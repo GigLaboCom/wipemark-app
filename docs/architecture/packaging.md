@@ -1,8 +1,8 @@
 # Packaging — the AppImage and the .deb on Linux, the .dmg on macOS
 
-The macOS half — the bundle, the Developer ID signature, notarization and
-the secrets they need — is [its own section](#macos--wipemarkapp-the-dmg-developer-id-and-notarization)
-at the end (P3, D775–D779).
+The macOS half — the bundle, the .dmg's installer window, the Developer ID
+signature, notarization and the secrets they need — is [its own section](#macos--wipemarkapp-the-dmg-developer-id-and-notarization)
+at the end (P3, D775–D779, D816–D822).
 
 Wipemark 0.1.0 ships on Linux as **`Wipemark-<version>-x86_64.AppImage`** and
 **`wipemark_<version>_amd64.deb`**, built from one tree in one pinned image and
@@ -278,12 +278,16 @@ it, and the release lane runs them on `macos-14` (job `macos`):
 
 ```sh
 cargo build --release --locked --features llama-native -p wipemark-app -p wipemark-cli
+scripts/release/macos/dmgbuild-venv.sh "$TMPDIR/dmgbuild"           # once: dmgbuild's venv
+export WIPEMARK_DMGBUILD_VENV="$TMPDIR/dmgbuild"
 scripts/release/macos/bundle.sh target/release dist                 # the bundle, ad hoc, and its .dmg
 scripts/release/macos/sign-and-notarize.sh dist/Wipemark.app dist   # Developer ID, notarized, stapled
 ```
 
-`dmg.sh` makes the image for both (`hdiutil`, UDZO, the app and a link to
-`/Applications`; no `create-dmg`, which drives Finder through AppleScript).
+`dmg.sh` makes the image for both, and checks it: the installer window —
+Wipemark on the left, the Applications link on the right, an arrow between
+them, Wipemark's icon on the volume — written by dmgbuild with no Finder and
+no AppleScript ([below](#the-installer-window-d816d822)).
 **Without the signing secrets the release is `bundle.sh`'s .dmg, signed ad
 hoc** — macOS blocks its first open, and the job's summary and the release
 notes say so (D583). With them, `sign-and-notarize.sh` replaces that .dmg
@@ -311,6 +315,159 @@ bundle** by `scripts/release/third-party.py --target aarch64-apple-darwin`
 with the prebuilt archive's `LICENSE-llama.cpp` (0.1.0: 617 crates, 316
 distinct licence texts); a bundle without it is not made (D779). `NOTICE` and
 `LICENSE.md` are copied beside it.
+
+### The installer window (D816–D822)
+
+Until 0.1.2 the image was `hdiutil create -srcfolder` around the app and the
+link: no `.DS_Store`, so Finder opened a default window (toolbar, sidebar,
+small icons wherever it put them) and a generic volume icon. The owner,
+2026-10-19: "why is the installer so crooked — can't we make it with an icon
+and the typical drag-and-drop?" Since then, opened, the image is a window
+of 660×400 points with nothing but its title bar: a steel-blue field, the
+Wipemark icon on the left and the Applications link on the right, level, at
+128 points, a straw arrow from one to the other, and Finder's two labels
+under them; the volume's icon, in the title bar and on the desktop, is
+Wipemark's (seen on this Mac, macOS 26, 2026-10-19).
+
+**The tool (D816).** `dmg.sh` runs **dmgbuild 1.6.7** (MIT, the dmgbuild
+project, with its `ds_store` 1.3.3 and `mac_alias` 2.2.3, both MIT), which
+stages the files on a writable image, writes the window's `.DS_Store` itself
+— the format Finder reads, with no Finder running and no AppleScript — and
+converts the image. It is deterministic and works headless, here and on
+GitHub's `macos-14`. `create-dmg` and anything else that drives Finder is
+refused: flaky on CI, and it opens windows on the screen of whoever runs it.
+dmgbuild is installed into a venv of its own, never a system Python, by
+`scripts/release/macos/dmgbuild-venv.sh <dir> [python]`, from
+`dmgbuild-requirements.txt`: three wheels pinned by version and sha256,
+`--require-hashes --no-deps --only-binary :all:` (nothing resolved, no sdist
+built). It needs Python 3.10 or later; the release lane uses
+`actions/setup-python@v5`'s 3.12 with `update-environment: false`, so
+`bundle.sh`'s own `python3` is the runner's as before, and puts
+`WIPEMARK_DMGBUILD_VENV` in the job's environment. `bundle.sh` and
+`sign-and-notarize.sh` refuse to start without it.
+
+**What stays.** `dmg.sh` is still the one place the image is made, by
+`bundle.sh` and again by `sign-and-notarize.sh` around the stapled app, whose
+signing, notarization and staple are unchanged. The volume is "Wipemark
+<version>"; the app is `<root>/Wipemark.app`, the input app byte for byte
+(the update copies `<mount point>/Wipemark.app` out of a downloaded image,
+D786); HFS+ in a GPT image, as `hdiutil -srcfolder` made. **The format is
+ULFO** (LZFSE), read-only and compressed: macOS reads it since 10.11 and
+Wipemark needs 12, and around 0.1.2's app it is 23.1 MB where UDZO (zlib) is
+25.5 MB and UDZO at zlib level 9 23.6 MB; LZFSE also opens faster.
+
+**The window (D817)** — `dmg-settings.py`, the file dmgbuild executes:
+
+| | |
+|---|---|
+| view | icon view; no toolbar, sidebar, path bar, status bar or tab view |
+| window | `{{400, 300}, {660, 400}}` — the whole window, title bar included |
+| icons | 128 pt, labels under them at 14 pt, nothing arranged |
+| `Wipemark.app` | centre (165, 170) |
+| `Applications` → `/Applications` | centre (495, 170) |
+| background | `.background.tiff` at the root, 660×400 and 1320×800 |
+| volume icon | `.VolumeIcon.icns`, `apps/wipemark-app/assets/icon/icon.icns`, and the volume's custom-icon flag |
+| hidden | `.background.tiff`, `.VolumeIcon.icns`, `.fseventsd` (the invisible flag) |
+
+Measured on this Mac (macOS 26.7.1) with the image open: the size is the
+whole frame, and the title bar takes 32 points, so the content is 660×368
+and the background is drawn from its top-left corner — the same origin as
+the icons' positions, so the arrow drawn at 170 lies level with their
+centres. The position counts from the screen's **bottom**-left: `(200, 120)`
+opened the window with its bottom edge 120 points above the screen's, so
+`(400, 300)` sets it about midway up a laptop's screen. The icons sit at a
+quarter and three quarters across, and as far below the bar as the labels
+are above the bottom of the 368 points; a title bar of 28 points (macOS
+12–15) shows 4 more points of field at the bottom.
+
+**The helpers (D818).** dmgbuild names the background `.background.tiff` and
+the icon `.VolumeIcon.icns`, both at the root; both start with a dot, and
+both carry the invisible flag as well, for a Finder that shows dot files.
+`.fseventsd` is made by the system while the writable image is mounted;
+`dmg-settings.py`'s `create_hook` puts `no_log` in it, so the image carries
+no event history, and hides it. dmgbuild ignores the exit codes of the
+`SetFile` and `ditto` it runs, so the check below reads every flag back.
+
+**The background (D819).** `icons/macos/dmg-background.tiff`, committed as
+a packaging asset beside the icon, drawn by `icons/create-dmg-background.sh`:
+an SVG rendered by Inkscape at 660×400 and 1320×800 and joined into one
+multi-resolution TIFF by macOS's own `tiffutil -cathidpicheck` (two runs, one
+sha256). A steel-blue field from the application's palette — the icon's and
+the site's brand blue (`#1f5ab8`, `#3c8bef`) toned down to `#5b7db3` →
+`#4b6ea7`, with a soft light from above — and one arrow in the broom's straw
+(`#ffd84d` → `#f4a11f`) from 262 to 386 points across at 170 down, about 47
+points clear of each icon's artwork. **No words**: a picture cannot follow
+the windows' catalogue, and the arrow alone says "drag". Finder writes the
+labels itself, on the picture: macOS 26 drew them black at 85% in the dark
+appearance too (rgb(13, 17, 25) in the capture), so the content looks the
+same in either appearance and only the title bar changes; a Finder that
+draws them white in the dark must read as well. So the field under them is a
+mid tone, relative luminance 0.177, where an 85% label reads at 4.08:1 in
+black and 3.84:1 in white (WCAG; 4.5:1 and 4.6:1 at full strength). The
+script prints both and stops under 3.8:1.
+
+**The check (D820).** `dmg.sh` runs `scripts/release/macos/dmg-check.py` on
+every image it makes and deletes one that fails. Mounted read-only at a
+temporary mount point with nothing shown in Finder, it asserts: the format
+(ULFO) and the volume's name; the root holds `Wipemark.app` (its
+`Info.plist`), `Applications` → `/Applications` and nothing but the hidden
+helpers; the `.DS_Store`, read with `ds_store`: icon view, the window's
+bounds, no bars, icon size 128, text size 14, nothing arranged, labels at
+the bottom, each icon's position, and a background picture whose alias names
+`.background.tiff` on this volume; the background's two sizes; the volume
+icon and its flag; each helper's invisible flag; `codesign --verify --deep
+--strict` on the app, and the app the input app path by path (kind, mode,
+link target, sha256). Seen red twice, with a piece of `dmg-settings.py`
+taken out:
+
+```
+# the layout taken out (the window, its flags, the sizes, the positions: 32 lines)
+        FAIL .DS_Store: window bounds '{{100, 100}, {640, 280}}', not {{400, 300}, {660, 400}}
+        FAIL .DS_Store: textSize is 16.0, not 14.0
+        FAIL .DS_Store: Wipemark.app is at None, not (165, 170)
+        FAIL .DS_Store: Applications is at None, not (495, 170)
+    ==> red-layout.dmg: 4 check(s) failed
+# the background taken out (one line)
+        FAIL .DS_Store: no background picture (backgroundType 0)
+        FAIL .background.tiff: there is none
+    ==> red-background.dmg: 2 check(s) failed
+```
+
+Every other line said `ok`, `dmg.sh` deleted both images and exited 1. What
+stayed green says what dmgbuild does by default: icon view, no bars and
+128-point icons are its defaults, so the check holds them for the day a
+default changes.
+
+**The secrets (D821).** `sign-and-notarize.sh` runs `dmg.sh` inside the step
+that holds `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY` and `APPLE_API_ISSUER`,
+and dmgbuild, `ds_store` and `mac_alias` are third-party code, which D775
+keeps from the secrets. So `dmg.sh` runs dmgbuild and the check under `env
+-i` with only `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, `HOME` and `TMPDIR` in a
+directory of the run's own, and `DEVELOPER_DIR` if it is set. Checked with
+all six `APPLE_*` names, `GITHUB_TOKEN` and `RUNNER_TEMP` set to canaries
+around `dmg.sh`: a stand-in `python` in place of the venv's wrote down its
+environment for both calls — `PATH`, `HOME`, `TMPDIR` and nothing else of the
+caller's; and the real dmgbuild and check, read with `ps -E` thirty times
+while they ran, carried no canary. What `env -i` cannot do: while the step
+runs, the keychain it imported and `~/private_keys/AuthKey_<id>.p8` are files
+that any process of the runner's user could open, as they are for every tool
+in that step. The three wheels are pinned by hash, so the code that runs is
+the code that was read.
+
+**The update (D822).** The image is read as before: the update mounts it and
+copies `<mount point>/Wipemark.app`. `a_release_image_is_staged_as_the_update_stages_it`
+(`crates/wipemark-update`, macOS) runs that `stage` — the copy, the team's
+requirement, Gatekeeper, the identity, both programs' versions — on the image
+`WIPEMARK_TEST_DMG` names, and says it skipped when it names none:
+
+```sh
+WIPEMARK_TEST_DMG=dist/Wipemark-0.1.3-arm64.dmg \
+  cargo test -p wipemark-update --locked a_release_image -- --nocapture
+```
+
+Green on 0.1.2's released image and on `dmg.sh`'s image around 0.1.2's
+released app (ULFO, the window); red, `Err(Identity)`, on an image with the
+app moved into a folder.
 
 ### What is signed, and how (D776, D777)
 
@@ -385,7 +542,9 @@ the run's artifacts (`wipemark-macos`: the .dmg and its `.sha256`).
 
 The `macos` job: checkout with the submodule, the pinned toolchain
 (`rustup toolchain install`), the cargo registry cached (the target directory
-is rebuilt every time), the build, `bundle.sh`, then **Signing secrets**,
+is rebuilt every time), the build, `actions/setup-python@v5` (3.12, off
+`PATH`) and **dmgbuild** (`dmgbuild-venv.sh` into `$RUNNER_TEMP/dmgbuild`,
+`WIPEMARK_DMGBUILD_VENV` for the steps after it, D816), `bundle.sh`, then **Signing secrets**,
 which looks at the six secrets below: all six set is a Developer ID release;
 none set is an ad hoc one, with a warning; **some but not all fails the
 job**, naming the missing ones — a half-configured lane would publish
@@ -432,16 +591,21 @@ again from the files they were made from (the checklist below).
   `APPLE_API_KEY_CONTENT` on the whole job, to test them in an `if:`; here a
   step reads all six once and says which road the job takes.
 - **Half the secrets is an error**, where lazy-shot signs without notarizing.
-- **The .dmg is `hdiutil`'s**, as MnemoVi's is, not `create-dmg`'s.
+- **The .dmg is dmgbuild's** (D816), not `create-dmg`'s, and the image is
+  checked after it is made (D820).
 - `concurrency` does not cancel a release in progress.
 
 The workflow cannot be run from a branch before it reaches GitHub, and the tag
 path cannot be run without a tag; `actionlint` 1.7.12 (with shellcheck 0.11.0)
-passes on it.
+passes on it but for one `info` (SC2086) in `publish-update`'s glob of
+`release/$pattern`, which is meant (2026-10-19).
 
 ### By hand
 
-On a Mac whose login keychain holds the identity (this one does):
+On a Mac whose login keychain holds the identity (this one does), with
+dmgbuild's venv made once (`scripts/release/macos/dmgbuild-venv.sh <dir>`,
+then `export WIPEMARK_DMGBUILD_VENV=<dir>`; `--sign-only` makes no image and
+does not need it):
 
 ```sh
 # Sign and check, no notarization: the local proof
@@ -462,6 +626,9 @@ bundle's extended attributes and signs in place.
 ### Checking a .dmg
 
 ```sh
+# the window, the volume icon, the helpers, the link and the app (D820)
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin "$WIPEMARK_DMGBUILD_VENV/bin/python" -I \
+  scripts/release/macos/dmg-check.py Wipemark-0.1.3-arm64.dmg
 codesign --verify --strict --verbose=2 Wipemark-0.1.0-arm64.dmg
 spctl -a -t open --context context:primary-signature -vv Wipemark-0.1.0-arm64.dmg
                                        # accepted / source=Notarized Developer ID

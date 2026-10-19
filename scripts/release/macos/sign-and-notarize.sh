@@ -52,7 +52,10 @@
 # APPLE_API_KEY_CONTENT (as lazy-shot does), or from APPLE_API_KEY_PATH.
 # Needs:  macOS, the Xcode command-line tools (codesign, xcrun notarytool,
 #         xcrun stapler), ditto, hdiutil, spctl, plutil; the network, for the
-#         timestamp and the notary service.
+#         timestamp and the notary service; and, unless --sign-only,
+#         dmgbuild's venv for dmg.sh (WIPEMARK_DMGBUILD_VENV, D816), looked
+#         for before anything is signed. dmg.sh runs dmgbuild and its check
+#         with none of this step's variables (env -i, D821).
 # Output: the app signed in place (and notarized and stapled), and
 #         <dist>/Wipemark-<version>-arm64.dmg signed, notarized and stapled;
 #         one line per step. Exit 1 on anything missing, any check failed or
@@ -89,6 +92,9 @@ if [ "$sign_only" = 0 ]; then
   for tool in notarytool stapler; do
     xcrun --find "$tool" >/dev/null || fail "xcrun cannot find $tool (the Xcode command-line tools)"
   done
+  # Step 5's dmg.sh needs it: missing, it would stop after the app's notarization.
+  [ -x "${WIPEMARK_DMGBUILD_VENV:-/nonexistent}/bin/python" ] ||
+    fail "WIPEMARK_DMGBUILD_VENV does not name dmgbuild's venv (scripts/release/macos/dmgbuild-venv.sh <dir>)"
 fi
 
 sign() {

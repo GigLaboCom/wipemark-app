@@ -13,7 +13,9 @@
 #           package, remove leaves nothing).
 #   macos   Wipemark.app and its .dmg on Apple Silicon (P3):
 #           scripts/release/macos/bundle.sh lays the bundle out and signs it
-#           ad hoc; then, when the six APPLE_* secrets exist,
+#           ad hoc, and dmg.sh makes the .dmg's installer window with
+#           dmgbuild from a venv of pinned wheels (D816–D822); then, when
+#           the six APPLE_* secrets exist,
 #           scripts/release/macos/sign-and-notarize.sh signs every Mach-O
 #           with the Developer ID (hardened runtime, secure timestamp, no
 #           entitlements), notarizes and staples the app and the .dmg, and
@@ -204,8 +206,27 @@ jobs:
       - name: Build (release, llama-native, Metal)
         run: cargo build --release --locked --features llama-native -p wipemark-app -p wipemark-cli
 
+      # dmgbuild, which dmg.sh makes the .dmg's window with (D816): a Python
+      # of setup-python's own, kept off PATH so bundle.sh's python3 is the
+      # image's as before, and a venv of three wheels pinned by sha256
+      # (scripts/release/macos/dmgbuild-requirements.txt). dmg.sh runs it
+      # under `env -i`, so the signing step's secrets never reach it (D821).
+      - uses: actions/setup-python@v5
+        id: python
+        with:
+          python-version: "3.12"
+          update-environment: false
+
+      - name: dmgbuild
+        env:
+          PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          scripts/release/macos/dmgbuild-venv.sh "$RUNNER_TEMP/dmgbuild" "$PYTHON"
+          echo "WIPEMARK_DMGBUILD_VENV=$RUNNER_TEMP/dmgbuild" >> "$GITHUB_ENV"
+
       # The bundle, its notices (THIRD-PARTY.md, D779), signed ad hoc, and
-      # its .dmg — the release as it is without the secrets.
+      # its .dmg — the release as it is without the secrets. dmg.sh checks
+      # every image it makes (dmg-check.py, D820).
       - name: Bundle
         run: scripts/release/macos/bundle.sh target/release dist
 
