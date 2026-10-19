@@ -295,6 +295,28 @@ result, an edited result asked about first
   files. The secrets are the owner's to add (packaging.md, "The owner's
   checklist").
 
+**After 0.1.0** (released 2026-10-18, `main` at `5df1564`):
+- `fix/main-table-horizontal-scroll` (D811–D813, the owner, 2026-10-19:
+  "horizontal scrolling in the main window is broken"). In a window
+  narrower than the columns (1168 points fixed) Name was crushed to its
+  padding, Actions and the columns before it were cut off, nothing moved
+  sideways, and a sideways swipe scrolled the rows up and down instead —
+  GPUI turns a delta on the axis a list does not scroll into the one it
+  does. The header and the rows now sit in one horizontal scroll, moved by
+  a sideways swipe, Shift and the wheel, and a bar along the bottom of the
+  rows; each scroll is held to its own axis, the vertical bar stays at the
+  window's edge, and Name keeps 112 points, what the 1280-point window
+  every launch opens at gives it. Red first, the old layout put back:
+  `columns_that_do_not_fit_scroll_into_view_header_and_rows_together` (the
+  swipe scrolled the newest row out of the list) and three more in
+  `queue/across_tests.rs`; each protection deleted once, red again. Live
+  on macOS: Shift and a Quartz line scroll moved the table sideways, so
+  macOS hands GPUI the turn on X as X11 and Wayland do.
+- The submodule back on upstream gpui-kit `next` at `146ab45a` (D814, the
+  owner, 2026-10-19): #3521 merged that day, #3520 on 2026-10-16, each
+  squashed; the tree is the fork's `78348fde` byte for byte, so only
+  `.gitmodules` and the pointer move. In 0.1.1.
+
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
 choosable, the shipped templates unchanged. The next free decision block is

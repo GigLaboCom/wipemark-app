@@ -32,22 +32,9 @@ git submodule sync --recursive      # picks up a moved URL in .gitmodules
 git submodule update --init --recursive
 ```
 
-The submodule is the owner's fork **`glani/gpui-component`**, branch
-**`editor-gutter-menu`**, at `78348fde` (2026-10-16, D770–D772):
-upstream `longbridge/gpui-kit` `next` at `8abddf2a` plus two pull
-requests of ours not merged yet, for Compare's per-line menu on a line
-number —
-- #3520, `hit_test`, `gutter_bounds` and `InputHit`, approved, with the
-  maintainer's own `94c99eb5` on it (a hit below inline-completion ghost
-  lines; `InputHitArea`'s variants `#[non_exhaustive]`, so a `match` on
-  one names its fields with `..`);
-- #3521, stacked on it: `context_menu_with`, whose builder is handed the
-  click's `Option<InputHit>`, and a public `default_context_menu`.
-
-When upstream merges both, it goes back to plain `next`, as D755 did.
-
-Upstream **`longbridge/gpui-kit`** `next` at `8abddf2a` (2026-10-15,
-D755) holds our six merged pull requests, nothing of ours carried:
+The submodule is upstream **`longbridge/gpui-kit`**, branch **`next`**,
+at `146ab45a` (2026-10-19, D814). It holds our eight merged pull requests,
+nothing of ours carried:
 - the line decorations, gpui-kit#3359 (2026-10-07;
   `docs/sdd/line-decorations.md` §4.1);
 - a scroll bar on the left, #3416 (2026-10-09);
@@ -57,12 +44,21 @@ D755) holds our six merged pull requests, nothing of ours carried:
 - the editor's rows read through `display_map()`, #3465 (2026-10-14);
 - spacer rows, for Compare's padded panes, #3466 (2026-10-15; E7-11).
   As merged, a pane's `display_map().version()` moves with its spacers
-  too, which Compare's `Level::rows` reads past (D756).
+  too, which Compare's `Level::rows` reads past (D756);
+- `hit_test`, `gutter_bounds` and `InputHit`, #3520 (2026-10-16), with the
+  maintainer's change in it (a hit below inline-completion ghost lines;
+  `InputHitArea`'s variants `#[non_exhaustive]`, so a `match` on one
+  names its fields with `..`);
+- `context_menu_with`, whose builder is handed the click's
+  `Option<InputHit>`, and a public `default_context_menu`, #3521
+  (2026-10-19) — for Compare's per-line menu on a line number.
 
 From 2026-10-12 to 2026-10-15 the submodule was the owner's fork
 `glani/gpui-component`, branch `editor-spacer-rows`, at `50c120a8` (D675),
 until upstream merged the last two; from 2026-10-15 to 2026-10-16, plain
-`next` at `8abddf2a`.
+`next` at `8abddf2a`; from 2026-10-16 to 2026-10-19, the fork's
+`editor-gutter-menu` at `78348fde` (D770–D772), whose tree `146ab45a`
+has byte for byte.
 
 GPUI is the **`gpui-pre`** snapshots on
 crates.io at exactly the component's version (`=0.3.8`, zed `279fe07`),
@@ -423,10 +419,14 @@ Unmark" survives only in keys; the product is Wipemark (Q1, 2026-09-21).
 ## Where it stands
 
 `feat/e0-e6-shell` carries everything. `main` is touched only by the
-owner's word (PR #1). The next step is **0.1.0**
-([docs/plan/v1-release.md](docs/plan/v1-release.md), D580–D583); the owner's
-acceptance is under way
-([reports/v1-acceptance-2026-10-12.md](docs/plan/reports/v1-acceptance-2026-10-12.md)).
+owner's word (PRs #1–#4; GitHub deletes `feat/e0-e6-shell` on every merge,
+so it is pushed back at once). **0.1.0 is released** (2026-10-18): the tag
+`wipemark-v0.1.0` on `main` at `5df1564`, the owner's Publish of the draft,
+and the same three files — the `.dmg` (Developer ID, notarized), the
+AppImage and the `.deb` — on GitHub Releases and on releases.giglabo.com,
+signed for the update check
+([docs/plan/v1-release.md](docs/plan/v1-release.md), D580–D583;
+[reports/v1-acceptance-2026-10-12.md](docs/plan/reports/v1-acceptance-2026-10-12.md)).
 
 On Linux the application runs under **XWayland by default**, through GPUI's
 own platform choice (`WIPEMARK_WAYLAND=1` keeps native Wayland, D611). There
@@ -467,5 +467,5 @@ with `"think": false` (D709).
 and the socket go. A second signal ends the process at once.
 
 Everything else is stage two (§4 of the release plan). The next free
-decision block is **D811** (D810 has the batch queue hear out a job's channel flume's selector calls closed before it fails the job `stopped`; D809 keeps a row's clean against a rewrite's events the table hears late, the third race at D720's moment; D808 runs coverage weekly and by hand, no longer on a push to `main`; D805–D807 split the slow tests off: the slow tier, run by hand with `scripts/test-slow.sh` and never in CI, and the tests heavy under coverage, skipped there only; D800–D804 are the main window's Unload for the model on this machine, F36; D795–D799 make a tooltip go with the pointer and with its control, F34, and Compare's dark word marks readable, F35; D790–D794 hold one Wipemark per data directory and hand `--panel`/`--show` over on macOS too, F33; D780–D789 are the update check and self-update through giglabo's releases service, `docs/sdd/self-update.md`; D775–D779 sign the macOS release with the Developer ID and notarize it in the release lane on a tag, as lazy-shot does, ad hoc without the six `APPLE_*` secrets; D770–D774 pin the submodule to the owner's fork `glani/gpui-component` `editor-gutter-menu`, gpui-kit `next` plus #3520 and #3521, for Compare's per-line menu, until upstream merges both; D761–D764 make a row's Open with say so, and its Copy the result copy whatever the result is — a text file's as its text, a picture's as the picture, F32; D758–D760 hand the buttons that do not fit Compare's result strip to a more menu; D755–D757 put the submodule back on upstream gpui-kit `next`; D752–D754 make a window close itself after the event that asked, on macOS by AppKit's close, F23; D750–D751 make a caller's row look as a window's row of the same thing, F28; D748–D749 make Compare's words fit its window, F27; D745–D747 make the engine say it is starting until the first models scan lands, F26; D740–D744 make no process reach `exit` with a local model loaded, F31; D735–D739 make the panel on macOS come and go on its own, F30; D734 makes the program's own directory a link's target, F29; D729–D733 make a row's actions depend on what is on disk, never on where the row came from; D728 makes AppKit window changes outside a GPUI update, F24; D723–D727 are the panel's nine anchors; D722 is the tray's Show/Hide panel item; D721 puts Compare's wrap on by default; D703–D708 are Redo a row's, D709–D714 F20/F19's, D715–D719 F1/F7's, D720 where the two meet; D702 is the macOS acceptance's Rewrite all; D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
+decision block is **D815** (D814 puts the submodule back on upstream gpui-kit `next` at `146ab45a`, #3521 merged, the fork's tree byte for byte; D811–D813 make the main window's table scroll sideways when its columns do not fit, the header and the rows in one scroll moved by a sideways swipe, Shift and the wheel and a bar along the bottom of the rows, each scroll held to its own axis, Name never under 112 points — what the 1280-point window every launch opens at gives it — and the offset kept across pages and filters; D810 has the batch queue hear out a job's channel flume's selector calls closed before it fails the job `stopped`; D809 keeps a row's clean against a rewrite's events the table hears late, the third race at D720's moment; D808 runs coverage weekly and by hand, no longer on a push to `main`; D805–D807 split the slow tests off: the slow tier, run by hand with `scripts/test-slow.sh` and never in CI, and the tests heavy under coverage, skipped there only; D800–D804 are the main window's Unload for the model on this machine, F36; D795–D799 make a tooltip go with the pointer and with its control, F34, and Compare's dark word marks readable, F35; D790–D794 hold one Wipemark per data directory and hand `--panel`/`--show` over on macOS too, F33; D780–D789 are the update check and self-update through giglabo's releases service, `docs/sdd/self-update.md`; D775–D779 sign the macOS release with the Developer ID and notarize it in the release lane on a tag, as lazy-shot does, ad hoc without the six `APPLE_*` secrets; D770–D774 pin the submodule to the owner's fork `glani/gpui-component` `editor-gutter-menu`, gpui-kit `next` plus #3520 and #3521, for Compare's per-line menu, until upstream merges both; D761–D764 make a row's Open with say so, and its Copy the result copy whatever the result is — a text file's as its text, a picture's as the picture, F32; D758–D760 hand the buttons that do not fit Compare's result strip to a more menu; D755–D757 put the submodule back on upstream gpui-kit `next`; D752–D754 make a window close itself after the event that asked, on macOS by AppKit's close, F23; D750–D751 make a caller's row look as a window's row of the same thing, F28; D748–D749 make Compare's words fit its window, F27; D745–D747 make the engine say it is starting until the first models scan lands, F26; D740–D744 make no process reach `exit` with a local model loaded, F31; D735–D739 make the panel on macOS come and go on its own, F30; D734 makes the program's own directory a link's target, F29; D729–D733 make a row's actions depend on what is on disk, never on where the row came from; D728 makes AppKit window changes outside a GPUI update, F24; D723–D727 are the panel's nine anchors; D722 is the tray's Show/Hide panel item; D721 puts Compare's wrap on by default; D703–D708 are Redo a row's, D709–D714 F20/F19's, D715–D719 F1/F7's, D720 where the two meet; D702 is the macOS acceptance's Rewrite all; D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
 history of every merge is [docs/plan/history.md](docs/plan/history.md).

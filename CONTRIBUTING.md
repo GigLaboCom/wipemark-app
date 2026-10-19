@@ -32,10 +32,9 @@ git submodule update --init --recursive
 ```
 
 `sync` matters because the URL has moved more than once. Today it points at
-the owner's fork, **`glani/gpui-component`**, branch `editor-gutter-menu`:
-upstream `longbridge/gpui-kit` `next` plus two pull requests of ours that
-upstream has not merged yet (#3520 and #3521, for Compare's per-line menu).
-When both are merged, it goes back to plain upstream `next`.
+upstream **`longbridge/gpui-kit`**, branch `next`, which holds every pull
+request of ours; nothing is carried. While a pull request we need waits
+upstream, the submodule may point at a personal fork for a while.
 [docs/architecture/gpui-pin.md](docs/architecture/gpui-pin.md) has every
 move and why.
 

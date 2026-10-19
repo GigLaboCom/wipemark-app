@@ -30,6 +30,16 @@
 //! is not, because a list that empties when the application quits does
 //! not need a calendar.
 //!
+//! # Sideways (D811–D813)
+//!
+//! In a window narrower than every column at its least — the name at
+//! [`NAME_MIN`], what it has in a window of the size every launch opens
+//! at — the header and the rows scroll sideways together, in one scroll:
+//! a trackpad's swipe, Shift and the wheel, and the bar along the bottom
+//! of the rows. A swipe sideways never scrolls the rows up or down, nor the
+//! wheel the table sideways, and the offset is the table's, kept across
+//! pages and filters.
+//!
 //! # How things get in
 //!
 //! Three doors and one road. A drop anywhere on the main window lands
@@ -154,8 +164,8 @@ use chrono::{DateTime, Local};
 use gpui::prelude::*;
 use gpui::{
     div, img, px, uniform_list, Anchor, AnyElement, App, ClipboardItem, Context, Div, Entity,
-    ImageSource, ObjectFit, PathPromptOptions, Pixels, ScrollStrategy, SharedString, Stateful,
-    Subscription, UniformListScrollHandle, Window,
+    ImageSource, ObjectFit, PathPromptOptions, Pixels, ScrollHandle, ScrollStrategy, SharedString,
+    Stateful, Subscription, UniformListScrollHandle, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::clipboard::Clipboard;
@@ -222,10 +232,26 @@ const HOVER_DELAY: Duration = Duration::from_millis(350);
 /// padding — a fourth would be cut in half.
 const ROW_LINES: usize = 3;
 
-/// The lane the vertical scrollbar is drawn in, down the right of the
-/// rows. gpui-component keeps its own width private; this is the
-/// number its table uses.
+/// The lanes the scrollbars are drawn in: down the right of the rows,
+/// and along their bottom (D811). gpui-component keeps its own width
+/// private; this is the number its table uses.
 const SCROLLBAR: Pixels = px(12.0);
+
+/// How tall the header row is — where the rows, and the vertical bar's
+/// lane, begin.
+const HEADER: Pixels = px(32.0);
+
+/// The least the Name column is given before the table scrolls sideways
+/// (D812): what it has in a main window of the size every launch opens
+/// at — 1280 points ([`crate::MAIN_SIZE`]) less the other columns' 1168.
+/// So a window of that size shows every column with nothing to scroll, as
+/// it did, and a narrower one keeps the name as wide as that window shows
+/// it — a dozen characters or so before the ellipsis, and the folder and
+/// the note under it likewise — and scrolls the rest into view rather than
+/// crushing the name to its padding.
+/// `a_window_of_the_size_every_launch_opens_at_scrolls_nothing` holds the
+/// two together.
+const NAME_MIN: Pixels = px(112.0);
 
 /// The page sizes on offer — lazy-shot's four — and the one a fresh
 /// window opens on.
@@ -404,7 +430,7 @@ impl Column {
 
     /// A fixed width, or `None` for the one column that takes what is
     /// left — the name, which is the only value here with no natural
-    /// length.
+    /// length, and never less than [`NAME_MIN`] of it.
     fn width(self) -> Option<Pixels> {
         match self {
             Column::Preview => Some(THUMB.width + px(24.0)),
@@ -422,6 +448,19 @@ impl Column {
         }
     }
 
+    /// The least this column is ever given: its width, or the name's
+    /// least.
+    fn least(self) -> Pixels {
+        self.width().unwrap_or(NAME_MIN)
+    }
+
+    /// The least the table is ever drawn: every column at its least
+    /// (D811). In a window narrower than this the header and the rows
+    /// scroll sideways together; in a wider one the name takes the rest.
+    fn least_table() -> Pixels {
+        Column::ALL.iter().map(|column| column.least()).sum()
+    }
+
     /// Numbers sit on the right; everything else on the left.
     fn right_aligned(self) -> bool {
         matches!(self, Column::Size)
@@ -437,7 +476,7 @@ impl Column {
             .flex_shrink_0();
         let cell = match self.width() {
             Some(width) => cell.w(width),
-            None => cell.flex_1().flex_shrink_1(),
+            None => cell.flex_1().flex_shrink_1().min_w(NAME_MIN),
         };
         let cell = if self.right_aligned() {
             cell.justify_end()
@@ -1154,7 +1193,12 @@ pub struct Queue {
     /// Fills a row's hover card with what the Retention page would do to
     /// it.
     preferences: Entity<Preferences>,
+    /// The rows up and down.
     scroll: UniformListScrollHandle,
+    /// The header and the rows sideways, together (D811). The table's,
+    /// not a page's (D813): a page turned or a filter typed leaves the
+    /// columns where the person scrolled them.
+    across: ScrollHandle,
     /// The two fields of the filter bar, and what they hold — mirrored
     /// on every change so the rows can be chosen without reading the
     /// fields back.
@@ -1343,6 +1387,7 @@ impl Queue {
             catcher,
             preferences,
             scroll: UniformListScrollHandle::new(),
+            across: ScrollHandle::new(),
             by_id,
             by_keyword,
             filter: Filter::default(),
@@ -2114,6 +2159,8 @@ fn holds(row: &Row, work: Option<&Work>, action: Action, home: &Home) -> bool {
 }
 
 #[cfg(test)]
+mod across_tests;
+#[cfg(test)]
 mod origin_tests;
 #[cfg(test)]
 mod redo_tests;
@@ -2248,7 +2295,9 @@ fn preview_cell(row: &Row, plan_lines: Vec<String>, cx: &App) -> AnyElement {
             .into_any_element();
     };
     let theme = cx.theme();
+    let id = row.id;
     let frame = div()
+        .debug_selector(move || format!("queue-preview-{id}"))
         .w(THUMB.width)
         .h(THUMB.height)
         .flex_shrink_0()
@@ -2385,6 +2434,7 @@ fn large_card(
 ) -> AnyElement {
     let theme = cx.theme();
     v_flex()
+        .debug_selector(|| "queue-preview-card".into())
         .gap_2()
         .child(preview)
         .child(div().text_xs().font_semibold().truncate().child(caption))
@@ -3239,12 +3289,13 @@ impl Queue {
     /// The header row: one title per column, in the column's own cell
     /// so that the titles sit over the values. The Arrived cell is the
     /// one control in it: clicking flips the order, and the chevron
-    /// says which way it currently runs.
+    /// says which way it currently runs. Drawn in the rows' own sideways
+    /// scroll, so a title stays over its values (D811).
     fn header(&self, cx: &Context<Self>) -> Div {
         let theme = cx.theme();
         h_flex()
             .w_full()
-            .h(px(32.0))
+            .h(HEADER)
             .flex_shrink_0()
             .bg(theme.table_head)
             .text_color(theme.table_head_foreground)
@@ -3253,7 +3304,9 @@ impl Queue {
             .text_xs()
             .font_semibold()
             .children(Column::ALL.map(|column| {
-                let cell = column.cell();
+                let cell = column
+                    .cell()
+                    .debug_selector(move || format!("queue-head-{column:?}"));
                 let title = SharedString::from(t(column.title()));
                 match column {
                     Column::Arrived => cell.child(
@@ -3450,6 +3503,7 @@ impl Queue {
         let page = self.page.min(pages - 1);
 
         h_flex()
+            .debug_selector(|| "queue-footer".into())
             .w_full()
             .flex_shrink_0()
             .px_3()
@@ -3528,26 +3582,14 @@ impl Queue {
 
 impl Render for Queue {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
+        let background = cx.theme().table;
         let over = self.catcher.read(cx).over();
         let visible = self.visible();
         let on_page: Vec<usize> =
             visible[page_range(visible.len(), self.page_size, self.page)].to_vec();
+        let empty = on_page.is_empty();
 
-        // The whole table is the drop zone — see the module docs. The
-        // highlight `drop::zone` paints is the table's background going
-        // to the accent, which reads as "this will take it" without a
-        // second element in the way of the rows.
-        let table = drop::zone(v_flex(), &self.catcher, cx)
-            .size_full()
-            .min_h(px(0.0))
-            .bg(theme.table)
-            .child(self.filter_bar(visible.len(), cx))
-            .child(self.header(cx));
-
-        let table = if on_page.is_empty() {
-            table.child(self.empty(over, cx))
-        } else {
+        let rows = (!empty).then(|| {
             let count = on_page.len();
             // The duty once for the rows of a draw, never once a row: asking
             // it builds a roster and runs `duty::on_duty` (D452). Taken here,
@@ -3555,38 +3597,114 @@ impl Render for Queue {
             // that three times a draw — a row measured in its layout and in
             // its prepaint, then the rows on screen.
             let vacant = self.vacancy(cx);
-            table.child(
+            uniform_list(
+                "queue-rows",
+                count,
+                cx.processor(move |queue, range: Range<usize>, _, cx| {
+                    on_page[range]
+                        .iter()
+                        .map(|&index| queue.row(index, vacant.as_deref(), cx))
+                        .collect()
+                }),
+            )
+            .flex_1()
+            .min_h(px(0.0))
+            .w_full()
+            .track_scroll(&self.scroll)
+            // Up and down only (D811). Left to itself a list that scrolls
+            // one way turns a sideways swipe into that way: the rows went
+            // up and down under a swipe meant to reach Actions.
+            .map(|mut rows| {
+                rows.style().restrict_scroll_to_axis = Some(true);
+                rows
+            })
+        });
+
+        // The header and the rows, sideways (D811). One scroll holds both,
+        // so a title is over its values whatever the offset: gpui-component's
+        // table keeps the two in step by sharing one handle between its
+        // header and every row's own list, and here they cannot part. The
+        // table is the window's width, or every column at its least when
+        // that is wider (D812); then a trackpad's sideways swipe, Shift and
+        // the wheel — a turn on X by the time GPUI has it: `gpui-pre-linux`
+        // swaps it on X11 and Wayland, macOS before AppKit — and the bar
+        // along the bottom move it. Sideways only: the wheel stays the
+        // rows'. The filter bar and the footer are outside it and never
+        // move; the bars are outside it too, on the visible edges. A wider
+        // window clamps the offset back, as GPUI clamps every scroll to its
+        // content when it lays the frame out (D813).
+        let grid = div()
+            .relative()
+            .flex_1()
+            .min_h(px(0.0))
+            .child(
                 div()
-                    .relative()
-                    .flex_1()
-                    .min_h(px(0.0))
+                    .id("queue-across")
+                    .size_full()
+                    .overflow_x_scroll()
+                    .restrict_scroll_to_axis()
+                    .track_scroll(&self.across)
                     .child(
-                        uniform_list(
-                            "queue-rows",
-                            count,
-                            cx.processor(move |queue, range: Range<usize>, _, cx| {
-                                on_page[range]
-                                    .iter()
-                                    .map(|&index| queue.row(index, vacant.as_deref(), cx))
-                                    .collect()
-                            }),
-                        )
-                        .size_full()
-                        .track_scroll(&self.scroll),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .right_0()
-                            .bottom_0()
-                            .w(SCROLLBAR)
-                            .child(Scrollbar::vertical(&self.scroll)),
+                        v_flex()
+                            .h_full()
+                            .w_full()
+                            .min_w(Column::least_table())
+                            .child(self.header(cx))
+                            .children(rows),
                     ),
             )
-        };
+            // Over the window's width below the header, not the table's:
+            // the invitation sits in the middle of what is seen, and the
+            // header keeps its offset over it (D813).
+            .when(empty, |grid| {
+                grid.child(
+                    v_flex()
+                        .absolute()
+                        .top(HEADER)
+                        .left_0()
+                        .right_0()
+                        .bottom_0()
+                        .child(self.empty(over, cx)),
+                )
+            })
+            .when(!empty, |grid| {
+                grid.child(
+                    div()
+                        .debug_selector(|| "queue-rows-bar".into())
+                        .absolute()
+                        .top(HEADER)
+                        .right_0()
+                        .bottom_0()
+                        .w(SCROLLBAR)
+                        // Its own lane as its viewport: the list it scrolls
+                        // runs on past the window's right edge.
+                        .child(Scrollbar::vertical(&self.scroll).viewport_from_layout()),
+                )
+            })
+            // Drawn only while the columns do not fit: the library's bar
+            // hides itself when the table is no wider than the window.
+            .child(
+                div()
+                    .debug_selector(|| "queue-across-bar".into())
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .h(SCROLLBAR)
+                    .child(Scrollbar::horizontal(&self.across).viewport_from_layout()),
+            );
 
-        table.child(self.footer(visible.len(), cx))
+        // The whole table is the drop zone — see the module docs. The
+        // highlight `drop::zone` paints is the table's background going
+        // to the accent, which reads as "this will take it" without a
+        // second element in the way of the rows.
+        drop::zone(v_flex(), &self.catcher, cx)
+            .size_full()
+            .min_h(px(0.0))
+            .bg(background)
+            .child(self.filter_bar(visible.len(), cx))
+            .child(grid)
+            .child(self.footer(visible.len(), cx))
     }
 }
 

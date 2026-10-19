@@ -30,11 +30,11 @@ Cargo.toml ── gpui, gpui_platform ──► crates.io: gpui-pre, gpui-pre-pl
    │                                    since 2026-10-12, D620)
    │
    └── gpui-component (path) ──► vendor/gpui-component/crates/component
-                                   glani/gpui-component, branch editor-gutter-menu @ 78348fde
-                                   (since 2026-10-16, D770: next @ 8abddf2a + #3520 + #3521,
-                                    not merged yet, §4)
-                                   next @ 8abddf2a: #3359 + #3416 + #3417 + #3426 + #3465
-                                    + #3466 over main 8d8cc671
+                                   longbridge/gpui-kit, branch next @ 146ab45a
+                                   (since 2026-10-19, D814; the fork of 2026-10-16
+                                    byte for byte, §4)
+                                   next @ 146ab45a: #3359 + #3416 + #3417 + #3426 + #3465
+                                    + #3466 + #3520 + #3521 over main 8d8cc671
                                    its own gpui: gpui-pre =0.3.8 — the same package
 ```
 
@@ -66,12 +66,14 @@ nothing else, and the resolved sources still hold the two upstream fixes
 our X11 windows rely on (§2). It replaces
 `scripts/pin-gpui-component.sh`, which now only says it is retired.
 
-**The vendored component.** Since 2026-10-16 (D770) `vendor/gpui-component`
-is the owner's fork **`glani/gpui-component`**, branch
-**`editor-gutter-menu`**, at **`78348fde`**: the `next` described below
-plus two pull requests of ours that upstream has not merged yet, #3520
-and #3521, for Compare's per-line menu on a line number (§4, "The fork
-of 2026-10-16"). Until then it was a submodule of
+**The vendored component.** Since 2026-10-19 (D814) `vendor/gpui-component`
+is a submodule of **`longbridge/gpui-kit`** again, branch **`next`**, at
+**`146ab45a`**: the `next` described below plus #3520 (`403a9eca`,
+2026-10-16) and #3521 (`146ab45a`, 2026-10-19), for Compare's per-line
+menu on a line number. From 2026-10-16 to 2026-10-19 (D770) it was the
+owner's fork `glani/gpui-component`, branch `editor-gutter-menu`, at
+`78348fde`, whose tree `146ab45a` has byte for byte (§4, "The fork of
+2026-10-16"). Before the fork it was a submodule of
 **`longbridge/gpui-kit`** itself, branch **`next`**, at **`8abddf2a`**
 (2026-10-15, D755; before it `24ded30c` from 2026-10-11, then the
 owner's fork from 2026-10-12, §4): `main` at `8d8cc671` plus
@@ -885,6 +887,16 @@ of #3521, moves the pin to `editor-gutter-menu`'s new head, read first
 with a range-diff as this one was; we push nothing over the maintainer's
 commits.
 
+**Back on `next` (D814), 2026-10-19.** Upstream merged #3520 as
+`403a9eca` (2026-10-16) and #3521 as `146ab45a` (2026-10-19, 11:31 UTC),
+each squashed into one commit. `146ab45a`'s tree is `78348fde`'s byte for
+byte (`ea5c097e` both; `git diff --quiet 78348fde 146ab45a`), so the move is
+the URL and the commit and nothing else: `.gitmodules` names
+`https://github.com/longbridge/gpui-kit.git`, branch `next`, `gpui-pre`
+stays `=0.3.8` and `Cargo.lock` does not move. Every gate is green on the
+pin. The fork's `editor-gutter-menu` and `editor-gutter-hit` branches have
+served their pull requests.
+
 ### The next bump
 
 1. **The component.** Move the submodule to the gpui-kit commit that
@@ -975,8 +987,9 @@ commits.
 - #3466, editor: Add spacer rows to the display map: <https://github.com/longbridge/gpui-kit/pull/3466>, `8abddf2a` — the commit the submodule pinned from 2026-10-15 to 2026-10-16, and the base of the fork's branch since: <https://github.com/longbridge/gpui-kit/commit/8abddf2a488a6b87fe18b16426c4793f800d4c87>
 - the owner's fork the submodule pinned from 2026-10-12 to 2026-10-15 (D675), `glani/gpui-component` `editor-spacer-rows` at `50c120a8`: <https://github.com/glani/gpui-component/tree/editor-spacer-rows>
 - #3520, editor: Add hit_test and gutter_bounds to the input state: <https://github.com/longbridge/gpui-kit/pull/3520>; the maintainer's `94c99eb5`, editor: Read the text below inline completion ghost lines as painted: <https://github.com/longbridge/gpui-kit/pull/3520/commits/94c99eb5d3b4f2aec6bfbdd4d8137b11893e265a>
-- #3521, editor: Tell a custom context menu whether it was opened on the gutter: <https://github.com/longbridge/gpui-kit/pull/3521>
-- the owner's fork the submodule pins since 2026-10-16 (D770), `glani/gpui-component` `editor-gutter-menu` at `78348fde`: <https://github.com/glani/gpui-component/tree/editor-gutter-menu>, <https://github.com/glani/gpui-component/commit/78348fde526bc59c0e3ba811f7eb9935461e4fc1>
+- #3520 as merged, `403a9eca`: <https://github.com/longbridge/gpui-kit/commit/403a9eca87858b3e533c62dc24a0d8f646c3a41f>
+- #3521, editor: Tell a custom context menu whether it was opened on the gutter: <https://github.com/longbridge/gpui-kit/pull/3521>; as merged, `146ab45a` — the commit the submodule pins since 2026-10-19 (D814): <https://github.com/longbridge/gpui-kit/commit/146ab45ac0d0cc9dad5f5fd05ecd38da9b3db6e7>
+- the owner's fork the submodule pinned from 2026-10-16 to 2026-10-19 (D770), `glani/gpui-component` `editor-gutter-menu` at `78348fde`: <https://github.com/glani/gpui-component/tree/editor-gutter-menu>, <https://github.com/glani/gpui-component/commit/78348fde526bc59c0e3ba811f7eb9935461e4fc1>
 - the maintainer's Editor Diff story at `d9b7c421`, the calls Compare makes: <https://github.com/longbridge/gpui-kit/blob/d9b7c4219a93cc8a95e92d4a4f2f880bab26fb22/crates/story/src/stories/editor_diff_story.rs>
 
 **crates.io**
