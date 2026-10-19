@@ -41,6 +41,25 @@ same. Released 0.1.0's own `wipemark-cli update --check` says "Wipemark
 0.1.0 has not been run yet. Notes: `docs/release/0.1.1.md`. Release page:
 https://github.com/GigLaboCom/wipemark-app/releases/tag/wipemark-v0.1.1.
 
+**0.1.2, 2026-10-19 — the version to advertise.** Update and restart no
+longer ends Wipemark (D815): in 0.1.0 and 0.1.1 every way into an install
+crashed before the network, so those install 0.1.2 by hand. The tag
+`wipemark-v0.1.2` is on `main` at `aa6cd11` (PR #6's merge). Release run
+39261984381 built the draft in 15 minutes; the owner published it at 14:51
+UTC, and update run 39272695290 put the files on releases.giglabo.com:
+
+| file | bytes | sha256 |
+|---|---|---|
+| `Wipemark-0.1.2-arm64.dmg` | 25 229 238 | `f5cc4fa9…bd92cc` |
+| `Wipemark-0.1.2-x86_64.AppImage` | 46 266 872 | `cbb89694…cb4956` |
+| `wipemark_0.1.2_amd64.deb` | 28 769 996 | `82bbda58…eadd5` |
+
+The same bytes on GitHub and the service; released 0.1.0's and 0.1.1's
+`update --check` find 0.1.2. Its notes, `docs/release/0.1.2.md`, are the
+whole of 0.1.0's with what changed since. A self-update install is first
+possible from 0.1.2 to the next version. Release page:
+https://github.com/GigLaboCom/wipemark-app/releases/tag/wipemark-v0.1.2.
+
 ## Для владельца
 
 **Первая версия — это всё, что уже работает, без новых функций.** Сейчас

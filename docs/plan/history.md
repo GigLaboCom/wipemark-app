@@ -325,7 +325,12 @@ result, an edited result asked about first
   its global from inside its own `update`, and GPUI aborts on that. Every
   way into an install crashed in 0.1.0 and 0.1.1, before the network; they
   now ask `Updates::work`. Red first with the owner's message, and red
-  again with `work_now` back in each of the three.
+  again with `work_now` back in each of the three. The test first hosted the
+  entity through `install()`, whose detect thread woke the test executor
+  from outside on Linux CI (gate run 39256387607); it hosts `Updates::idle`.
+- **0.1.2 released** (2026-10-19): PR #6 merged as `aa6cd11`, tag
+  `wipemark-v0.1.2`, the owner's Publish at 14:51 UTC, the same three files
+  on GitHub and releases.giglabo.com — the version to advertise.
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
