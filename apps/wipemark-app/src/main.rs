@@ -107,9 +107,8 @@ use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
-    deferred, div, px, size, Anchor, AnyWindowHandle, App, Bounds, ClickEvent, Context, Entity,
-    Pixels, SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowHandle,
-    WindowOptions,
+    deferred, div, px, Anchor, AnyWindowHandle, App, Bounds, ClickEvent, Context, Entity, Pixels,
+    SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowHandle, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::popover::Popover;
@@ -1108,6 +1107,14 @@ impl Render for Shell {
     }
 }
 
+/// The size the main window opens at, centred, on every launch: wide
+/// enough for every column of the table with nothing to scroll sideways
+/// (`queue::NAME_MIN`, D812).
+pub(crate) const MAIN_SIZE: gpui::Size<Pixels> = gpui::Size {
+    width: px(1280.0),
+    height: px(800.0),
+};
+
 /// The main window's options: at `bounds`, titled.
 fn main_window_options(bounds: Bounds<Pixels>) -> WindowOptions {
     WindowOptions {
@@ -1690,7 +1697,7 @@ fn main() -> std::process::ExitCode {
             // Unbundled builds have no Info.plist to take an icon from.
             dock_icon::install();
 
-            let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
+            let bounds = Bounds::centered(None, MAIN_SIZE, cx);
 
             // The window builder below is the only place that ever holds
             // a new view and a `&mut Window` at once, and both the tray

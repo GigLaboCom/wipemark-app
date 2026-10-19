@@ -39,6 +39,56 @@ keeps the shape and changes what a row is about:
 | Actions: open, copy path, beautify, edit, OCR, delete | Actions: **Clean**, **Open with** (the default application, D761), **Compare with the result**, and once cleaned **open**, **show** and **copy the result** — a text as characters, a picture as the picture, called **Copy the result image** on a picture's row (D762, D763) — and the **Report…** — a result whose name was taken goes under the row's own, `name.cleaned-<id>.ext` (D635) | what can be done to one thing that arrived; an item that cannot apply to a row is disabled, not absent (a row with no file behind it opens nothing) |
 | `assign_keyword` over MCP | a Keyword column and filter, and nothing that assigns one | the MCP tool that will assign one does not exist yet; the column is here so the day it lands is a tool change and not a table change |
 
+## Sideways (D811–D813)
+
+Every column but Name has a fixed width (`Column::width`), 1168 points
+together; Name takes what is left and never less than **112 points**
+(`NAME_MIN`, D812) — what it has in the 1280-point window every launch
+opens at (`MAIN_SIZE` in `main.rs`), so that window shows every column with
+nothing to scroll, as it always did.
+
+In a narrower window the table is every column at its least
+(`Column::least_table`, 1280 points) and **scrolls sideways, the header
+and the rows together** (D811): both sit in one horizontal scroll,
+`Queue::across`, so a title is over its values whatever the offset. Three
+ways move it:
+
+* a trackpad's sideways swipe over the header or the rows;
+* Shift and the wheel — a turn on X by the time GPUI has it:
+  `gpui-pre-linux` swaps it on X11 (`make_scroll_wheel_event`) and on
+  Wayland, and macOS's window server before AppKit;
+* the bar along the bottom of the rows, above the footer — gpui-component's
+  `Scrollbar::horizontal`, which shows only while something is past the
+  edge.
+
+The scroll and the rows' list are each held to their own axis
+(`restrict_scroll_to_axis`): a sideways swipe never scrolls the rows up or
+down, and the wheel never scrolls the table sideways. Left to itself, GPUI
+hands a list that scrolls one way a delta on the other axis as its own —
+which is what the owner met on 2026-10-19: a swipe meant to reach Actions
+scrolled the rows, and nothing moved sideways. The vertical bar stays in its
+lane at the window's right edge (its lane is its viewport,
+`viewport_from_layout`), the two bars meeting in the corner as in
+gpui-component's own table. The filter bar and the footer are outside the
+scroll and never move.
+
+**The offset is the table's** (D813): a page turned, the page size, the
+order and a filter leave it where it was. With no row on the page the
+header keeps its offset and the invitation is centred on the visible width
+below it, outside the scroll. A window that fits shows no bar and no
+offset, and widening clamps the offset back — GPUI clamps every scroll to
+its content as it lays the frame out.
+
+Everything that answers the pointer in a cell answers it where the cell is
+drawn: the drop zone is the whole table as before, the larger preview opens
+under a preview half scrolled away after `HOVER_DELAY`, a tooltip comes up
+at its control, and the Actions menu opens under its button. The gates are
+`queue/across_tests.rs`: `columns_that_do_not_fit_scroll_into_view_header_and_rows_together`,
+`a_wide_window_has_nothing_to_scroll_and_widening_takes_the_offset_back`,
+`the_offset_is_kept_across_a_page_turn_and_a_filter`,
+`a_cell_scrolled_into_view_answers_the_pointer_where_it_is_drawn` and
+`a_window_of_the_size_every_launch_opens_at_scrolls_nothing`.
+
 ## How things get in
 
 One road, four doors. A drop anywhere on the main window lands in the
