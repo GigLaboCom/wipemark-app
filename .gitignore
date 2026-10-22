@@ -92,6 +92,7 @@ Thumbs.db
 
 # ── Packaging output ─────────────────────────────────────────────────
 /dist/
+/dist-next/
 *.dmg
 *.AppImage
 *.deb
