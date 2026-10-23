@@ -94,6 +94,7 @@ queue-count = { $count ->
 queue-pending = This list cleans and rewrites — one rewrite at a time, with the engine on duty, whoever asked: this window, an agent or the command line, and a row says who. Finished rows stay until removed or past the period on the Retention page.
 queue-preview-pending = Reading…
 queue-preview-cut = The first { $count } characters; the rest is not shown here.
+queue-preview-kept = A preview Wipemark kept. No file is behind this row.
 queue-actions = Actions
 queue-action-open = Open with
 queue-action-compare = Compare with the result
@@ -1216,6 +1217,7 @@ settings-retention-keeps-nothing = Nothing that arrives without a file — a pas
 settings-retention-keeps-originals = The original of a paste or a drag is kept in { $folder } { $period } when cleaning it changed something; results are not.
 settings-retention-keeps-results = The result of a paste or a drag is kept in { $folder } { $period }; originals are not.
 settings-retention-keeps-both = The original and the result of a paste or a drag are kept in { $folder } { $period } when cleaning it changed something.
+settings-retention-keeps-previews = A picture with no file behind it — one an agent sent, one pasted — keeps a small preview for its row all the same, with no metadata, until the row goes; Keep picture previews below turns that off.
 # The last line, in every state.
 settings-retention-pending = The windows follow these rules: a clean takes them when it starts, a rewrite when it is queued — it is written where they said then, after a restart too. The command line and agents read none of them — the command line is told where a result goes on each run, and an agent gets its result back.
 
@@ -2140,6 +2142,14 @@ settings-arrival-clean = Clean it
 settings-arrival-rewrite = Rewrite it
 settings-journal-keep-title = Keep finished rows
 settings-journal-keep-description = How long a finished row stays in the main window's list — whoever asked for it, the command line and agents included. A row keeps what happened and where the result went, never the text. Results already written are never removed by this.
+settings-journal-previews-title = Keep picture previews
+settings-journal-previews-description = A picture with no file behind it — one an agent sent, one pasted into a window — keeps a small preview for its row in the main window's list, in Wipemark's own folder: of the result when there is one, written again from its pixels, so it carries no metadata. A preview goes with its row. Turning this off keeps no new ones and deletes none.
+settings-journal-previews-count = { $count ->
+        [0] No previews are kept.
+        [one] One preview is kept, { $size }.
+       *[other] { $count } previews are kept, { $size }.
+    }
+settings-journal-previews-delete = Delete kept previews
 settings-journal-days = { $days ->
         [one] { $days } day
        *[other] { $days } days

@@ -125,6 +125,7 @@ use wipemark_store::NewRow;
 
 use super::rewrite::{self, Asker, Done, Rewriter, Stop, Unrun};
 use crate::journal::{self, Work};
+use crate::previews::Source;
 
 /// The revision of the MCP specification this server implements.
 ///
@@ -279,7 +280,9 @@ impl Tool {
                  Invisible marks in the pixels are not searched for, and every report lists what \
                  it does not establish. TIFF, HEIC and AVIF are refused by name. Pass the image \
                  as base64 in data; a request takes up to about 1 MB, so an image up to about \
-                 750 KB."
+                 750 KB. A call that is a row in the application's journal keeps a reduced \
+                 preview of the image for that row, with no metadata, until the row goes - \
+                 unless preview is false or the person turned previews off."
             }
             Self::CleanImage => {
                 "Remove AI provenance metadata, and any visible mark that is proved, from a PNG, \
@@ -294,7 +297,10 @@ impl Tool {
                  are kept whatever the scope. When the result would still carry AI provenance \
                  metadata, no image comes back. Invisible marks in the pixels remain, and every \
                  report lists what it does not establish. Takes up to about 1 MB of request, so \
-                 an image up to about 750 KB as base64."
+                 an image up to about 750 KB as base64. A call that is a row in the \
+                 application's journal keeps a reduced preview for that row - of the image that \
+                 comes back, or of the one sent when none does - with no metadata, until the row \
+                 goes, unless preview is false or the person turned previews off."
             }
         }
     }
@@ -515,6 +521,18 @@ impl Tool {
             );
         }
         properties.insert("record".to_owned(), self.record_schema());
+        properties.insert(
+            "preview".to_owned(),
+            json!({
+                "type": "boolean",
+                "default": true,
+                "description": "Whether the call's row in the journal keeps a reduced preview \
+                                of the image, so the application's list can show it: re-encoded \
+                                from its pixels, with no metadata, removed with the row. Default \
+                                true; false keeps none. A call that is no row keeps none \
+                                either, and the person can turn previews off for every call.",
+            }),
+        );
         json!({
             "type": "object",
             "properties": Value::Object(properties),
@@ -526,8 +544,8 @@ impl Tool {
     /// The arguments this tool takes, in the order a refusal lists them.
     fn arguments(self) -> &'static [&'static str] {
         match self {
-            Self::InspectImage => &["data", "record"],
-            Self::CleanImage => &["data", "scope", "record"],
+            Self::InspectImage => &["data", "record", "preview"],
+            Self::CleanImage => &["data", "scope", "record", "preview"],
             Self::Inspect => &["text", "aggressive", "record"],
             Self::Clean => &["text", "aggressive", "nfkc", "record"],
             Self::Rewrite => &[
@@ -551,10 +569,12 @@ impl Tool {
     /// The same list, spelled for a sentence.
     fn argument_list(self) -> &'static str {
         match self {
-            Self::InspectImage => "`data` (an image as base64, required), `record` (true or false)",
+            Self::InspectImage => {
+                "`data` (an image as base64, required), `record` and `preview` (true or false)"
+            }
             Self::CleanImage => {
                 "`data` (an image as base64, required), `scope` (ai-provenance or all-metadata), \
-                 `record` (true or false)"
+                 `record` and `preview` (true or false)"
             }
             Self::Inspect => {
                 "`text` (a string, required), `aggressive` and `record` (true or false)"
@@ -723,6 +743,8 @@ struct ImageCall {
     bytes: Vec<u8>,
     scope: wipemark_image::Scope,
     record: bool,
+    /// Whether its row keeps a preview (D826).
+    preview: bool,
 }
 
 /// A picture that was read and could not be inspected or cleaned: a result
@@ -806,6 +828,7 @@ fn read_image(tool: Tool, arguments: &Map<String, Value>) -> Result<ImageCall, V
         "record",
         tool.records_by_default(),
     );
+    let preview = read_flag(arguments, &mut problems, "preview", true);
 
     let mut extra: Vec<&String> = arguments
         .keys()
@@ -819,21 +842,23 @@ fn read_image(tool: Tool, arguments: &Map<String, Value>) -> Result<ImageCall, V
             bytes,
             scope,
             record,
+            preview,
         }),
         _ => Err(problems),
     }
 }
 
 /// Run a picture tool over a call that was read, and answer — with what
-/// came of it, for the journal.
-fn image_answer(tool: Tool, call: &ImageCall) -> (Answer, Outcome) {
+/// came of it, for the journal, and the picture that came back, for the
+/// row's kept preview (D824).
+fn image_answer(tool: Tool, call: &ImageCall) -> (Answer, Outcome, Option<Vec<u8>>) {
     let ran = if tool == Tool::CleanImage {
-        super::image::clean(&call.bytes, call.scope)
+        super::image::clean(&call.bytes, call.scope).map(|(json, image)| (json, Some(image)))
     } else {
-        super::image::inspect(&call.bytes)
+        super::image::inspect(&call.bytes).map(|json| (json, None))
     };
     match ran {
-        Ok(json) => {
+        Ok((json, image)) => {
             let marks_left = serde_json::from_str::<Value>(&json)
                 .ok()
                 .and_then(|value| value["marks_left"].as_bool())
@@ -849,6 +874,7 @@ fn image_answer(tool: Tool, call: &ImageCall) -> (Answer, Outcome) {
                     verdict: verdict.to_owned(),
                     ..Outcome::default()
                 },
+                image,
             )
         }
         Err(refusal) => (
@@ -858,6 +884,7 @@ fn image_answer(tool: Tool, call: &ImageCall) -> (Answer, Outcome) {
                 reason: Some(refusal.kind().replace(' ', "-")),
                 ..Outcome::default()
             },
+            None,
         ),
     }
 }
@@ -1550,12 +1577,24 @@ fn call(params: &Value, services: &Services, gone: &dyn Fn() -> bool) -> Answer 
         },
         Tool::InspectImage | Tool::CleanImage => match read_image(tool, arguments) {
             Ok(call) => {
-                let (answer, outcome) = image_answer(tool, &call);
-                let row = call.record.then(|| {
-                    let entry = asker.entry(journal::Called::Bytes(&call.bytes));
-                    record(services, &asker, tool, entry, outcome)
-                });
-                with_row(answer, row.flatten())
+                let (answer, outcome, image) = image_answer(tool, &call);
+                let row = call
+                    .record
+                    .then(|| {
+                        let entry = asker.entry(journal::Called::Bytes(&call.bytes));
+                        let behind = journal::named_file(&entry).is_some();
+                        record(services, &asker, tool, entry, outcome).map(|id| (id, behind))
+                    })
+                    .flatten();
+                // A row with nothing behind it keeps a preview of the picture
+                // it ended with: what came back, else what was sent (D823,
+                // D824). Made on the previews' own thread; the answer does
+                // not wait for it (D827).
+                if let (Some((id, false)), true, Some(work)) = (row, call.preview, &services.work) {
+                    let picture = image.unwrap_or(call.bytes);
+                    work.journal.keep_preview(id, Source::Bytes(picture));
+                }
+                with_row(answer, row.map(|(id, _)| id))
             }
             Err(problems) => Answer::Result(tool.refuse(&problems)),
         },
@@ -2995,6 +3034,15 @@ pub(crate) mod tests {
 
     /// A batch queue and a journal in memory, `engine` on duty.
     pub(crate) fn working(engine: FakeEngine) -> (Services, crate::journal::Work) {
+        working_with(engine, None)
+    }
+
+    /// [`working`], its journal keeping picture previews in `previews`
+    /// (D823).
+    fn working_with(
+        engine: FakeEngine,
+        previews: Option<std::path::PathBuf>,
+    ) -> (Services, crate::journal::Work) {
         let store = std::sync::Arc::new(wipemark_store::Store::in_memory().expect("memory"));
         let (handle, _) = crate::engine_host::EngineHandle::serving(
             std::sync::Arc::new(engine),
@@ -3009,9 +3057,13 @@ pub(crate) mod tests {
             std::sync::Arc::new(handle.clone()),
         )
         .expect("opens");
+        let journal = match previews {
+            Some(dir) => crate::journal::Journal::with_previews(store, dir),
+            None => crate::journal::Journal::new(store),
+        };
         let work = crate::journal::Work {
             queue: std::sync::Arc::new(queue),
-            journal: crate::journal::Journal::new(store),
+            journal,
             engine: handle.clone(),
             whereto: crate::journal::Going::default(),
         };
@@ -3091,6 +3143,164 @@ pub(crate) mod tests {
         let refused = call_with(&services, "clean", r#"{"text":"x","record":"no"}"#, "");
         assert_eq!(refused["result"]["isError"], json!(true));
         assert_eq!(rows().len(), 3, "a refused call made a row");
+    }
+
+    /// A scratch folder for one test's previews, empty.
+    fn previews_dir(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "wipemark-mcp-previews-{label}-{}",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&dir).ok();
+        dir
+    }
+
+    /// Every preview asked for so far is made, or not.
+    fn previews_made(work: &crate::journal::Work) {
+        work.journal
+            .previews()
+            .expect("previews")
+            .settled()
+            .recv()
+            .expect("settled");
+    }
+
+    fn journal_row(response: &Value) -> i64 {
+        response["result"]["_meta"]["wipemark/journal"]
+            .as_i64()
+            .unwrap_or_else(|| panic!("no row: {response}"))
+    }
+
+    /// D823, D824: a picture tool's row with nothing behind it keeps a
+    /// preview of the picture it ended with — `clean_image`'s result, the
+    /// sparkle taken off, never the picture sent with it on; and
+    /// `inspect_image`, which hands nothing back, of what was sent. Keep the
+    /// bytes sent in place of the result: red.
+    #[test]
+    #[cfg_attr(coverage, ignore = "heavy under coverage: past a minute (D806)")]
+    fn a_picture_row_keeps_a_preview_of_the_picture_it_ended_with() {
+        let dir = previews_dir("ended");
+        let (services, work) = working_with(
+            FakeEngine::answering(|req, _| swapped(req)),
+            Some(dir.clone()),
+        );
+        let sent = fixture("gemini/torch-1025.png");
+        let data = super::super::image::encode(&sent);
+        let response = call_with(
+            &services,
+            "clean_image",
+            &format!(r#"{{"data":"{data}"}}"#),
+            "",
+        );
+        let id = journal_row(&response);
+        let back = super::super::image::decode(
+            response["result"]["structuredContent"]["data"]
+                .as_str()
+                .expect("an image"),
+        )
+        .expect("base64");
+        assert_ne!(back, sent, "the mark did not come off");
+        previews_made(&work);
+        let kept = work.journal.kept_preview(id).expect("no preview was kept");
+        let large = std::fs::read(&kept.large).expect("reads");
+        assert_eq!(
+            large,
+            crate::previews::make(&back).expect("a preview").large,
+            "the preview is not of the result"
+        );
+        assert_ne!(
+            large,
+            crate::previews::make(&sent).expect("a preview").large
+        );
+
+        let looked = call_with(
+            &services,
+            "inspect_image",
+            &format!(r#"{{"data":"{data}","record":true}}"#),
+            "",
+        );
+        let id = journal_row(&looked);
+        previews_made(&work);
+        let kept = work
+            .journal
+            .kept_preview(id)
+            .expect("a look kept no preview");
+        assert_eq!(
+            std::fs::read(&kept.large).expect("reads"),
+            crate::previews::make(&sent).expect("a preview").large
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D826, D729: `"preview": false` is a row without a preview, `"record":
+    /// false` neither a row nor a preview, a call whose `_meta` names a file
+    /// on disk a row with its file behind it and no preview, and `"preview":
+    /// "no"` a refusal naming the argument — while the same call with none
+    /// of them keeps one. Ignore `preview` in the call, or keep a preview
+    /// for a row with its file behind it: red.
+    #[test]
+    fn a_picture_row_keeps_no_preview_when_told_not_to() {
+        let dir = previews_dir("told");
+        let (services, work) = working_with(
+            FakeEngine::answering(|req, _| swapped(req)),
+            Some(dir.clone()),
+        );
+        let sent = fixture("exif-xmp.webp");
+        let data = super::super::image::encode(&sent);
+        let call = |extra: &str, meta: &str| {
+            call_with(
+                &services,
+                "clean_image",
+                &format!(r#"{{"data":"{data}"{extra}}}"#),
+                meta,
+            )
+        };
+
+        let id = journal_row(&call("", ""));
+        previews_made(&work);
+        assert!(
+            work.journal.kept_preview(id).is_some(),
+            "the control kept none"
+        );
+
+        let id = journal_row(&call(r#","preview":false"#, ""));
+        previews_made(&work);
+        assert_eq!(
+            work.journal.kept_preview(id),
+            None,
+            "preview: false kept one"
+        );
+
+        let rows = work.journal.rows().len();
+        let unrecorded = call(r#","record":false"#, "");
+        assert!(unrecorded["result"]["_meta"].is_null(), "{unrecorded}");
+        previews_made(&work);
+        assert_eq!(work.journal.rows().len(), rows);
+        assert_eq!(work.journal.previews_usage().map(|(kept, _)| kept), Some(1));
+
+        let file = dir.with_extension("webp");
+        std::fs::write(&file, &sent).expect("write");
+        let meta = format!(
+            r#","_meta":{{"wipemark/path":{}}}"#,
+            json!(file.display().to_string())
+        );
+        let id = journal_row(&call("", &meta));
+        previews_made(&work);
+        assert_eq!(
+            work.journal.kept_preview(id),
+            None,
+            "a row with its file behind it kept a preview"
+        );
+
+        let text = refusal_text(&call(r#","preview":"no""#, ""));
+        assert!(text.contains("`preview`"), "{text}");
+        assert!(text.contains(Tool::CleanImage.argument_list()), "{text}");
+        for tool in [Tool::InspectImage, Tool::CleanImage] {
+            assert!(tool.schema()["properties"].get("preview").is_some());
+            assert!(tool.argument_list().contains("`preview`"));
+        }
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_file(&file).ok();
     }
 
     /// R4, R7, В9: an agent's `rewrite` is an item of the batch queue and a

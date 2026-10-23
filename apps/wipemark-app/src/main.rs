@@ -74,6 +74,7 @@ mod panel;
 mod pasteboard;
 mod placement;
 mod preview;
+mod previews;
 mod profile;
 // E4-6c: the Prompts section of the Settings window.
 mod prompts;
@@ -1420,8 +1421,10 @@ fn init_logging(layout: Option<&Layout>) {
 
 /// Open the batch queue over the application's database, and the journal
 /// beside it; settle what an earlier run left mid-way, sweep the rows past
-/// their keep period, start the bookkeeper, and install both for the MCP
-/// server (E4-6b, R1, R4).
+/// their keep period and the kept previews whose rows are gone, start the
+/// bookkeeper, and install both for the MCP server (E4-6b, R1, R4). The
+/// journal keeps its picture rows' previews in `previews` (D823) — none
+/// with no data directory, or over a database that would not open.
 ///
 /// The queue asks `engine` for an engine as each item starts, and is told
 /// whenever the duty changes, so a hold for want of an engine lifts by
@@ -1431,6 +1434,7 @@ fn open_work(
     store: &config::SettingsStore,
     engine: &EngineHandle,
     keep_days: u32,
+    previews: Option<std::path::PathBuf>,
 ) -> journal::Work {
     use wipemark_queue::{Durability, Queue};
 
@@ -1467,9 +1471,17 @@ fn open_work(
     let queue = Arc::new(queue);
     let told = Arc::clone(&queue);
     engine.when_changed(move || told.engine_changed());
+    // A preview names its row by the journal's id: over a database that
+    // forgets, the ids start again at every launch, so nothing is kept.
+    let journal = match previews {
+        Some(dir) if store.path() != std::path::Path::new(":memory:") => {
+            journal::Journal::with_previews(store.clone(), dir)
+        }
+        _ => journal::Journal::new(store.clone()),
+    };
     let work = journal::Work {
         queue,
-        journal: journal::Journal::new(store.clone()),
+        journal,
         engine: engine.clone(),
         whereto,
     };
@@ -1477,6 +1489,7 @@ fn open_work(
     for item in work.journal.sweep(keep_days, journal::now_ms()) {
         work.queue.remove(item);
     }
+    work.journal.sweep_previews();
     journal::keep_books(&work);
     journal::install(work.clone());
     work
@@ -1590,7 +1603,12 @@ fn main() -> std::process::ExitCode {
     // database as the preferences — before the window and before the MCP
     // server, both of which push to it. Opening it reads its rows, which
     // blocks the way `config::open` does, and once, here.
-    let work = open_work(&store, &engine_handle, stored.journal_keep_days);
+    let work = open_work(
+        &store,
+        &engine_handle,
+        stored.journal_keep_days,
+        layout.as_ref().ok().map(Layout::previews_dir),
+    );
     let language = stored.language.clone();
 
     // The credential store, for the one setting that is not a row in

@@ -9776,6 +9776,7 @@ dependencies = [
  "gpui-pre",
  "gpui-pre-platform",
  "gtk",
+ "image",
  "libc",
  "libloading 0.7.4",
  "lsp-types",

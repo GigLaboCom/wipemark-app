@@ -245,18 +245,20 @@ fn picture_refusal(error: PictureError) -> Refusal {
     }
 }
 
-/// `clean_image`: `{"data": <base64>, "report": <PictureReport>}` — or a
-/// refusal when the result would still carry provenance metadata, or a
-/// restored picture could not be written back. A visible mark left is in
-/// the report (`marks_left`), not a refusal.
-pub(super) fn clean(bytes: &[u8], scope: Scope) -> Result<String, Refusal> {
+/// `clean_image`: `{"data": <base64>, "report": <PictureReport>}`, and the
+/// cleaned picture itself, which the row's kept preview is made of (D824)
+/// — or a refusal when the result would still carry provenance metadata,
+/// or a restored picture could not be written back. A visible mark left is
+/// in the report (`marks_left`), not a refusal.
+pub(super) fn clean(bytes: &[u8], scope: Scope) -> Result<(String, Vec<u8>), Refusal> {
     recognised(bytes)?;
     let options = PictureOptions {
         scope,
         catalogue: None,
     };
     let (output, report) = wipemark_picture::clean(bytes, &options).map_err(picture_refusal)?;
-    answer(bytes.len(), &output, &report, scope)
+    let json = answer(bytes.len(), &output, &report, scope)?;
+    Ok((json, output))
 }
 
 /// What `clean` answers with a cleaned picture in hand: the refusal when
@@ -362,7 +364,7 @@ mod tests {
     fn a_real_gemini_mark_comes_off_over_mcp() {
         let bytes = fixture("gemini/torch-1025.png");
         let answer: serde_json::Value =
-            serde_json::from_str(&clean(&bytes, Scope::AiProvenance).unwrap()).unwrap();
+            serde_json::from_str(&clean(&bytes, Scope::AiProvenance).unwrap().0).unwrap();
         let report = &answer["report"];
         assert_eq!(report["marks_left"], serde_json::json!(false), "{report}");
         assert_eq!(
@@ -390,7 +392,7 @@ mod tests {
     fn a_real_grok_mark_from_x_comes_off_over_mcp() {
         let bytes = fixture("grok-x/HUVfYqgWkAAOhiJ.jpeg");
         let answer: serde_json::Value =
-            serde_json::from_str(&clean(&bytes, Scope::AiProvenance).unwrap()).unwrap();
+            serde_json::from_str(&clean(&bytes, Scope::AiProvenance).unwrap().0).unwrap();
         let report = &answer["report"];
         assert_eq!(report["marks_left"], serde_json::json!(false), "{report}");
         let found = &report["visible"]["found"][0];

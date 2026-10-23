@@ -150,7 +150,10 @@ that page into your client. For Claude Code:
 
 The agent gets `inspect`, `clean`, `inspect_image`, `clean_image` and
 `rewrite`. Every call it makes appears as a row in the main window's list,
-unless it passes `"record": false`.
+unless it passes `"record": false`. A picture's row keeps a small preview of
+it — of the result when one comes back, re-encoded from its pixels, so with
+no metadata — until the row goes, unless the call passes `"preview": false`
+or *Keep picture previews* is off in Settings › Retention.
 
 ### What it is not for
 
@@ -359,7 +362,9 @@ says a new version is out and downloads it, verified, for you to install.
 **Your data** lives in `~/Library/Application Support/com.GigLabo.wipemark`
 on macOS and `~/.local/share/wipemark` (or `$XDG_DATA_HOME/wipemark`) on
 Linux: `wipemark.db` (settings, the list and the rewrite queue), `models/`,
-`logs/`, and `kept/` if the Retention page keeps copies.
+`logs/`, `previews/` (a small preview for each picture in the list that has
+no file behind it — an agent's, a paste — deleted with its row or by
+*Delete kept previews*), and `kept/` if the Retention page keeps copies.
 `WIPEMARK_DATA_DIR=/some/folder` moves all of it, for the application and
 the command line alike. Uninstalling leaves it, your results and your keys
 alone.

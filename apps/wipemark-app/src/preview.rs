@@ -98,6 +98,9 @@ pub enum Picture {
     /// browser — already in memory, with the format the intake crate
     /// established so the decoder is not left to guess.
     Bytes(Arc<Image>),
+    /// The preview Wipemark kept of a picture row with nothing behind it
+    /// (D823): a small one for the cell, a larger one for the hover card.
+    Kept(crate::previews::Kept),
 }
 
 /// The front of a text.

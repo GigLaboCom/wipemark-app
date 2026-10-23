@@ -52,6 +52,7 @@ queue-count = { $count ->
 queue-pending = Diese Liste bereinigt und schreibt um — eine Umschreibung nach der anderen, mit der Engine im Dienst, wer auch immer fragte: dieses Fenster, ein Agent oder die Kommandozeile, und eine Zeile sagt, wer. Fertige Zeilen bleiben, bis sie entfernt werden oder die Frist der Seite „Aufbewahrung“ abläuft.
 queue-preview-pending = Wird gelesen…
 queue-preview-cut = Die ersten { $count } Zeichen; der Rest wird hier nicht gezeigt.
+queue-preview-kept = Eine Vorschau, die Wipemark behalten hat. Hinter dieser Zeile liegt keine Datei.
 queue-actions = Aktionen
 queue-action-open = Öffnen mit
 queue-action-compare = Mit dem Ergebnis vergleichen
@@ -699,6 +700,7 @@ settings-retention-keeps-nothing = Was ohne Datei ankommt — Eingefügtes, aus 
 settings-retention-keeps-originals = Das Original von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten, wenn das Bereinigen daran etwas geändert hat; Ergebnisse nicht.
 settings-retention-keeps-results = Das Ergebnis von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Originale nicht.
 settings-retention-keeps-both = Original und Ergebnis von Eingefügtem oder Gezogenem bleiben in { $folder } { $period } erhalten, wenn das Bereinigen daran etwas geändert hat.
+settings-retention-keeps-previews = Ein Bild ohne Datei dahinter — von einem Agenten geschickt, eingefügt — behält für seine Zeile dennoch eine kleine Vorschau ohne Metadaten, solange die Zeile bleibt; unten unter „Bildvorschauen behalten“ lässt sich das abschalten.
 settings-retention-pending = Die Fenster folgen diesen Regeln: eine Bereinigung nimmt sie, wenn sie beginnt, eine Umschreibung, wenn sie eingereiht wird — geschrieben wird, wohin sie damals sagten, auch nach einem Neustart. Die Kommandozeile und Agenten lesen keine davon — der Kommandozeile wird bei jedem Aufruf gesagt, wohin ihr Ergebnis geht, und ein Agent bekommt sein Ergebnis zurück.
 
 settings-retention-destination-title = Wohin Ergebnisse gehen
@@ -1387,6 +1389,14 @@ settings-arrival-clean = Bereinigen
 settings-arrival-rewrite = Umschreiben
 settings-journal-keep-title = Fertige Zeilen behalten
 settings-journal-keep-description = Wie lange eine fertige Zeile in der Liste des Hauptfensters bleibt — wer auch immer sie anfragte, Befehlszeile und Agenten eingeschlossen. Eine Zeile behält, was geschah und wohin das Ergebnis ging, nie den Text. Schon geschriebene Ergebnisse werden dadurch nie entfernt.
+settings-journal-previews-title = Bildvorschauen behalten
+settings-journal-previews-description = Ein Bild ohne Datei dahinter — von einem Agenten geschickt oder in ein Fenster eingefügt — behält für seine Zeile in der Liste des Hauptfensters eine kleine Vorschau im eigenen Ordner von Wipemark: vom Ergebnis, wenn es eines gibt, neu aus seinen Pixeln geschrieben, also ohne Metadaten. Eine Vorschau geht mit ihrer Zeile. Ausgeschaltet entstehen keine neuen, und keine wird gelöscht.
+settings-journal-previews-count = { $count ->
+        [0] Es werden keine Vorschauen behalten.
+        [one] Eine Vorschau wird behalten, { $size }.
+       *[other] { $count } Vorschauen werden behalten, { $size }.
+    }
+settings-journal-previews-delete = Behaltene Vorschauen löschen
 settings-journal-days = { $days ->
         [one] { $days } Tag
        *[other] { $days } Tage

@@ -493,7 +493,10 @@
   `a_call_is_a_row_unless_it_says_not`, `inspect_records_nothing_unless_asked`).
   A row is **metadata** — name, path, kind, format, encoding, size, what
   was asked, the verdict and its counts, where the result went — never the
-  document (D312, `an_entry_never_carries_the_text`); a rewrite's text
+  document (D312, `an_entry_never_carries_the_text`), with one exception
+  by the owner's word: a picture row with no file behind it keeps a
+  **preview** of itself, under `<data dir>/previews` and not in the row
+  (D823–D828, below and `retention.md`, "Kept previews"); a rewrite's text
   lives in the batch queue's row only while it is queued or running, or
   when that row is the result's one home (a paste), and an agent's item is
   removed the moment its answer goes back (D313). One row per document,
@@ -1451,7 +1454,21 @@
   original). Both switches, `keep.originals` and `keep.results`, are
   **off** by default and `keep.for` is a week, because a product whose
   purpose is removing provenance must not quietly archive it
-  (`a_first_launch_writes_beside_the_file_and_keeps_nothing`). **The
+  (`a_first_launch_writes_beside_the_file_and_keeps_nothing`). **The one
+  thing kept unasked is a picture's preview** (the owner, 2026-10-23,
+  D823): a picture row with no file behind it — an MCP `clean_image` or
+  `inspect_image` that is a row, a picture pasted or dragged out of a
+  browser — keeps a reduced copy of the picture it ended with, its result
+  when there is one (D824), re-encoded from its pixels so it carries no
+  metadata, at 1024 and 256 pixels under `<data dir>/previews/<journal
+  id>.*`, so the table can show it after a restart. It goes with its row —
+  Remove, Clear finished, `journal.keep_days`, a launch's settle — and at
+  launch when its row is gone (D825); `journal.previews` (a Retention row,
+  on by default) off keeps no new one, *Delete kept previews* under it
+  deletes them all, and an MCP call's `"preview": false` keeps none for
+  that row (D826). Making one never holds an answer or a window up: one
+  thread, a line of 32 (D827). A kept preview is never the row's file
+  (D828). Deleting is `unlink`, not shredding. **The
   format never decides whether a copy is kept** — a Markdown paste, an
   HTML paste and a plain one are one `Source::Text`, and
   `a_markdown_paste_and_a_plain_one_are_planned_alike` goes red on the

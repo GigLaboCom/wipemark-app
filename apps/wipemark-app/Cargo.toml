@@ -50,6 +50,11 @@ wipemark-pixels.workspace = true
 # `usvg`, so this pins no new build — the task's rule was to write the
 # sixty lines only if nothing in the lock had them.
 base64 = "0.22"
+# A kept preview (src/previews.rs, D824): a picture with no file behind it,
+# decoded, turned upright, reduced and written again as a JPEG or a PNG.
+# The `image` GPUI draws every thumbnail with, already in the lock through
+# it, so this pins no new build; the features are the ones it uses.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 # The API key, and only the API key. Every other preference is a row in
 # wipemark.db; a credential goes to the operating system's own store.
 # See src/engine.rs and docs/architecture/engine-settings.md.
