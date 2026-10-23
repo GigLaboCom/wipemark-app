@@ -415,6 +415,10 @@ pub enum Setting {
     // ## E4-6b
     ProcessArrivals,
     JournalKeep,
+    /// D823: whether a picture row with nothing behind it keeps a preview;
+    /// the count and *Delete kept previews* under the row
+    /// (`SettingsView::below`).
+    JournalPreviews,
 }
 
 impl Setting {
@@ -458,7 +462,7 @@ impl Setting {
     /// *move*: a reader opens the window for the marks. Where the line
     /// numbers sit comes straight after, because it too is about what a
     /// pane shows rather than how it moves.
-    pub const ALL: [Setting; 43] = [
+    pub const ALL: [Setting; 44] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
@@ -507,6 +511,9 @@ impl Setting {
         Self::KeepFor,
         // ## E4-6b
         Self::JournalKeep,
+        // D823: after how long a row stays, because a preview goes with
+        // its row.
+        Self::JournalPreviews,
         Self::ServeOverMcp,
         Self::McpBind,
         Self::McpPort,
@@ -552,7 +559,7 @@ impl Setting {
             Self::ServeOverMcp | Self::McpBind | Self::McpPort => Section::Mcp,
             // ## E4-6b
             Self::ProcessArrivals => Section::General,
-            Self::JournalKeep => Section::Retention,
+            Self::JournalKeep | Self::JournalPreviews => Section::Retention,
         }
     }
 
@@ -603,6 +610,7 @@ impl Setting {
             // ## E4-6b
             Self::ProcessArrivals => Message::SettingsArrivalTitle,
             Self::JournalKeep => Message::SettingsJournalKeepTitle,
+            Self::JournalPreviews => Message::SettingsJournalPreviewsTitle,
         }
     }
 
@@ -661,6 +669,7 @@ impl Setting {
             // ## E4-6b
             Self::ProcessArrivals => Message::SettingsArrivalDescription,
             Self::JournalKeep => Message::SettingsJournalKeepDescription,
+            Self::JournalPreviews => Message::SettingsJournalPreviewsDescription,
         }
     }
 
@@ -731,6 +740,7 @@ impl Setting {
             // ## E4-6b
             Self::ProcessArrivals => Storage::Row(config::ON_ARRIVAL_KEY),
             Self::JournalKeep => Storage::Row(config::JOURNAL_KEEP_DAYS_KEY),
+            Self::JournalPreviews => Storage::Row(config::JOURNAL_PREVIEWS_KEY),
             Self::ServeOverMcp => Storage::Row(config::MCP_ENABLED_KEY),
             Self::McpBind => Storage::Row(config::MCP_BIND_KEY),
             Self::McpPort => Storage::Row(config::MCP_PORT_KEY),
@@ -1146,6 +1156,8 @@ pub struct Preferences {
     on_arrival: crate::queue::OnArrival,
     /// How many days a finished journal row is kept (В3).
     journal_keep_days: u32,
+    /// Whether a picture row with nothing behind it keeps a preview (D823).
+    journal_previews: bool,
     /// E4-6c: a clone of the handle the MCP server was given — what the
     /// Prompts page's Check and adaptation reach the engine through.
     rewriter: EngineHandle,
@@ -1408,6 +1420,7 @@ impl Preferences {
             comparison,
             on_arrival,
             journal_keep_days,
+            journal_previews,
             // The update rows are `update::Updates`'s, which reads them
             // from the same launch (D784).
             updates: _,
@@ -1562,6 +1575,7 @@ impl Preferences {
             homes,
             on_arrival,
             journal_keep_days,
+            journal_previews,
             rewriter,
         }
     }
@@ -1639,6 +1653,22 @@ impl Preferences {
         self.persist(cx, move |store| {
             config::write_journal_keep_days(store, days)
         });
+    }
+
+    /// Whether a picture row with nothing behind it keeps a preview.
+    pub fn journal_previews(&self) -> bool {
+        self.journal_previews
+    }
+
+    /// Record whether it does. Off keeps no new preview and deletes none
+    /// (D826): the journal reads the row at every preview.
+    pub fn keep_journal_previews(&mut self, keep: bool, cx: &mut Context<Self>) {
+        if self.journal_previews == keep {
+            return;
+        }
+        self.journal_previews = keep;
+        cx.notify();
+        self.persist(cx, move |store| config::write_journal_previews(store, keep));
     }
 
     /// The Compare page's rows.
@@ -4110,6 +4140,11 @@ struct SettingsView {
     arrival_select: Entity<SelectState<Vec<Choice<crate::queue::OnArrival>>>>,
     /// How many days a finished journal row stays.
     journal_select: Entity<SelectState<Vec<Choice<u32>>>>,
+    /// How many rows keep a preview and the bytes they take, as last
+    /// looked at — when the window opened, when the Retention page was
+    /// chosen, after a delete (D826). `None` until the first look answers,
+    /// and where nothing is kept.
+    kept_previews: Option<(usize, u64)>,
     /// After how long a quiet panel clears (D694).
     clear_select: Entity<SelectState<Vec<Choice<u32>>>>,
     /// How many idle minutes unload an on-demand model. Five fixed spans.
@@ -4887,6 +4922,10 @@ impl SettingsView {
             period_select,
             arrival_select,
             journal_select,
+            kept_previews: {
+                Self::look_at_previews(cx);
+                None
+            },
             clear_select,
             idle_select,
             prompts,
@@ -5092,6 +5131,9 @@ impl SettingsView {
                     .active(current == section)
                     .on_click(cx.listener(move |view, _, _, cx| {
                         view.section = section;
+                        if section == Section::Retention {
+                            Self::look_at_previews(cx);
+                        }
                         cx.notify();
                     }))
             })))
@@ -5176,8 +5218,78 @@ impl SettingsView {
             Setting::RewriteProfile => Some(self.template_profile_block(cx).into_any_element()),
             // The last check, Check now, and Update… while a version waits.
             Setting::Updates => crate::update::below(cx),
+            Setting::JournalPreviews => Some(self.kept_previews_block(cx)),
             _ => None,
         }
+    }
+
+    /// Look again at how many previews are kept, off this thread.
+    fn look_at_previews(cx: &Context<Self>) {
+        let Some(work) = crate::journal::working(cx) else {
+            return;
+        };
+        cx.spawn(async move |view, cx| {
+            let usage = cx
+                .background_executor()
+                .spawn(async move { work.journal.previews_usage() })
+                .await;
+            view.update(cx, |view, cx| {
+                view.kept_previews = usage;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Under *Keep picture previews*: how many there are and what they
+    /// take, and *Delete kept previews* (D826).
+    fn kept_previews_block(&self, cx: &Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let line = self.kept_previews.map(|(count, bytes)| {
+            t_args(
+                Message::SettingsJournalPreviewsCount,
+                &args!("count" => count, "size" => crate::drop::size_label(bytes)),
+            )
+        });
+        let any = self.kept_previews.is_some_and(|(count, _)| count > 0);
+        h_flex()
+            .w_full()
+            .gap_2()
+            .items_center()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .children(line.map(SharedString::from)),
+            )
+            .child(
+                Button::new("journal-previews-delete")
+                    .small()
+                    .outline()
+                    .disabled(!any)
+                    .label(SharedString::from(t(
+                        Message::SettingsJournalPreviewsDelete,
+                    )))
+                    .on_click(cx.listener(|view, _, _, cx| {
+                        let Some(work) = crate::journal::working(cx) else {
+                            return;
+                        };
+                        cx.spawn(async move |view, cx| {
+                            let journal = std::sync::Arc::clone(&work.journal);
+                            cx.background_executor()
+                                .spawn(async move { journal.forget_previews() })
+                                .await;
+                            view.update(cx, |_, cx| Self::look_at_previews(cx)).ok();
+                        })
+                        .detach();
+                        view.kept_previews = Some((0, 0));
+                        cx.notify();
+                    })),
+            )
+            .into_any_element()
     }
 
     /// The widget on the right of one row.
@@ -5239,6 +5351,7 @@ impl SettingsView {
                 .small()
                 .menu_width(CONTROL_COLUMN)
                 .into_any_element(),
+            Setting::JournalPreviews => self.journal_previews_switch(cx).into_any_element(),
             Setting::ServeOverMcp => self.serve_switch(cx).into_any_element(),
             Setting::McpBind => self.bind_control(cx).into_any_element(),
             Setting::McpPort => self.port_field().into_any_element(),
@@ -8235,6 +8348,7 @@ impl SettingsView {
         let preferences = self.preferences.read(cx);
         let lines = retention_banner(
             preferences.retention(),
+            preferences.journal_previews(),
             preferences.results_folder(),
             &preferences.homes().kept,
         );
@@ -8358,6 +8472,19 @@ impl SettingsView {
         self.results_folder.update(cx, |field, cx| {
             field.set_value(text, window, cx);
         });
+    }
+
+    /// Whether a picture row with nothing behind it keeps a preview.
+    fn journal_previews_switch(&self, cx: &Context<Self>) -> impl IntoElement {
+        let keep = self.preferences.read(cx).journal_previews();
+        Switch::new("journal-previews")
+            .checked(keep)
+            .on_click(cx.listener(|view, keep: &bool, _, cx| {
+                let keep = *keep;
+                view.preferences.update(cx, |preferences, cx| {
+                    preferences.keep_journal_previews(keep, cx);
+                });
+            }))
     }
 
     /// Whether originals that arrived without a file are kept.
@@ -8951,12 +9078,19 @@ fn screens_banner(attached: usize, scanned: bool, placeable: bool) -> Vec<String
 ///
 /// The first line is where results go and what happens to the file;
 /// the second is what the product keeps of its own, which for a file
-/// is nothing and for a paste is whatever the two switches say. The
-/// last line never changes: no window writes anything until E4/E7, and
-/// the CLI, which does write, never reads these rows — a page that
-/// described a window writing files would describe one that does not
-/// exist yet.
-fn retention_banner(retention: &Retention, results: &Path, kept: &Path) -> Vec<String> {
+/// is nothing and for a paste is whatever the two switches say; while
+/// `previews` is on, the next says that a picture with no file behind it
+/// keeps a preview all the same (D823), so the line before is not read as
+/// "nothing at all". The last line never changes: no window writes
+/// anything until E4/E7, and the CLI, which does write, never reads these
+/// rows — a page that described a window writing files would describe one
+/// that does not exist yet.
+fn retention_banner(
+    retention: &Retention,
+    previews: bool,
+    results: &Path,
+    kept: &Path,
+) -> Vec<String> {
     let destination = match retention.destination {
         Destination::Beside => t(Message::SettingsRetentionBeside),
         Destination::Folder => t_args(
@@ -8979,7 +9113,12 @@ fn retention_banner(retention: &Retention, results: &Path, kept: &Path) -> Vec<S
             ),
         ),
     };
-    vec![destination, keeps, t(Message::SettingsRetentionPending)]
+    let mut lines = vec![destination, keeps];
+    if previews {
+        lines.push(t(Message::SettingsRetentionKeepsPreviews));
+    }
+    lines.push(t(Message::SettingsRetentionPending));
+    lines
 }
 
 /// The warning that belongs to an address, and only while it applies.
@@ -9834,6 +9973,9 @@ fn open_with(
             if let Some(section) = at {
                 view.update(cx, |view, cx| {
                     view.section = section;
+                    if section == Section::Retention {
+                        SettingsView::look_at_previews(cx);
+                    }
                     cx.notify();
                 });
             }
@@ -11303,7 +11445,15 @@ mod tests {
         let results = Path::new("/Users/someone/Downloads");
         let kept = Path::new("/Users/someone/Library/Application Support/wipemark/kept");
         for retention in every_retention_state() {
-            let lines = retention_banner(&retention, results, kept);
+            // D823: with previews kept, a line says so before the last.
+            let kept_too = retention_banner(&retention, true, results, kept);
+            assert_eq!(kept_too.len(), 4, "{retention:?}: {kept_too:?}");
+            assert!(
+                reads_as(&kept_too[2], Message::SettingsRetentionKeepsPreviews),
+                "{retention:?}: previews kept and not said: {kept_too:?}"
+            );
+            assert!(reads_as(&kept_too[3], Message::SettingsRetentionPending));
+            let lines = retention_banner(&retention, false, results, kept);
             assert_eq!(lines.len(), 3, "{retention:?}: {lines:?}");
             assert!(
                 reads_as(&lines[2], Message::SettingsRetentionPending),
@@ -11427,7 +11577,7 @@ mod tests {
                     destination,
                     ..Retention::default()
                 };
-                retention_banner(&retention, results, kept).remove(0)
+                retention_banner(&retention, false, results, kept).remove(0)
             })
             .collect();
         assert_eq!(
@@ -11445,7 +11595,7 @@ mod tests {
                         keep_results,
                         ..Retention::default()
                     };
-                    retention_banner(&retention, results, kept).remove(1)
+                    retention_banner(&retention, false, results, kept).remove(1)
                 })
                 .collect();
         assert_eq!(
@@ -11465,7 +11615,7 @@ mod tests {
                 keep_for,
                 ..Retention::default()
             };
-            let line = retention_banner(&retention, results, kept).remove(1);
+            let line = retention_banner(&retention, false, results, kept).remove(1);
             assert!(
                 reads_as(&line, Message::SettingsRetentionKeepsNothing),
                 "{keep_for:?}: the period is mentioned while nothing is kept: {line}"
@@ -11479,7 +11629,7 @@ mod tests {
                     keep_for,
                     ..Retention::default()
                 };
-                retention_banner(&retention, results, kept).remove(1)
+                retention_banner(&retention, false, results, kept).remove(1)
             })
             .collect();
         assert_eq!(on.len(), Period::ALL.len(), "two periods read the same");
@@ -11490,8 +11640,10 @@ mod tests {
             destination: Destination::Folder,
             ..Retention::default()
         };
-        assert!(retention_banner(&into, results, kept)[0].contains("Downloads"));
-        assert!(!retention_banner(&Retention::default(), results, kept)[0].contains("Downloads"));
+        assert!(retention_banner(&into, false, results, kept)[0].contains("Downloads"));
+        assert!(
+            !retention_banner(&Retention::default(), false, results, kept)[0].contains("Downloads")
+        );
     }
 
     /// Reading the displays is not the same as having none, and the

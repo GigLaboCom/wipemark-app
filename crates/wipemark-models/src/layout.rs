@@ -168,6 +168,18 @@ impl Layout {
         self.root.join("kept")
     }
 
+    /// `<root>/previews` — what a picture with no file behind it looked
+    /// like, reduced, one pair of files per journal row (D823–D828): what
+    /// the main window's table shows for such a row after a restart.
+    ///
+    /// Beside `kept` and for its reasons — a copy the product made, files
+    /// rather than rows — and a folder of its own because it follows its
+    /// own switch, `journal.previews`, and goes with its rows rather than
+    /// with a period.
+    pub fn previews_dir(&self) -> PathBuf {
+        self.root.join("previews")
+    }
+
     /// `<root>/records` — what a verify learned about a weight file: its
     /// size, mtime and sha256 at the last hash, one file per weight file,
     /// keyed by that file's path (D303).
@@ -253,6 +265,7 @@ mod tests {
         assert!(layout.config_path().ends_with("config.toml"));
         assert!(layout.db_path().ends_with("wipemark.db"));
         assert!(layout.kept_dir().ends_with("kept"));
+        assert!(layout.previews_dir().ends_with("previews"));
         assert!(layout
             .model_dir("qwen3-8b-instruct-q4_k_m")
             .expect("plain id is contained")

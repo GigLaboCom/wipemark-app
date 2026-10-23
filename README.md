@@ -29,9 +29,9 @@ MCP server      The same work for AI agents, on 127.0.0.1, off until you turn it
   <img alt="Wipemark's main window: dropped documents and pictures in one list, each with its kind, its status and its result" src="docs/screenshots/main-window.png">
 </picture>
 
-**Version 0.1.3** · [Download](https://github.com/GigLaboCom/wipemark-app/releases/latest) · [Release notes](docs/release/0.1.3.md) · [Contributing](CONTRIBUTING.md) · [Licence](#licence)
+**Version 0.1.4** · [Download](https://github.com/GigLaboCom/wipemark-app/releases/latest) · [Release notes](docs/release/0.1.4.md) · [Contributing](CONTRIBUTING.md) · [Licence](#licence)
 
-[Features](#features) · [Use cases](#use-cases) · [How it works](#how-it-works) · [Install](#install) · [Quick start](#quick-start) · [Limitations](#limitations-of-013) · [Development](#development)
+[Features](#features) · [Use cases](#use-cases) · [How it works](#how-it-works) · [Install](#install) · [Quick start](#quick-start) · [Limitations](#limitations-of-014) · [Development](#development)
 
 ## Features
 
@@ -150,7 +150,10 @@ that page into your client. For Claude Code:
 
 The agent gets `inspect`, `clean`, `inspect_image`, `clean_image` and
 `rewrite`. Every call it makes appears as a row in the main window's list,
-unless it passes `"record": false`.
+unless it passes `"record": false`. A picture's row keeps a small preview of
+it — of the result when one comes back, re-encoded from its pixels, so with
+no metadata — until the row goes, unless the call passes `"preview": false`
+or *Keep picture previews* is off in Settings › Retention.
 
 ### What it is not for
 
@@ -317,11 +320,11 @@ Download from **[GitHub Releases](https://github.com/GigLaboCom/wipemark-app/rel
 
 | platform | file |
 |---|---|
-| macOS on Apple Silicon (M1 or later), macOS 12 or later | `Wipemark-0.1.3-arm64.dmg` |
-| Linux x86_64, glibc 2.39 or later (Ubuntu 24.04, Debian 13, Fedora 40 and newer) | `Wipemark-0.1.3-x86_64.AppImage`, or `wipemark_0.1.3_amd64.deb` for Ubuntu and Debian |
+| macOS on Apple Silicon (M1 or later), macOS 12 or later | `Wipemark-0.1.4-arm64.dmg` |
+| Linux x86_64, glibc 2.39 or later (Ubuntu 24.04, Debian 13, Fedora 40 and newer) | `Wipemark-0.1.4-x86_64.AppImage`, or `wipemark_0.1.4_amd64.deb` for Ubuntu and Debian |
 | Windows | not in this version |
 
-The [release notes](docs/release/0.1.3.md) cover each platform in full,
+The [release notes](docs/release/0.1.4.md) cover each platform in full,
 uninstalling included.
 
 **macOS.** Open the `.dmg` and drag **Wipemark** onto **Applications**.
@@ -337,11 +340,11 @@ graphics driver. The `.deb` installs its dependencies through apt and puts
 `wipemark` and `wipemark-cli` in `/usr/bin/`.
 
 ```sh
-chmod +x Wipemark-0.1.3-x86_64.AppImage
-./Wipemark-0.1.3-x86_64.AppImage                        # the application
-./Wipemark-0.1.3-x86_64.AppImage --cli inspect notes.md # the command line
+chmod +x Wipemark-0.1.4-x86_64.AppImage
+./Wipemark-0.1.4-x86_64.AppImage                        # the application
+./Wipemark-0.1.4-x86_64.AppImage --cli inspect notes.md # the command line
 
-sudo apt install ./wipemark_0.1.3_amd64.deb
+sudo apt install ./wipemark_0.1.4_amd64.deb
 ```
 
 The local model needs a Vulkan driver. The tray icon needs
@@ -359,7 +362,9 @@ says a new version is out and downloads it, verified, for you to install.
 **Your data** lives in `~/Library/Application Support/com.GigLabo.wipemark`
 on macOS and `~/.local/share/wipemark` (or `$XDG_DATA_HOME/wipemark`) on
 Linux: `wipemark.db` (settings, the list and the rewrite queue), `models/`,
-`logs/`, and `kept/` if the Retention page keeps copies.
+`logs/`, `previews/` (a small preview for each picture in the list that has
+no file behind it — an agent's, a paste — deleted with its row or by
+*Delete kept previews*), and `kept/` if the Retention page keeps copies.
 `WIPEMARK_DATA_DIR=/some/folder` moves all of it, for the application and
 the command line alike. Uninstalling leaves it, your results and your keys
 alone.
@@ -405,7 +410,7 @@ wipemark-cli rewrite draft.md                 # writes draft.rewritten.md
 Without the application running, `rewrite` uses the local model; running it
 through an endpoint needs the application.
 
-## Limitations of 0.1.3
+## Limitations of 0.1.4
 
 **Platforms**
 - No Windows build, no Intel Mac build, no Linux build for ARM, no Flatpak,
@@ -522,7 +527,7 @@ Wipemark is **source-available** under the
 - **Two years after each version is released**, that version is also
   available under the
   [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0).
-- Version 0.1.3 is free to use, with no activation or licence key.
+- Version 0.1.4 is free to use, with no activation or licence key.
 
 "Wipemark" and its logo are trademarks of GigLabo and Denis Esakov, and are
 not licensed for other use.

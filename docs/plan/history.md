@@ -331,6 +331,10 @@ result, an edited result asked about first
 - **0.1.2 released** (2026-10-19): PR #6 merged as `aa6cd11`, tag
   `wipemark-v0.1.2`, the owner's Publish at 14:51 UTC, the same three files
   on GitHub and releases.giglabo.com — the version to advertise.
+- **0.1.3 released** (2026-10-19): the `.dmg` an installer window
+  (`release/dmg-layout`, D816–D822), PR #7 merged as `1268b9b`, tag
+  `wipemark-v0.1.3`, the owner's Publish at 16:45 UTC; the owner's 0.1.2
+  updated itself to it from the window, the first real self-update.
 - `release/dmg-layout` (D816–D822, the owner, 2026-10-19: "why is the
   installer so crooked — can't we make it with an icon and the typical
   drag-and-drop?"): the `.dmg` had no `.DS_Store` and no volume icon, so
@@ -346,6 +350,23 @@ result, an edited result asked about first
   under `env -i` (canaries for the six `APPLE_*` never reached them). The
   update still copies `<mount point>/Wipemark.app`: an env-gated test
   stages it from the new image and from 0.1.2's, red with the app moved.
+- **Kept previews** on `feat` (D823–D828, the owner, 2026-10-23: WebP rows an
+  agent cleaned showed no preview and no card — "extend MCP so that it
+  makes a preview and stores it, with a way to clean them up for privacy;
+  generation on by default", and "with true, it must persist between
+  launches"). The rows were MCP `clean_image` calls: base64 in, the result
+  back to the caller, nothing on disk — any format, not WebP's fault. A
+  picture row with no file behind it now keeps a preview under
+  `<data dir>/previews/<journal id>.*` (`previews.rs`): of the picture it
+  ended with, the result when there is one, re-encoded from its pixels at
+  1024 and 256 pixels, read back at every launch, gone with its row; a
+  window's and the panel's paste the same. `journal.previews` (on), *Delete
+  kept previews*, MCP `"preview": false`. 19 tests and the Retention
+  banner's; every protection deleted once went red, 21 of 21 (the first run
+  found the launch's look-up masked by a note left in the test's channel).
+  Live on a scratch data directory: three WebP calls drew their previews and
+  card, a relaunch kept them, Delete took them; the banner's "nothing that
+  arrives without a file is kept" now says previews are, found there.
   Seen once in Finder on macOS 26: the title bar takes 32 of the 400 points,
   the position counts from the screen's bottom, and the labels are black at
   85% in the dark appearance too.

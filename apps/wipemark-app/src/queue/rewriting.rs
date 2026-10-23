@@ -12,7 +12,7 @@ use chrono::TimeZone as _;
 use gpui::Context;
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_intake::name::{with_infix, REWRITTEN_INFIX};
-use wipemark_intake::{inplace, Format, Handed};
+use wipemark_intake::{inplace, Format, Handed, Kind};
 use wipemark_models::manifest::Role;
 use wipemark_pipeline::asked::Asked;
 use wipemark_pipeline::cost::Executor;
@@ -31,7 +31,7 @@ use crate::clean::{self, Cleanable};
 use crate::drop::Arrival;
 use crate::duty::Performer;
 use crate::journal::{self, Note, Work, Written};
-use crate::preview::Preview;
+use crate::preview::{Picture, Preview};
 use crate::{engine_host, retention};
 
 /// How often the table looks at the batch queue's events and the
@@ -141,6 +141,25 @@ impl Queue {
                 }
             }
             Note::Changed => self.read_journal(cx),
+            // A row read back with nothing behind it has its preview now
+            // (D827); a row with its arrival keeps the one it has.
+            Note::Preview(id) => {
+                if let Some(row) = self
+                    .rows
+                    .iter()
+                    .find(|row| row.entry == Some(id) && row.arrival.is_none())
+                {
+                    self.look_up_kept(row.id, id, true, cx);
+                }
+            }
+            Note::PreviewsGone => {
+                for row in &mut self.rows {
+                    if matches!(row.preview, Preview::Image(Picture::Kept(_))) {
+                        row.preview = Preview::None;
+                    }
+                }
+                cx.notify();
+            }
         }
     }
 
@@ -198,6 +217,7 @@ impl Queue {
         self.rows
             .retain(|row| row.entry.is_none_or(|id| present.contains(&id)));
         let mut added = Vec::new();
+        let mut kept = Vec::new();
         let mut listed: Vec<&'static str> = Vec::new();
         // The items pushed with a window's consent (D361), read off the
         // queue's list once a read, and only when a new row names an item:
@@ -242,6 +262,10 @@ impl Queue {
             let named = journal::named_file(&entry);
             if named.is_some() {
                 added.push((id, entry.clone()));
+            } else if journal::kind_of(entry.kind.as_deref()) == Kind::Image {
+                // Nothing behind it: the preview kept of it, if one was
+                // (D823, D825).
+                kept.push((id, record.id));
             }
             let item = record.item.map(ItemId);
             let pushed_here = item.is_some_and(|item| {
@@ -297,7 +321,54 @@ impl Queue {
         for (id, entry) in added {
             self.look_up(id, entry, cx);
         }
+        for (id, entry) in kept {
+            self.look_up_kept(id, entry, false, cx);
+        }
         cx.notify();
+    }
+
+    /// Look for the preview kept of row `id`, journal row `entry` (D825),
+    /// off this thread. What it finds lands on a row that is still waiting
+    /// for its preview — or on any row with nothing behind it when `told`,
+    /// the journal having said the preview is in place: a look that set out
+    /// before the preview was written must not undo the note that came
+    /// after it (D827).
+    pub(super) fn look_up_kept(&mut self, id: u64, entry: i64, told: bool, cx: &Context<Self>) {
+        let Some(work) = &self.work else {
+            return;
+        };
+        if !told {
+            if let Some(row) = self.rows.iter_mut().find(|row| row.id == id) {
+                row.preview = Preview::Pending;
+            }
+        }
+        let journal = std::sync::Arc::clone(&work.journal);
+        cx.spawn(async move |queue, cx| {
+            let found = cx
+                .background_executor()
+                .spawn(async move { journal.kept_preview(entry) })
+                .await;
+            queue
+                .update(cx, |queue, cx| {
+                    let Some(row) = queue
+                        .rows
+                        .iter_mut()
+                        .find(|row| row.id == id && row.arrival.is_none())
+                    else {
+                        return;
+                    };
+                    match found {
+                        Some(kept) => row.preview = Preview::Image(Picture::Kept(kept)),
+                        None if matches!(row.preview, Preview::Pending) => {
+                            row.preview = Preview::None;
+                        }
+                        None => {}
+                    }
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
     }
 
     /// Look at the file row `id`'s journal entry names — the one recorded,

@@ -426,6 +426,66 @@ identical to its source never written (D262) — and the
 kept copies the plan asks for, made then and not refreshed by a later
 save (D419).
 
+## Kept previews (D823–D828)
+
+*The owner, 2026-10-23: "extend MCP so that it makes a preview and stores
+it, with a way to clean them up for privacy; generation on by default" —
+and "with true, it must persist between launches".*
+
+A picture an agent sends to `clean_image` is base64 in the call, and a
+picture pasted into a window is bytes in memory. Neither leaves a file, and
+a journal row is metadata (D312), so after a restart — or, for an agent's
+row, ever — the table had nothing to draw: the kind's glyph and no card,
+WebP or PNG alike (measured on the owner's machine: journal rows 3–6,
+`agent`/`clean_image`, WebP). So such a row keeps a **preview**, the one
+thing this product keeps of its own without being asked.
+
+* **Which rows** (D823): every picture row with no file behind it — an MCP
+  `clean_image`, an `inspect_image` with `"record": true`, a picture a
+  window or the panel took as bytes. A row with a file behind it — a path
+  recorded, or one its caller named (D729) — keeps nothing and reads its
+  file as before. `journal.previews`, on by default, says whether.
+* **What** (D824): the picture the row ended with — `clean_image`'s result
+  when one came back, otherwise what arrived; a window's row is kept from
+  what arrived as it lands and kept again from its result when a clean
+  writes one — so a visible mark that came off is not archived in the
+  preview. Decoded by `image` (GPUI's own decoder), turned the way its
+  EXIF orientation says, the first frame of an animation, refused past 64
+  megapixels; reduced, never enlarged, to **1024** pixels on the long side
+  for the hover card and **256** for the cell — GPUI keeps every picture
+  it draws decoded — and written as a JPEG at quality 82, a PNG when the
+  picture has alpha. Written from pixels, it carries no metadata at all
+  (`a_preview_is_two_sizes_of_pixels_and_no_metadata`).
+* **Where, and for how long** (D825): `<data dir>/previews/<journal
+  id>.jpg` and `<journal id>.small.jpg` (`.png`), a dot temporary renamed
+  into place, `.metadata_never_index` beside them. Files and not rows:
+  a deleted file leaves no pages in SQLite's free list or its WAL. The id
+  is the journal's, `AUTOINCREMENT`, so a preview never lands on another
+  row. It goes with its row — `Journal::remove` and `Journal::sweep`, the
+  one place rows leave — and at launch, when its row is gone, with any
+  temporary a crash left. Kept, it is read back at every launch.
+* **Privacy** (D826): *Keep picture previews* off keeps no new one and
+  deletes none; *Delete kept previews* under it, with the count and the
+  size, deletes every one — and every one being made, which is dropped
+  when it finishes; an MCP call's `"preview": false` keeps none for its
+  row, and `"record": false` neither a row nor a preview. Deleting is
+  `unlink`: like `kept/`, the bytes stay on the disk until the file system
+  reuses them. The log says the journal id and the sizes, never a pixel.
+  While previews are kept, the page's banner says so under the line on
+  copies, so "nothing that arrives without a file is kept" is never read
+  as nothing at all (`the_retention_banner_says_who_follows_it`).
+* **Never in the way** (D827): one thread, `wipemark-previews`, a line of
+  32; a job that does not fit, or a picture that will not decode, is a
+  log line, and the row keeps its glyph. An MCP answer never waits for its
+  preview; the journal says `Note::Preview` once it is in place.
+* **Never the thing** (D828): the table draws a kept preview and its card,
+  captioned from the row's entry with a line saying it is a preview
+  Wipemark kept; every action of the row is what it is without it.
+
+Not here: the command line's `clean-image -` from stdin writes its row from
+another process and keeps no preview; a text row keeps no excerpt, which
+would be the text.
+
 ## What is left open
 
 * **The sweep while running.** The windows sweep `kept/` once a launch

@@ -367,6 +367,14 @@ pub const JOURNAL_DAYS: [u32; 4] = [1, 7, 30, 90];
 /// batch, short enough that the journal is not an archive.
 pub const JOURNAL_KEEP_DAYS_DEFAULT: u32 = 7;
 
+/// Whether a picture row with no file behind it — an MCP `clean_image` or
+/// `inspect_image`, a picture pasted into a window — keeps a reduced copy
+/// of itself for the table, under `<data dir>/previews` (D823): on unless
+/// it is turned off (the owner, 2026-10-23), the one thing the product
+/// keeps of its own without being asked. Off makes no new one and removes
+/// none; the Retention page's *Delete kept previews* does that (D826).
+pub const JOURNAL_PREVIEWS_KEY: &str = "journal.previews";
+
 // ## D780–D789 — new versions.
 
 /// Whether the application asks the release service once a day which
@@ -528,7 +536,7 @@ pub fn model_key(role: Role) -> &'static str {
 /// below name their own key — and `-D warnings` fails a bin target on
 /// dead code. Same idiom as `TrayCommand::ALL`.
 #[cfg(test)]
-pub const PERSISTED: [&str; 42] = [
+pub const PERSISTED: [&str; 43] = [
     THEME_KEY,
     LANGUAGE_KEY,
     WINDOW_SCREEN_KEY,
@@ -570,6 +578,8 @@ pub const PERSISTED: [&str; 42] = [
     // ## E4-6b
     ON_ARRIVAL_KEY,
     JOURNAL_KEEP_DAYS_KEY,
+    // D823
+    JOURNAL_PREVIEWS_KEY,
     // E4-6c
     REWRITE_PIVOT_KEY,
     // E4-9
@@ -638,6 +648,8 @@ pub struct Stored {
     pub on_arrival: OnArrival,
     /// How many days a finished journal row is kept.
     pub journal_keep_days: u32,
+    /// Whether a picture row with nothing behind it keeps a preview (D823).
+    pub journal_previews: bool,
     /// Whether the application checks for new versions, and what it
     /// remembers of its checks (D784).
     pub updates: UpdateRows,
@@ -686,6 +698,7 @@ pub fn read_all(store: &Store) -> Stored {
         comparison: read_comparison(store),
         on_arrival: read_on_arrival(store),
         journal_keep_days: read_journal_keep_days(store),
+        journal_previews: read_journal_previews(store),
         updates: read_updates(store),
     }
 }
@@ -733,6 +746,20 @@ pub fn read_journal_keep_days(store: &Store) -> u32 {
 /// Persist how many days a finished row is kept.
 pub fn write_journal_keep_days(store: &Store, days: u32) -> Result<()> {
     store.settings().set(JOURNAL_KEEP_DAYS_KEY, &days)?;
+    Ok(())
+}
+
+/// Read whether a picture row with nothing behind it keeps a preview: yes,
+/// unless a row says `false`. Anything but a boolean is the default, left
+/// in the row. Read again at every preview, so a switch turned off in
+/// Settings holds from the next call on, whichever thread makes it.
+pub fn read_journal_previews(store: &Store) -> bool {
+    read_json::<bool>(store, JOURNAL_PREVIEWS_KEY).unwrap_or(true)
+}
+
+/// Persist whether a picture row with nothing behind it keeps a preview.
+pub fn write_journal_previews(store: &Store, keep: bool) -> Result<()> {
+    store.settings().set(JOURNAL_PREVIEWS_KEY, &keep)?;
     Ok(())
 }
 

@@ -10,6 +10,7 @@ takes from lazy-shot, what it changes, and why.
 apps/wipemark-app/src/
   queue.rs      the rows, the filter bar, the sort, the paginator, the Actions menu
   preview.rs    what a row looks like before it is opened: picture, excerpt, or nothing
+  previews.rs   the preview kept of a picture row with no file behind it (D823–D828)
   wording.rs    the sentences the panel and the queue share about one thing that arrived
   drop.rs       the drop target both windows use; `Arrival` and the per-drop `Landed`
   clipboard.rs  the clipboard, watched, and what the Paste button says and takes
@@ -170,6 +171,17 @@ on screen (`Preview::Pending` until then).
 * **Nothing** for the rest, and that is an answer: an archive has no
   picture and a binary nobody recognised has no first lines. The row
   wears the kind's glyph instead.
+* **A kept preview** for a picture row read back with nothing behind it —
+  an agent's `clean_image` or `inspect_image`, a picture pasted or dragged
+  out of a browser, after a restart (D823–D828; `retention.md`, "Kept
+  previews"). The row looks for `<data dir>/previews/<journal id>.*` when
+  the journal is read (`Queue::look_up_kept`), and again when the journal
+  says one is in place (`Note::Preview`); the cell draws the 256-pixel one,
+  the card the 1024-pixel one, captioned from the journal's entry with a
+  line saying it is a preview Wipemark kept. It is never the row's file:
+  every action is what it is without it
+  (`a_row_read_back_with_nothing_behind_it_shows_its_kept_preview`). A
+  row that arrived this session draws what arrived, as before.
 
 ## Cleaning
 

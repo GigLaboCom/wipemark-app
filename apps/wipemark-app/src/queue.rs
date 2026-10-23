@@ -191,6 +191,7 @@ use crate::hover::Tip as _;
 use crate::icon::{Icon, IconName};
 use crate::journal::{self, Work, Writer, Written};
 use crate::preview::{Excerpt, Picture, Preview};
+use crate::previews::Source;
 use crate::settings::Preferences;
 use crate::wording::{self, Badge, Tone};
 
@@ -1580,6 +1581,11 @@ impl Queue {
                         entry: journal::entry_of(arrival),
                     },
                 );
+                // A picture with no file behind it keeps a preview of what
+                // arrived, for after a restart (D823, D824).
+                if let (Some(bytes), Some(work)) = (unfiled_picture(arrival), &self.work) {
+                    keep_preview(writer, &work.journal, id, Source::Bytes(bytes.to_vec()), cx);
+                }
             }
             self.rows.push(Row {
                 id,
@@ -2016,6 +2022,15 @@ impl Queue {
         let Some(row) = self.rows.iter_mut().find(|row| row.id == id) else {
             return;
         };
+        // A picture with no file behind it keeps a preview of its result
+        // in place of the one of what arrived (D824).
+        if let (Status::Done(outcome), Some(writer), Some(work), Some(arrival)) =
+            (&status, &self.writer, &self.work, &row.arrival)
+        {
+            if let (Some(_), Some(result)) = (unfiled_picture(arrival), &outcome.written) {
+                keep_preview(writer, &work.journal, id, Source::File(result.clone()), cx);
+            }
+        }
         // The journal hears it too: running, then what the clean came to.
         if let (Some(writer), Some(arrival)) = (&self.writer, &row.arrival) {
             let action = journal::clean_action(&arrival.intake);
@@ -2163,6 +2178,8 @@ mod across_tests;
 #[cfg(test)]
 mod origin_tests;
 #[cfg(test)]
+mod preview_tests;
+#[cfg(test)]
 mod redo_tests;
 #[cfg(test)]
 mod rewrite_tests;
@@ -2274,6 +2291,11 @@ fn cleaned_for(row: &Row) -> Option<(Option<PathBuf>, CleanedTo)> {
 /// show.
 fn preview_cell(row: &Row, plan_lines: Vec<String>, cx: &App) -> AnyElement {
     let Some(arrival) = &row.arrival else {
+        // Read back with nothing behind it, and a preview kept of it
+        // (D828): the preview and its card, captioned from the row.
+        if let Preview::Image(picture) = &row.preview {
+            return kept_cell(row, picture, plan_lines, cx);
+        }
         // Read back with nothing behind it: the kind's glyph, no card.
         let theme = cx.theme();
         return div()
@@ -2295,20 +2317,7 @@ fn preview_cell(row: &Row, plan_lines: Vec<String>, cx: &App) -> AnyElement {
             .into_any_element();
     };
     let theme = cx.theme();
-    let id = row.id;
-    let frame = div()
-        .debug_selector(move || format!("queue-preview-{id}"))
-        .w(THUMB.width)
-        .h(THUMB.height)
-        .flex_shrink_0()
-        .rounded(theme.radius)
-        .border_1()
-        .border_color(theme.border)
-        .bg(theme.muted)
-        .overflow_hidden()
-        .flex()
-        .items_center()
-        .justify_center();
+    let frame = preview_frame(row.id, cx);
     let intake = &arrival.intake;
 
     match &row.preview {
@@ -2328,40 +2337,7 @@ fn preview_cell(row: &Row, plan_lines: Vec<String>, cx: &App) -> AnyElement {
             )
             .into_any_element(),
         Preview::Image(picture) => {
-            let source = image_source(picture);
-            let trigger = frame.child(
-                img(source.clone())
-                    .size_full()
-                    .object_fit(ObjectFit::Contain),
-            );
-            let caption = caption_of(intake);
-            HoverCard::new(("preview", row.id))
-                .anchor(Anchor::TopLeft)
-                .open_delay(HOVER_DELAY)
-                .trigger(trigger)
-                .content(move |_, _, cx| {
-                    large_card(
-                        div()
-                            .w(LARGE.width)
-                            .h(LARGE.height)
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .bg(cx.theme().muted)
-                            .rounded(cx.theme().radius)
-                            .overflow_hidden()
-                            .child(
-                                img(source.clone())
-                                    .size_full()
-                                    .object_fit(ObjectFit::Contain),
-                            )
-                            .into_any_element(),
-                        caption.clone(),
-                        plan_lines.clone(),
-                        cx,
-                    )
-                })
-                .into_any_element()
+            picture_cell(row.id, frame, picture, caption_of(intake), plan_lines)
         }
         Preview::Text(excerpt) => {
             let text = excerpt.text.clone();
@@ -2390,6 +2366,113 @@ fn preview_cell(row: &Row, plan_lines: Vec<String>, cx: &App) -> AnyElement {
                 .into_any_element()
         }
     }
+}
+
+/// A picture in the row's frame, and the larger one in a card over it.
+fn picture_cell(
+    id: u64,
+    frame: Div,
+    picture: &Picture,
+    caption: SharedString,
+    plan_lines: Vec<String>,
+) -> AnyElement {
+    let (small, large) = image_sources(picture);
+    let trigger = frame.child(img(small).size_full().object_fit(ObjectFit::Contain));
+    HoverCard::new(("preview", id))
+        .anchor(Anchor::TopLeft)
+        .open_delay(HOVER_DELAY)
+        .trigger(trigger)
+        .content(move |_, _, cx| {
+            large_card(
+                div()
+                    .w(LARGE.width)
+                    .h(LARGE.height)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(cx.theme().muted)
+                    .rounded(cx.theme().radius)
+                    .overflow_hidden()
+                    .child(
+                        img(large.clone())
+                            .size_full()
+                            .object_fit(ObjectFit::Contain),
+                    )
+                    .into_any_element(),
+                caption.clone(),
+                plan_lines.clone(),
+                cx,
+            )
+        })
+        .into_any_element()
+}
+
+/// A row with nothing behind it and a preview kept of it (D828): the
+/// preview, and a card whose caption is the row's own look and a line
+/// saying what the picture is — never the thing itself.
+fn kept_cell(row: &Row, picture: &Picture, mut plan_lines: Vec<String>, cx: &App) -> AnyElement {
+    plan_lines.insert(0, t(Message::QueuePreviewKept));
+    let frame = preview_frame(row.id, cx);
+    picture_cell(
+        row.id,
+        frame,
+        picture,
+        caption_of_look(&row.look),
+        plan_lines,
+    )
+}
+
+/// The frame a row's preview is drawn in, whatever it holds.
+fn preview_frame(id: u64, cx: &App) -> Div {
+    let theme = cx.theme();
+    div()
+        .debug_selector(move || format!("queue-preview-{id}"))
+        .w(THUMB.width)
+        .h(THUMB.height)
+        .flex_shrink_0()
+        .rounded(theme.radius)
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.muted)
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .justify_center()
+}
+
+/// The bytes of a picture that arrived with no file behind it — a paste, a
+/// drag out of a browser — which a kept preview is made of (D823).
+fn unfiled_picture(arrival: &Arrival) -> Option<&[u8]> {
+    match &arrival.handed {
+        Handed::Bytes { bytes, .. }
+            if arrival.intake.path.is_none() && arrival.intake.kind == Kind::Image =>
+        {
+            Some(bytes)
+        }
+        _ => None,
+    }
+}
+
+/// Keep a preview of `source` for the window's row `key`, once `writer` has
+/// written everything asked of it before and named the row's journal id —
+/// off the GPUI thread, which neither the wait nor the settings row it reads
+/// may hold (D827).
+fn keep_preview(
+    writer: &Writer,
+    journal: &Arc<journal::Journal>,
+    key: u64,
+    source: Source,
+    cx: &Context<Queue>,
+) {
+    let named = writer.id_of(key);
+    let journal = Arc::clone(journal);
+    cx.background_executor()
+        .spawn(async move {
+            if let Ok(Some(id)) = named.recv_async().await {
+                journal.keep_preview(id, source);
+            }
+        })
+        .detach();
 }
 
 /// The excerpt at reading size, with a line saying it was cut when it
@@ -2456,12 +2539,25 @@ fn caption_of(intake: &Intake) -> SharedString {
     SharedString::from(parts.join(" · "))
 }
 
-/// Where GPUI gets the picture from. The one place a [`Picture`] becomes
-/// an `ImageSource` — see that type for why it is not one already.
-fn image_source(picture: &Picture) -> ImageSource {
+/// Name, format and size on one line, for the card of a row read back —
+/// what its journal entry says, as [`caption_of`] says it of what arrived.
+fn caption_of_look(look: &Look) -> SharedString {
+    let mut parts = vec![look.title.clone()];
+    parts.extend(look.format.clone());
+    parts.extend(look.encoding.clone());
+    parts.extend(look.size.map(drop::size_label));
+    SharedString::from(parts.join(" · "))
+}
+
+/// Where GPUI gets the picture from, for the cell and for the card. The one
+/// place a [`Picture`] becomes an `ImageSource` — see that type for why it
+/// is not one already. One picture for both but a kept preview, which has a
+/// small one for the cell (D824).
+fn image_sources(picture: &Picture) -> (ImageSource, ImageSource) {
     match picture {
-        Picture::File(path) => path.clone().into(),
-        Picture::Bytes(image) => image.clone().into(),
+        Picture::File(path) => (path.clone().into(), path.clone().into()),
+        Picture::Bytes(image) => (image.clone().into(), image.clone().into()),
+        Picture::Kept(kept) => (kept.small.clone().into(), kept.large.clone().into()),
     }
 }
 

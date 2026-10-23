@@ -36,6 +36,12 @@
 //! after the end only when the row is the result's one home (a paste
 //! rewritten in the window). An agent's text goes back to the agent and
 //! its queue row is removed the moment it has (D313).
+//!
+//! The one exception is a picture's **kept preview** (D823–D828): a picture
+//! row with no file behind it keeps a reduced copy of itself under
+//! `<data dir>/previews`, which [`crate::previews`] makes and this journal
+//! takes away with the row — [`Journal::remove`] and [`Journal::sweep`] are
+//! the one place rows leave.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -48,6 +54,7 @@ use wipemark_store::{Change, JournalRow, NewRow, Store};
 
 use crate::clean::{self, Refusal, Verdict};
 use crate::drop::Arrival;
+use crate::previews::{Kept, Previews, Source};
 
 /// Milliseconds since the Unix epoch, UTC — the journal's clock.
 pub fn now_ms() -> i64 {
@@ -61,6 +68,10 @@ pub enum Note {
     Changed,
     /// The window's row `key` is journal row `id`.
     Recorded { key: u64, id: i64 },
+    /// Row `id`'s kept preview is in place (D827).
+    Preview(i64),
+    /// Every kept preview was deleted (D826).
+    PreviewsGone,
 }
 
 /// The journal: the application's store and the channel its writes are
@@ -68,6 +79,9 @@ pub enum Note {
 pub struct Journal {
     store: Arc<Store>,
     notes: (flume::Sender<Note>, flume::Receiver<Note>),
+    /// The kept previews (D823) — `None` where nothing may be kept: a
+    /// test's journal, a run with no data directory.
+    previews: Option<Previews>,
 }
 
 impl std::fmt::Debug for Journal {
@@ -81,6 +95,22 @@ impl Journal {
         Arc::new(Journal {
             store,
             notes: flume::unbounded(),
+            previews: None,
+        })
+    }
+
+    /// The journal, keeping its picture rows' previews in `dir` (D823): a
+    /// preview in place is said as [`Note::Preview`].
+    pub fn with_previews(store: Arc<Store>, dir: PathBuf) -> Arc<Journal> {
+        let notes = flume::unbounded();
+        let told = notes.0.clone();
+        let previews = Previews::new(dir, move |id| {
+            let _ = told.send(Note::Preview(id));
+        });
+        Arc::new(Journal {
+            store,
+            notes,
+            previews: Some(previews),
         })
     }
 
@@ -174,11 +204,73 @@ impl Journal {
         }
     }
 
-    /// Forget row `id`. Blocking.
+    /// Forget row `id`, and its kept preview with it (D825). Blocking.
     pub fn remove(&self, id: i64) {
         if self.store.journal().remove(id).is_ok() {
+            if let Some(previews) = &self.previews {
+                previews.remove(id);
+            }
             self.say(Note::Changed);
         }
+    }
+
+    /// Keep a preview of `source` for row `id` (D823, D824) — unless
+    /// `journal.previews` is off, read now. Blocking: one settings row; the
+    /// preview itself is made on the previews' own thread, and said as
+    /// [`Note::Preview`] once it is in place.
+    pub fn keep_preview(&self, id: i64, source: Source) {
+        let Some(previews) = &self.previews else {
+            return;
+        };
+        if crate::config::read_journal_previews(&self.store) {
+            previews.keep(id, source);
+        }
+    }
+
+    /// Row `id`'s kept preview, when it has one. Blocking: a look at the
+    /// disk.
+    pub fn kept_preview(&self, id: i64) -> Option<Kept> {
+        self.previews.as_ref()?.of(id)
+    }
+
+    /// Delete every kept preview, and every one being made (D826); how many
+    /// rows had one. Blocking.
+    pub fn forget_previews(&self) -> usize {
+        let Some(previews) = &self.previews else {
+            return 0;
+        };
+        let rows = previews.remove_all();
+        tracing::info!(rows, "the kept previews were deleted");
+        self.say(Note::PreviewsGone);
+        rows
+    }
+
+    /// How many rows keep a preview, and the bytes the previews take —
+    /// `None` where nothing is kept. Blocking.
+    pub fn previews_usage(&self) -> Option<(usize, u64)> {
+        Some(self.previews.as_ref()?.usage())
+    }
+
+    /// Take every kept preview whose row is gone, and any temporary a crash
+    /// left (D825) — at launch, before anything is kept. Blocking.
+    pub fn sweep_previews(&self) {
+        let Some(previews) = &self.previews else {
+            return;
+        };
+        let rows: std::collections::HashSet<i64> = self.rows().iter().map(|row| row.id).collect();
+        let taken = previews.sweep(&rows);
+        if taken > 0 {
+            tracing::info!(
+                files = taken,
+                "kept previews whose rows are gone were removed"
+            );
+        }
+    }
+
+    /// The kept previews, for a test that waits on them.
+    #[cfg(test)]
+    pub fn previews(&self) -> Option<&Previews> {
+        self.previews.as_ref()
     }
 
     /// The keep period: rows that ended more than `days` ago. Never one
@@ -196,6 +288,11 @@ impl Journal {
             .collect();
         match self.store.journal().sweep(cutoff) {
             Ok(removed) => {
+                if let Some(previews) = &self.previews {
+                    for &id in &removed {
+                        previews.remove(id);
+                    }
+                }
                 if !removed.is_empty() {
                     tracing::info!(rows = removed.len(), days, "the journal's old rows went");
                     self.say(Note::Changed);
@@ -1227,6 +1324,124 @@ fn end_as(journal: &Journal, row: Option<&JournalRow>, phase: Phase, reason: &st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A journal keeping previews in a scratch folder of its own.
+    fn keeping(label: &str) -> (Arc<Journal>, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "wipemark-journal-previews-{label}-{}",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&dir).ok();
+        let store = Arc::new(Store::in_memory().expect("memory"));
+        (Journal::with_previews(store, dir.clone()), dir)
+    }
+
+    fn picture() -> Vec<u8> {
+        let path = format!(
+            "{}/../../fixtures/image/exif-xmp.webp",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::read(&path).unwrap_or_else(|error| panic!("{path}: {error}"))
+    }
+
+    fn agent_row(journal: &Journal, ended: i64) -> i64 {
+        journal
+            .record(&NewRow {
+                origin: Origin::Agent.as_str(),
+                action: Action::CleanImage.as_str(),
+                state: Phase::Done.as_str(),
+                item: None,
+                arrived: ended,
+                ended: Some(ended),
+                entry: r#"{"kind":"image","size":25020}"#,
+            })
+            .expect("a row")
+    }
+
+    fn previews_made(journal: &Journal) {
+        journal
+            .previews()
+            .expect("previews")
+            .settled()
+            .recv()
+            .expect("settled");
+    }
+
+    /// D825, D827: a kept preview is said on the journal's channel, and it
+    /// goes with its row — by Remove, and by the keep period's sweep —
+    /// while another row's stays. Take either `previews.remove` out of
+    /// `Journal::remove` or `Journal::sweep`: red.
+    #[test]
+    fn a_row_takes_its_kept_preview_with_it() {
+        let (journal, dir) = keeping("rows");
+        let notes = journal.notes();
+        let now = now_ms();
+        let removed = agent_row(&journal, now);
+        let old = agent_row(&journal, now - 30 * 24 * 60 * 60 * 1000);
+        let stays = agent_row(&journal, now);
+        for id in [removed, old, stays] {
+            journal.keep_preview(id, Source::Bytes(picture()));
+        }
+        previews_made(&journal);
+        let said: Vec<Note> = notes.try_iter().collect();
+        for id in [removed, old, stays] {
+            assert!(journal.kept_preview(id).is_some(), "row {id} kept nothing");
+            assert!(said.contains(&Note::Preview(id)), "{said:?}");
+        }
+        journal.remove(removed);
+        assert_eq!(
+            journal.kept_preview(removed),
+            None,
+            "Remove left the preview"
+        );
+        journal.sweep(7, now);
+        assert_eq!(
+            journal.kept_preview(old),
+            None,
+            "the sweep left the preview"
+        );
+        assert!(journal.kept_preview(stays).is_some());
+        assert_eq!(journal.previews_usage().map(|(rows, _)| rows), Some(1));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D826: with `journal.previews` off nothing new is kept and nothing
+    /// kept is deleted; Delete takes them all and says so. Read the switch
+    /// once at construction rather than at every preview: red.
+    #[test]
+    fn previews_off_keeps_none_and_delete_takes_all() {
+        let (journal, dir) = keeping("off");
+        let before = agent_row(&journal, now_ms());
+        journal.keep_preview(before, Source::Bytes(picture()));
+        previews_made(&journal);
+        crate::config::write_journal_previews(journal.store(), false).expect("writes");
+        let after = agent_row(&journal, now_ms());
+        journal.keep_preview(after, Source::Bytes(picture()));
+        previews_made(&journal);
+        assert_eq!(journal.kept_preview(after), None, "kept with previews off");
+        assert!(journal.kept_preview(before).is_some(), "off deleted one");
+
+        let notes = journal.notes();
+        assert_eq!(journal.forget_previews(), 1);
+        assert_eq!(journal.kept_preview(before), None);
+        assert!(notes.try_iter().any(|note| note == Note::PreviewsGone));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D825: at launch a preview whose row is gone goes; a row's stays.
+    #[test]
+    fn a_launch_takes_the_previews_no_row_owns() {
+        let (journal, dir) = keeping("launch");
+        let row = agent_row(&journal, now_ms());
+        journal.keep_preview(row, Source::Bytes(picture()));
+        journal.keep_preview(row + 100, Source::Bytes(picture()));
+        previews_made(&journal);
+        assert!(journal.kept_preview(row + 100).is_some());
+        journal.sweep_previews();
+        assert!(journal.kept_preview(row).is_some());
+        assert_eq!(journal.kept_preview(row + 100), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     /// A row's tag is its journal id, read through the writer that
     /// recorded it **after** the row is in — even when the tag was made
