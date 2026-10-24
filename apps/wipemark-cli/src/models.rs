@@ -1629,7 +1629,6 @@ pub(crate) fn inspect(
         .map(|file| snapshot.parts_of(file))
         .unwrap_or_default();
     let read = parts.first().map(|first| asked.header(&snapshot, first));
-    let host = Host::probe();
     let facts = match (&read, parts.first()) {
         (Some(Ok((header, read_bytes))), Some(first)) => {
             let size: u64 = parts.iter().map(|part| part.size).sum();
@@ -1641,7 +1640,9 @@ pub(crate) fn inspect(
                 read_bytes: *read_bytes,
                 ctx,
                 estimate,
-                fit: fit_mb(estimate, host),
+                // Probed only for a fit to judge: on Linux it may spawn the
+                // NVIDIA tool.
+                fit: fit_mb(estimate, Host::probe()),
             })
         }
         _ => None,
