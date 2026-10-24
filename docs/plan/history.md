@@ -350,6 +350,9 @@ result, an edited result asked about first
   under `env -i` (canaries for the six `APPLE_*` never reached them). The
   update still copies `<mount point>/Wipemark.app`: an env-gated test
   stages it from the new image and from 0.1.2's, red with the app moved.
+  Seen once in Finder on macOS 26: the title bar takes 32 of the 400 points,
+  the position counts from the screen's bottom, and the labels are black at
+  85% in the dark appearance too.
 - **Kept previews** on `feat` (D823–D828, the owner, 2026-10-23: WebP rows an
   agent cleaned showed no preview and no card — "extend MCP so that it
   makes a preview and stores it, with a way to clean them up for privacy;
@@ -367,9 +370,12 @@ result, an edited result asked about first
   Live on a scratch data directory: three WebP calls drew their previews and
   card, a relaunch kept them, Delete took them; the banner's "nothing that
   arrives without a file is kept" now says previews are, found there.
-  Seen once in Finder on macOS 26: the title bar takes 32 of the 400 points,
-  the position counts from the screen's bottom, and the labels are black at
-  85% in the dark appearance too.
+- **0.1.4 released** (2026-10-24): kept previews (D823–D828), PR #8 merged
+  as `a8169ba`, tag `wipemark-v0.1.4`, the owner's Publish at 08:28 UTC, the
+  same three files on GitHub and releases.giglabo.com. Checked first on the
+  owner's real data with the local build: the agent's calls, a restart,
+  Remove, *Delete kept previews*, the switch, and a paste cleaned into
+  Downloads, whose preview was kept again from its result.
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice

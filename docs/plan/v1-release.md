@@ -81,6 +81,30 @@ removed the previous copy — about twenty seconds, silently (nothing says
 "updated"). Release page:
 https://github.com/GigLaboCom/wipemark-app/releases/tag/wipemark-v0.1.3.
 
+**0.1.4, 2026-10-24 — kept previews.** A picture row with no file behind it
+— an agent's `clean_image` or `inspect_image`, a picture pasted into a
+window or the panel — keeps a preview of the picture it ended with, drawn in
+the list and its card after a restart too, with *Keep picture previews* and
+*Delete kept previews* on the Retention page and MCP `"preview": false`
+(D823–D828). The tag `wipemark-v0.1.4` is on `main` at `a8169ba` (PR #8's
+merge). Release run 40076515817 built the draft in 17 minutes, the `.dmg`
+Developer ID signed, notarized and stapled; the owner published it at 08:28
+UTC and update run 40078169575 put the files on releases.giglabo.com:
+
+| file | bytes | sha256 |
+|---|---|---|
+| `Wipemark-0.1.4-arm64.dmg` | 23 512 639 | `28f9c1f8…f7b86d` |
+| `Wipemark-0.1.4-x86_64.AppImage` | 46 627 320 | `0fe375f0…a4a03d` |
+| `wipemark_0.1.4_amd64.deb` | 29 010 948 | `ba8911bd…6ad6bd` |
+
+The same bytes on GitHub and the service, hashed from both; the release's
+own `update --check` says 0.1.4 is the newest verified version. Before the
+tag, the owner's real data directory was run on the local 0.1.4 build: the
+agent's calls, the restart, Remove, *Delete kept previews*, the switch and
+a paste that was then cleaned, every one as D823–D828 say. Notes:
+`docs/release/0.1.4.md`, 0.1.3's with what changed since. Release page:
+https://github.com/GigLaboCom/wipemark-app/releases/tag/wipemark-v0.1.4.
+
 ## Для владельца
 
 **Первая версия — это всё, что уже работает, без новых функций.** Сейчас

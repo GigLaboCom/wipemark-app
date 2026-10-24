@@ -420,11 +420,13 @@ Unmark" survives only in keys; the product is Wipemark (Q1, 2026-09-21).
 ## Where it stands
 
 `feat/e0-e6-shell` carries everything. `main` is touched only by the
-owner's word (PRs #1–#7; GitHub deletes `feat/e0-e6-shell` on every merge,
-so it is pushed back at once). **0.1.3 is the latest release** (2026-10-19:
-the tag `wipemark-v0.1.3` on `main` at `1268b9b`, the `.dmg` an installer
-window, D816–D822), after **0.1.2** (the same day, `aa6cd11`, D815),
-**0.1.1** (`f0f2715`, D811–D814) and **0.1.0** (2026-10-18, `5df1564`).
+owner's word (PRs #1–#8; GitHub deletes `feat/e0-e6-shell` on every merge,
+so it is pushed back at once). **0.1.4 is the latest release** (2026-10-24:
+the tag `wipemark-v0.1.4` on `main` at `a8169ba`, kept previews, D823–D828;
+Watchword `wipemark-release-0.1.4-2026-10-24`), after **0.1.3** (2026-10-19,
+`1268b9b`, the `.dmg` an installer window, D816–D822), **0.1.2** (the same
+day, `aa6cd11`, D815), **0.1.1** (`f0f2715`, D811–D814) and **0.1.0**
+(2026-10-18, `5df1564`).
 The owner's installed 0.1.2 updated itself to 0.1.3 from the window — the
 first real self-update (Watchword `wipemark-release-0.1.3-2026-10-19`). Each is a tag, the owner's
 Publish of the draft, and the same three files — the `.dmg` (Developer ID,
