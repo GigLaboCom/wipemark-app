@@ -54,8 +54,8 @@ use wipemark_models::gguf::{GgufError, Header, NotOffered, Offer};
 use wipemark_models::layout::Layout;
 use wipemark_models::user::{self, UserModel, UserState};
 use wipemark_models::{
-    fit, fit_mb, Cancel, Downloads, Fit, Host, Manifest, ModelEntry, Progress, Role, State, Status,
-    StoreError,
+    fit, fit_mb, hub, Cancel, Downloads, Fit, Host, Manifest, ModelEntry, Progress, Role, State,
+    Status, StoreError,
 };
 
 use crate::audit::ascii;
@@ -1482,26 +1482,392 @@ pub(crate) fn add(
         },
         &args!("id" => id.as_str(), "path" => shown.as_str(), "name" => name.as_str()),
     );
-    let chat = match wipemark_engine::chat_support(header.chat_template.as_deref()) {
-        wipemark_engine::ChatSupport::Supported { family } => run::say(
-            Message::SettingsModelsAddChatSupported,
-            &args!("family" => family),
+    say_err(io, &chat_said(header.chat_template.as_deref()).0);
+    say_out(io, &line).map_or_else(|exit| exit, |()| Exit::Clean)
+}
+
+/// Whether this build writes a conversation for a model whose chat template
+/// is `template`, in the reader's language and in the JSON's words.
+fn chat_said(template: Option<&str>) -> (String, &'static str) {
+    match wipemark_engine::chat_support(template) {
+        wipemark_engine::ChatSupport::Supported { family } => (
+            run::say(
+                Message::SettingsModelsAddChatSupported,
+                &args!("family" => family),
+            ),
+            family,
         ),
-        wipemark_engine::ChatSupport::Refused(wipemark_engine::ChatRefusal::NoTemplate) => {
-            run::say(Message::SettingsModelsAddChatNoTemplate, &FluentArgs::new())
-        }
-        wipemark_engine::ChatSupport::Refused(wipemark_engine::ChatRefusal::Unrecognised) => {
+        wipemark_engine::ChatSupport::Refused(wipemark_engine::ChatRefusal::NoTemplate) => (
+            run::say(Message::SettingsModelsAddChatNoTemplate, &FluentArgs::new()),
+            "no-template",
+        ),
+        wipemark_engine::ChatSupport::Refused(wipemark_engine::ChatRefusal::Unrecognised) => (
             run::say(
                 Message::SettingsModelsAddChatUnrecognised,
                 &FluentArgs::new(),
+            ),
+            "unrecognised",
+        ),
+        wipemark_engine::ChatSupport::NotBuilt => (
+            run::say(Message::SettingsModelsAddChatNotBuilt, &FluentArgs::new()),
+            "not-built",
+        ),
+    }
+}
+
+/// `models inspect <link> [--file <path>] [--entry] [--json]` (D835): what a
+/// model on Hugging Face is, asked of the Hub before anything is downloaded
+/// — the repository's GGUF files at the commit the link's revision stands
+/// at, and one file's header read from its front: what it is, whether this
+/// build writes its chat format, what it needs and whether this machine has
+/// room. `--entry` drafts its catalogue entry. Writes nothing and needs no
+/// data directory. Exit 0; 2 for a link that is not a model, a file that
+/// is not there, or a Hub that did not answer; 3 when the header could not
+/// be read.
+pub(crate) fn inspect(
+    link: &str,
+    file: Option<&str>,
+    entry: bool,
+    json: bool,
+    io: &mut Io,
+) -> Exit {
+    let refuse = |io: &mut Io, line: String| {
+        say_err(io, &line);
+        tracing::warn!(command = "models inspect", exit = 2, "refused");
+        Exit::Usage
+    };
+    let Some(parsed) = hub::Link::parse(link) else {
+        return refuse(
+            io,
+            run::say(Message::CliModelsInspectBadLink, &args!("link" => link)),
+        );
+    };
+    let asked = match hub::Hub::from_env() {
+        Ok(asked) => asked,
+        Err(error) => {
+            return refuse(
+                io,
+                run::say(
+                    Message::CliModelsInspectEndpoint,
+                    &args!("var" => hub::ENDPOINT_VAR, "reason" => error.to_string()),
+                ),
             )
         }
-        wipemark_engine::ChatSupport::NotBuilt => {
-            run::say(Message::SettingsModelsAddChatNotBuilt, &FluentArgs::new())
+    };
+    let snapshot = match asked.snapshot(&parsed) {
+        Ok(snapshot) => snapshot,
+        Err(hub::HubError::NotFound(_)) => {
+            return refuse(
+                io,
+                run::say(
+                    Message::CliModelsInspectNotFound,
+                    &args!("repo" => parsed.repo.as_str()),
+                ),
+            )
+        }
+        Err(error) => {
+            return refuse(
+                io,
+                run::say(
+                    Message::CliModelsInspectFailed,
+                    &args!("repo" => parsed.repo.as_str(), "reason" => error.to_string()),
+                ),
+            )
         }
     };
-    say_err(io, &chat);
-    say_out(io, &line).map_or_else(|exit| exit, |()| Exit::Clean)
+    let ggufs = snapshot.ggufs();
+    // The file: `--file`, else the one the link names, else the repository's
+    // only GGUF.
+    let named = file.map(str::to_owned).or_else(|| parsed.path.clone());
+    let chosen = match &named {
+        Some(path) => match snapshot.file(path) {
+            Some(found) if found.is_gguf() => Some(found),
+            Some(_) => {
+                return refuse(
+                    io,
+                    run::say(
+                        Message::CliModelsInspectNotGguf,
+                        &args!("path" => path.as_str()),
+                    ),
+                )
+            }
+            None => {
+                return refuse(
+                    io,
+                    run::say(
+                        Message::CliModelsInspectNoFile,
+                        &args!(
+                            "repo" => snapshot.repo.as_str(),
+                            "path" => path.as_str(),
+                            "commit" => snapshot.commit.as_str(),
+                        ),
+                    ),
+                )
+            }
+        },
+        None => match ggufs.as_slice() {
+            [only] => Some(*only),
+            _ => None,
+        },
+    };
+    if entry && chosen.is_none() {
+        return refuse(
+            io,
+            run::say(Message::CliModelsInspectEntryNeedsFile, &FluentArgs::new()),
+        );
+    }
+    tracing::info!(
+        command = "models inspect",
+        repo = snapshot.repo.as_str(),
+        commit = snapshot.commit.as_str(),
+        files = snapshot.files.len(),
+        "asked the Hub"
+    );
+
+    // Its parts, when it is split; the header is the first part's.
+    let parts = chosen
+        .map(|file| snapshot.parts_of(file))
+        .unwrap_or_default();
+    let read = parts.first().map(|first| asked.header(&snapshot, first));
+    let host = Host::probe();
+    let facts = match (&read, parts.first()) {
+        (Some(Ok((header, read_bytes))), Some(first)) => {
+            let size: u64 = parts.iter().map(|part| part.size).sum();
+            let ctx = user::default_ctx(header.context_length);
+            let estimate = user::estimate(size, header.kv_shape(), ctx).total_mb();
+            Some(Facts {
+                file: first,
+                header,
+                read_bytes: *read_bytes,
+                ctx,
+                estimate,
+                fit: fit_mb(estimate, host),
+            })
+        }
+        _ => None,
+    };
+    let draft = facts
+        .as_ref()
+        .filter(|_| entry)
+        .map(|facts| hub::entry_draft(&snapshot, &parts, facts.header, facts.ctx, facts.estimate));
+    let unread = match (&read, parts.first()) {
+        (Some(Err(error)), Some(first)) => Some((first.path.as_str(), error.to_string())),
+        _ => None,
+    };
+
+    let text = if json {
+        let mut value = serde_json::json!({
+            "version": 1,
+            "repo": snapshot.repo,
+            "commit": snapshot.commit,
+            "gated": snapshot.gated,
+            "license": snapshot.license,
+            "files": ggufs
+                .iter()
+                .map(|file| serde_json::json!({
+                    "path": file.path,
+                    "size_bytes": file.size,
+                    "sha256": file.sha256,
+                }))
+                .collect::<Vec<_>>(),
+        });
+        if let Some(facts) = &facts {
+            let file_name = facts.file.name();
+            let mut read = serde_json::json!({
+                "path": facts.file.path,
+                "read_bytes": facts.read_bytes,
+                "architecture": facts.header.architecture,
+                "parameters": facts.header.parameters(file_name),
+                "quant": facts.header.quant(file_name),
+                "trained_ctx": facts.header.context_length,
+                "chat": chat_said(facts.header.chat_template.as_deref()).1,
+                "ctx": facts.ctx,
+                "estimate_mb": facts.estimate,
+            });
+            read["offered"] = match facts.header.offer(file_name) {
+                Offer::Rewrite => "rewrite".into(),
+                Offer::Not(why) => not_offered_id(why).into(),
+            };
+            fit_json(facts.fit, &mut read);
+            value["read"] = read;
+        }
+        if let Some((path, reason)) = &unread {
+            value["unread"] = serde_json::json!({ "path": path, "reason": reason });
+        }
+        if let Some(draft) = &draft {
+            value["entry"] = draft.clone();
+        }
+        format!("{}\n", ascii(&value))
+    } else {
+        let say = run::say;
+        let mut lines = vec![say(
+            Message::CliModelsInspectRepo,
+            &args!("repo" => snapshot.repo.as_str(), "commit" => snapshot.commit.as_str()),
+        )];
+        if let Some(licence) = &snapshot.license {
+            lines.push(format!(
+                "  {}",
+                say(
+                    Message::CliModelsInspectLicence,
+                    &args!("licence" => licence.as_str())
+                )
+            ));
+        }
+        if let Some(gate) = &snapshot.gated {
+            lines.push(format!(
+                "  {}",
+                say(
+                    Message::CliModelsInspectGated,
+                    &args!("gate" => gate.as_str())
+                )
+            ));
+        }
+        if ggufs.is_empty() {
+            lines.push(format!(
+                "  {}",
+                say(Message::CliModelsInspectNoGguf, &FluentArgs::new())
+            ));
+        } else {
+            lines.push(format!(
+                "  {}",
+                say(
+                    Message::CliModelsInspectFiles,
+                    &args!("count" => ggufs.len())
+                )
+            ));
+            for file in &ggufs {
+                let size = say(
+                    Message::CliModelsSize,
+                    &args!("gigabytes" => gigabytes(file.size)),
+                );
+                lines.push(format!(
+                    "    {}",
+                    match &file.sha256 {
+                        Some(sha) => say(
+                            Message::CliModelsInspectFile,
+                            &args!(
+                                "path" => file.path.as_str(),
+                                "size" => size,
+                                "sha" => format!("{}…", &sha[..sha.len().min(12)]),
+                            ),
+                        ),
+                        None => say(
+                            Message::CliModelsInspectFileUnhashed,
+                            &args!("path" => file.path.as_str(), "size" => size),
+                        ),
+                    }
+                ));
+            }
+            if chosen.is_none() {
+                lines.push(format!(
+                    "  {}",
+                    say(Message::CliModelsInspectChoose, &FluentArgs::new())
+                ));
+            }
+        }
+        if let Some(facts) = &facts {
+            let file_name = facts.file.name();
+            let stated = |value: Option<String>| {
+                value.unwrap_or_else(|| say(Message::CliModelsInspectNotStated, &FluentArgs::new()))
+            };
+            lines.push(say(
+                Message::CliModelsInspectRead,
+                &args!(
+                    "path" => facts.file.path.as_str(),
+                    "megabytes" => megabytes(facts.read_bytes),
+                ),
+            ));
+            lines.push(format!(
+                "  {}",
+                say(
+                    Message::CliModelsInspectFacts,
+                    &args!(
+                        "architecture" => stated(facts.header.architecture.clone()),
+                        "parameters" => stated(facts.header.parameters(file_name)),
+                        "quant" => stated(facts.header.quant(file_name)),
+                        "ctx" => stated(facts.header.context_length.map(|ctx| ctx.to_string())),
+                    ),
+                )
+            ));
+            if let Offer::Not(why) = facts.header.offer(file_name) {
+                lines.push(format!(
+                    "  {}",
+                    say(
+                        Message::CliModelsInspectNotOffered,
+                        &args!("why" => not_offered(why))
+                    )
+                ));
+            } else {
+                lines.push(format!(
+                    "  {}",
+                    chat_said(facts.header.chat_template.as_deref()).0
+                ));
+            }
+            lines.push(format!(
+                "  {}",
+                say(
+                    Message::CliModelsInspectMemory,
+                    &args!(
+                        "mb" => facts.estimate.to_string(),
+                        "ctx" => facts.ctx.to_string(),
+                        "fit" => fit_said(facts.fit),
+                    ),
+                )
+            ));
+        }
+        if let Some((path, reason)) = &unread {
+            lines.push(say(
+                Message::CliModelsInspectUnread,
+                &args!("path" => *path, "reason" => reason.as_str()),
+            ));
+        }
+        let mut text = lines.join("\n");
+        text.push('\n');
+        if let Some(draft) = &draft {
+            // The draft is what goes on standard output; the rest is said
+            // on standard error, so the draft can be piped as it is.
+            let _ = write!(io.stderr, "{text}");
+            say_err(io, &say(Message::CliModelsInspectEntry, &FluentArgs::new()));
+            text = format!(
+                "{}\n",
+                serde_json::to_string_pretty(draft).unwrap_or_default()
+            );
+        }
+        text
+    };
+    let exit = if unread.is_some() {
+        Exit::Partial
+    } else {
+        Exit::Clean
+    };
+    tracing::info!(command = "models inspect", exit = exit as u8, "done");
+    match run::emit(&mut io.stdout, text.as_bytes()) {
+        Ok(()) => exit,
+        Err(_) => Exit::Partial,
+    }
+}
+
+/// What `inspect` learned of one file: its header, how much of the file it
+/// took to read it, and what a model of it needs.
+struct Facts<'a> {
+    file: &'a hub::RepoFile,
+    header: &'a Header,
+    read_bytes: u64,
+    ctx: u32,
+    estimate: u64,
+    fit: Fit,
+}
+
+/// A refusal in the JSON's words.
+fn not_offered_id(why: NotOffered) -> &'static str {
+    match why {
+        NotOffered::Projector => "projector",
+        NotOffered::Adapter => "adapter",
+        NotOffered::NoWeights => "no-weights",
+        NotOffered::NotAWriter => "not-a-writer",
+        NotOffered::Speech => "speech",
+        NotOffered::NoChatTemplate => "no-chat-template",
+    }
 }
 
 /// Hash `path` in full on a thread of its own, the progress on stderr the

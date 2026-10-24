@@ -850,10 +850,14 @@ cli-command-models-verify = Заново посчитать хеш модели 
 cli-command-models-rm = Удалить установленную модель.
 cli-command-models-add = Добавить GGUF, которого нет в каталоге: прочитать его заголовок, один раз посчитать хеш и записать под идентификатором. Файл никуда не перемещается и не копируется.
 cli-command-models-forget = Забыть добавленную вами модель. Файл никогда не удаляется.
+cli-command-models-inspect = Посмотреть модель на Hugging Face, ничего не скачивая: её файлы на коммите, на котором стоит ревизия ссылки, с размерами и контрольными суммами, и — по началу одного GGUF — что это за модель, умеет ли эта сборка с ней говорить и поместится ли она на этой машине. Ничего не скачивает и ничего не записывает.
 cli-command-audit = Обойти папку и сообщить о каждом текстовом файле в ней, где есть находки, и о каждом PNG, JPEG или WebP, в метаданных которого есть ИИ-происхождение или в пикселях которого видимая метка, для pre-commit-хуков и CI. Невидимые метки в пикселях не ищутся. Код 3, если хоть один файл не удалось прочитать — даже если в других есть находки: проверка с дырой не полна.
 
 cli-arg-path-or-stdin = Файл для чтения или `-` для стандартного ввода.
 cli-arg-path = Файл для чтения.
+cli-arg-link = Модель на Hugging Face: https://huggingface.co/<владелец>/<репозиторий>, ссылка на файл, hf://<владелец>/<репозиторий>@<коммит>/<файл> или <владелец>/<репозиторий>.
+cli-arg-file = Какой файл репозитория прочитать, когда GGUF в нём больше одного.
+cli-arg-entry = Вывести черновик записи каталога для файла на стандартный вывод, остальное — в стандартный поток ошибок.
 cli-arg-out = Файл вывода или `-` для стандартного вывода. По умолчанию `<name>.cleaned.<ext>` рядом с исходным — никогда поверх уже существующего, — а при чтении из стандартного ввода — стандартный вывод; запись поверх исходника требует явного флага и никогда не делается по умолчанию.
 cli-arg-nfkc = Применить нормализацию NFKC (по умолчанию выключена — она меняет больше, чем метки происхождения).
 cli-arg-aggressive = Заменять также букву из другой письменности внутри слова (омоглиф). О таких буквах сообщается в любом случае; выше доля ложных срабатываний, поэтому только по требованию.
@@ -1072,6 +1076,32 @@ cli-models-folder = Папка моделей: { $path }
 cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit }
 cli-models-chosen = выбрана для перезаписи
 cli-models-experimental = экспериментальная, по умолчанию не предлагается
+cli-models-inspect-repo = { $repo } на коммите { $commit }
+cli-models-inspect-licence = лицензия: { $licence }
+cli-models-inspect-gated = закрытый доступ ({ $gate }): лицензию нужно принять аккаунтом на Hugging Face, а у загрузчика Wipemark аккаунта нет — скачать эту модель он не сможет
+cli-models-inspect-files = { $count ->
+        [one] { $count } файл GGUF:
+        [few] { $count } файла GGUF:
+       *[other] { $count } файлов GGUF:
+    }
+cli-models-inspect-file = { $path } · { $size } · sha256 { $sha }
+cli-models-inspect-file-unhashed = { $path } · { $size } · sha256 на Hugging Face нет
+cli-models-inspect-no-gguf = на этом коммите нет ни одного файла GGUF: Wipemark запускает только модели GGUF
+cli-models-inspect-choose = назовите один через --file, чтобы прочитать его заголовок
+cli-models-inspect-read = { $path }, заголовок прочитан из первых { $megabytes } МБ:
+cli-models-inspect-facts = { $architecture } · { $parameters } · { $quant } · обучена на { $ctx } токенах
+cli-models-inspect-not-stated = не указано
+cli-models-inspect-memory = нужно около { $mb } МБ при { $ctx } токенах · { $fit }
+cli-models-inspect-not-offered = не модель для перезаписи: { $why }
+cli-models-inspect-unread = { $path }: заголовок прочитать не удалось: { $reason }
+cli-models-inspect-entry = черновик для manifests/models.v1.json — на стандартном выводе: quality_tier, langs и notes пишете вы, а статус experimental остаётся, пока стенд не скажет иначе
+cli-models-inspect-bad-link = это не модель на Hugging Face: { $link } — дайте https://huggingface.co/<владелец>/<репозиторий>, ссылку на файл, hf://<владелец>/<репозиторий>@<коммит>/<файл> или <владелец>/<репозиторий>
+cli-models-inspect-endpoint = { $var }: { $reason }
+cli-models-inspect-failed = Hugging Face не ответил про { $repo }: { $reason }
+cli-models-inspect-not-found = { $repo }: такой модели или ревизии на Hugging Face нет, или она не публичная
+cli-models-inspect-no-file = в { $repo } нет файла { $path } на коммите { $commit }
+cli-models-inspect-not-gguf = { $path } — не файл GGUF: Wipemark запускает только модели GGUF
+cli-models-inspect-entry-needs-file = --entry пишет черновик для одного файла: назовите его через --file
 cli-models-draft-entry = { $id } · { $name } · черновая модель для { $target }, сама по себе не используется · { $size } · { $state }
 cli-models-draft-off = не используется: ускорение выключено в приложении
 cli-models-found-at = найдена здесь: { $path }

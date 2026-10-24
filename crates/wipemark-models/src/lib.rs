@@ -31,6 +31,7 @@
 pub mod beacon;
 pub mod gguf;
 pub mod host;
+pub mod hub;
 pub mod layout;
 pub mod manifest;
 pub mod scan;

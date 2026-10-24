@@ -1435,10 +1435,14 @@ cli-command-models-verify = Re-hash a model in full: a catalogue model against t
 cli-command-models-rm = Delete an installed model.
 cli-command-models-add = Add a GGUF the catalogue does not have: read its header, hash it once and record it under an id. The file is never moved or copied.
 cli-command-models-forget = Forget a model you added. The file is never deleted.
+cli-command-models-inspect = Look at a model on Hugging Face before anything is downloaded: its files at the commit the link's revision stands at, with their sizes and checksums, and — read from the front of one GGUF — what it is, whether this build can talk to it and whether it fits this machine. Downloads nothing and records nothing.
 cli-command-audit = Walk a folder and report every text file in it that carries findings, and every PNG, JPEG or WebP whose metadata carries AI provenance or whose pixels carry a visible mark, for pre-commit hooks and CI. Invisible marks in the pixels are not searched for. Exit 3 when any file could not be read — even if others had findings: a scan with a hole in it is not complete.
 
 cli-arg-path-or-stdin = File to read, or `-` for stdin.
 cli-arg-path = File to read.
+cli-arg-link = A model on Hugging Face: https://huggingface.co/<owner>/<repo>, a file's link, hf://<owner>/<repo>@<commit>/<file>, or <owner>/<repo>.
+cli-arg-file = The file of the repository to read, when it holds more than one GGUF.
+cli-arg-entry = Print a draft catalogue entry for the file on standard output, the rest on standard error.
 cli-arg-out = Output file, or `-` for standard output. Defaults to `<name>.cleaned.<ext>` beside the input — never over one already there — and to standard output when the input is standard input; in-place needs an explicit flag, never a default.
 cli-arg-nfkc = Apply NFKC normalisation (off by default — it rewrites more than provenance marks).
 cli-arg-aggressive = Also replace a letter borrowed from another script inside a word (a homoglyph). Such letters are reported either way; higher false-positive rate, hence opt-in.
@@ -1743,6 +1747,32 @@ cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state }
 cli-models-chosen = chosen for rewriting
 # D830: a catalogue entry that is never recommended.
 cli-models-experimental = experimental, never offered by default
+# D835: `models inspect`, what a model on Hugging Face is, before a download.
+cli-models-inspect-repo = { $repo } at { $commit }
+cli-models-inspect-licence = licence: { $licence }
+cli-models-inspect-gated = gated ({ $gate }): an account has to accept its licence on Hugging Face, and Wipemark's downloader has none — it cannot download this model
+cli-models-inspect-files = { $count ->
+        [one] one GGUF file:
+       *[other] { $count } GGUF files:
+    }
+cli-models-inspect-file = { $path } · { $size } · sha256 { $sha }
+cli-models-inspect-file-unhashed = { $path } · { $size } · no sha256 on Hugging Face
+cli-models-inspect-no-gguf = no GGUF file at this commit: Wipemark runs GGUF models only
+cli-models-inspect-choose = name one with --file to read its header
+cli-models-inspect-read = { $path }, its header read from its first { $megabytes } MB:
+cli-models-inspect-facts = { $architecture } · { $parameters } · { $quant } · trained on { $ctx } tokens
+cli-models-inspect-not-stated = not stated
+cli-models-inspect-memory = needs about { $mb } MB at { $ctx } tokens · { $fit }
+cli-models-inspect-not-offered = not a model that rewrites: { $why }
+cli-models-inspect-unread = { $path }: its header could not be read: { $reason }
+cli-models-inspect-entry = a draft for manifests/models.v1.json is on standard output: its quality_tier, langs and notes are yours to write, and it is experimental until the bench says otherwise
+cli-models-inspect-bad-link = not a model on Hugging Face: { $link } — give https://huggingface.co/<owner>/<repo>, a file's link, hf://<owner>/<repo>@<commit>/<file> or <owner>/<repo>
+cli-models-inspect-endpoint = { $var }: { $reason }
+cli-models-inspect-failed = Hugging Face did not answer about { $repo }: { $reason }
+cli-models-inspect-not-found = { $repo }: no such model or revision on Hugging Face, or not a public one
+cli-models-inspect-no-file = { $repo } has no file { $path } at { $commit }
+cli-models-inspect-not-gguf = { $path } is not a GGUF file: Wipemark runs GGUF models only
+cli-models-inspect-entry-needs-file = --entry drafts one file's entry: name it with --file
 # E2-dflash2: a draft, listed under the model it drafts for. $target is
 # that model's id.
 cli-models-draft-entry = { $id } · { $name } · a draft for { $target }, never used on its own · { $size } · { $state }

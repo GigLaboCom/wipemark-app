@@ -264,6 +264,15 @@ enum ModelsAction {
     Forget {
         id: String,
     },
+    Inspect {
+        link: String,
+        #[arg(long)]
+        file: Option<String>,
+        #[arg(long)]
+        entry: bool,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// The tactics' ids, as `--tactic` takes them — every one of
@@ -287,7 +296,7 @@ const TACTICS: [&str; 5] = [
 /// is set per subcommand: `inspect`, `clean` and `rewrite` take `-` for
 /// stdin and `audit` takes a folder, and help that offered it everywhere
 /// would be help that lies.
-const ARGUMENT_HELP: [(&str, Message); 26] = [
+const ARGUMENT_HELP: [(&str, Message); 29] = [
     ("path", Message::CliArgPath),
     ("out", Message::CliArgOut),
     ("in_place", Message::CliArgInPlace),
@@ -314,6 +323,9 @@ const ARGUMENT_HELP: [(&str, Message); 26] = [
     ("role", Message::CliArgRole),
     ("ctx", Message::CliArgCtx),
     ("check", Message::CliArgCheck),
+    ("link", Message::CliArgLink),
+    ("file", Message::CliArgFile),
+    ("entry", Message::CliArgEntry),
 ];
 
 /// Put one command's own description, its arguments' help and the frame
@@ -457,6 +469,9 @@ fn command() -> Command {
                 .mut_subcommand("rm", |c| localized(c, Message::CliCommandModelsRm))
                 .mut_subcommand("add", |c| localized(c, Message::CliCommandModelsAdd))
                 .mut_subcommand("forget", |c| localized(c, Message::CliCommandModelsForget))
+                .mut_subcommand("inspect", |c| {
+                    localized(c, Message::CliCommandModelsInspect)
+                })
         })
 }
 
@@ -646,6 +661,12 @@ fn main() -> ExitCode {
             ctx,
         }) => models::add(model_path, name.as_deref(), role, *ctx, io),
         Action::Models(ModelsAction::Forget { id }) => models::forget(id, io),
+        Action::Models(ModelsAction::Inspect {
+            link,
+            file,
+            entry,
+            json,
+        }) => models::inspect(link, file.as_deref(), *entry, *json, io),
         Action::Rewrite {
             path,
             out,

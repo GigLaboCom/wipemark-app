@@ -252,7 +252,7 @@ Wipemark does not look for those, and it does not remove them.
 | `clean <file>` | writes `name.cleaned.ext` beside the file; `-o <path>` writes elsewhere, `-o -` to standard output, `--in-place` replaces the file after setting the original aside |
 | `audit <folder>` | inspects every text file and picture under a folder, hidden entries skipped (`--json`, or `--sarif` for SARIF 2.1.0) |
 | `rewrite <file>` | writes `name.rewritten.ext`; with the application running, the application does the rewrite and the CLI says so |
-| `models list \| pull \| verify \| rm \| add \| forget` | the model catalogue and the models you added, without the window |
+| `models list \| pull \| verify \| rm \| add \| forget \| inspect` | the model catalogue and the models you added, without the window; `inspect` looks at a model on Hugging Face before anything is downloaded |
 | `update --check` | says whether a newer, verified version exists; installing is the application's job |
 
 | exit | meaning |
@@ -384,7 +384,11 @@ catalogue records, and resumes if it is interrupted.
 
 You can also **add a GGUF model of your own** on the Models page or with
 `wipemark-cli models add <file>`. Wipemark never deletes a model file it
-did not download.
+did not download. To see what a model on Hugging Face is before you fetch
+it — its files and checksums, its architecture, whether this build can
+talk to it and whether it fits — run
+`wipemark-cli models inspect https://huggingface.co/<owner>/<repo>`; it
+reads the front of one file and downloads nothing.
 
 ## Quick start
 

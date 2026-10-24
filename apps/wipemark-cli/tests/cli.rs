@@ -51,6 +51,11 @@ impl Scratch {
     }
 
     fn run_with(&self, arguments: &[&str], stdin: Option<&[u8]>) -> Output {
+        self.run_in(arguments, stdin, &[])
+    }
+
+    /// [`Scratch::run`] with `vars` set too.
+    fn run_in(&self, arguments: &[&str], stdin: Option<&[u8]>, vars: &[(&str, &str)]) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_wipemark-cli"));
         command
             .args(arguments)
@@ -59,6 +64,8 @@ impl Scratch {
             .env("WIPEMARK_LANG", "en-US")
             .env_remove("WIPEMARK_LOG")
             .env_remove("RUST_LOG")
+            .env_remove("WIPEMARK_HF_ENDPOINT")
+            .envs(vars.iter().copied())
             .stdin(if stdin.is_some() {
                 Stdio::piped()
             } else {
@@ -2891,4 +2898,245 @@ fn models_list_says_a_stranger_can_be_added() {
     assert!(prose.contains("chat.gguf"), "{prose}");
     assert!(prose.contains("models add"), "{prose}");
     assert!(!prose.contains("nothing loads them"), "{prose}");
+}
+
+// ---------------------------------------------------------------------------
+// `models inspect` (D835) against a stand-in for Hugging Face on loopback.
+
+const HUB_REPO: &str = "owner/model-GGUF";
+const HUB_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+const HUB_SHA: &str = "84ff34f5834b929043f5ae74799e8d562d4056998f6a5923ceb44831e8ad84d6";
+/// What the stand-in says the weights weigh: more than a header, so a read
+/// of the whole file would show.
+const HUB_SIZE: u64 = 3_000_000_000;
+
+/// A stand-in for the Hub: one repository's revision, its tree — the
+/// weights, a projector and a README — and the weights' bytes by range (a
+/// synthetic header, then zeros); 401 for any other repository, as the Hub
+/// answers one that is not there. Gated, it refuses the bytes.
+struct FakeHub {
+    port: u16,
+    ranges: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl FakeHub {
+    fn start(gated: bool) -> Self {
+        use std::io::{BufRead, BufReader, Write};
+
+        let header = wipemark_models::gguf::synthetic_chat_model(
+            "qwen3",
+            "Model",
+            Some("{% for m in messages %}<|im_start|>{{ m.role }}\n{{ m.content }}<|im_end|>\n{% endfor %}"),
+        );
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a port");
+        let port = listener.local_addr().expect("an address").port();
+        let ranges = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let heard = ranges.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { continue };
+                let mut writer = stream.try_clone().expect("a writer");
+                let mut reader = BufReader::new(stream);
+                let mut first = String::new();
+                if reader.read_line(&mut first).unwrap_or(0) == 0 {
+                    continue;
+                }
+                let mut range = None;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("range:") {
+                        range = Some(value.trim().trim_start_matches("bytes=").to_owned());
+                    }
+                }
+                let path = first
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_owned();
+                let api = format!("/api/models/{HUB_REPO}");
+                let (status, body): (&str, Vec<u8>) = if path == format!("{api}/revision/main") {
+                    let gate = if gated { "\"manual\"" } else { "false" };
+                    (
+                        "200 OK",
+                        format!(r#"{{"sha":"{HUB_COMMIT}","gated":{gate},"cardData":{{"license":"apache-2.0"}}}}"#)
+                            .into_bytes(),
+                    )
+                } else if path == format!("{api}/tree/{HUB_COMMIT}?recursive=true") {
+                    (
+                        "200 OK",
+                        format!(
+                            r#"[{{"type":"file","path":"README.md","size":12,"oid":"abc"}},
+                               {{"type":"file","path":"model-Q4_K_M.gguf","size":135,"lfs":{{"oid":"{HUB_SHA}","size":{HUB_SIZE}}}}},
+                               {{"type":"file","path":"mmproj-F16.gguf","size":135,"lfs":{{"oid":"{HUB_SHA}","size":900000000}}}}]"#
+                        )
+                        .into_bytes(),
+                    )
+                } else if path == format!("/{HUB_REPO}/resolve/{HUB_COMMIT}/model-Q4_K_M.gguf") {
+                    if gated {
+                        ("401 Unauthorized", Vec::new())
+                    } else {
+                        let asked = range.unwrap_or_default();
+                        heard.lock().expect("ranges").push(asked.clone());
+                        let (from, to) = asked.split_once('-').expect("a range");
+                        let (from, to): (usize, usize) =
+                            (from.parse().expect("from"), to.parse().expect("to"));
+                        let bytes = (from..=to)
+                            .map(|at| header.get(at).copied().unwrap_or(0))
+                            .collect();
+                        ("206 Partial Content", bytes)
+                    }
+                } else if path.starts_with("/api/models/") {
+                    ("401 Unauthorized", Vec::new())
+                } else {
+                    ("404 Not Found", Vec::new())
+                };
+                let _ = writer.write_all(
+                    format!(
+                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .as_bytes(),
+                );
+                let _ = writer.write_all(&body);
+            }
+        });
+        Self { port, ranges }
+    }
+
+    fn endpoint(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
+    }
+
+    fn ranges(&self) -> Vec<String> {
+        self.ranges.lock().expect("ranges").clone()
+    }
+}
+
+/// D835: a file on the Hub is described before anything is downloaded —
+/// the commit its revision stands at, the licence, every GGUF with its size
+/// and sha256, and its header from one ranged read of the front, never the
+/// whole file; `--json` says the same, and `--entry` drafts a catalogue
+/// entry the catalogue's own parser takes, on standard output alone.
+#[test]
+fn models_inspect_reads_a_model_on_the_hub_from_its_front() {
+    let hub = FakeHub::start(false);
+    let endpoint = hub.endpoint();
+    let scratch = Scratch::new("models-inspect");
+    let vars = [("WIPEMARK_HF_ENDPOINT", endpoint.as_str())];
+    let link = format!("https://huggingface.co/{HUB_REPO}/blob/main/model-Q4_K_M.gguf");
+
+    let output = scratch.run_in(&["models", "inspect", &link], None, &vars);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let text = stdout(&output);
+    for said in [
+        format!("{HUB_REPO} at {HUB_COMMIT}"),
+        "licence: apache-2.0".to_owned(),
+        "2 GGUF files:".to_owned(),
+        "model-Q4_K_M.gguf · 3.0 GB · sha256 84ff34f5834b…".to_owned(),
+        "model-Q4_K_M.gguf, its header read from its first 8 MB:".to_owned(),
+        "qwen3 · 4.0B · Q4_K_M · trained on 262144 tokens".to_owned(),
+        "at 8192 tokens".to_owned(),
+    ] {
+        assert!(text.contains(&said), "{said:?} not in:\n{text}");
+    }
+    assert_eq!(
+        hub.ranges(),
+        ["0-8388607"],
+        "the file was read past its front"
+    );
+    assert!(
+        !scratch.data().join("models").exists(),
+        "inspect wrote a folder"
+    );
+
+    let output = scratch.run_in(&["models", "inspect", &link, "--json"], None, &vars);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let answer = json(&output);
+    assert_eq!(answer["commit"], HUB_COMMIT);
+    assert_eq!(answer["files"].as_array().map(Vec::len), Some(2));
+    assert_eq!(answer["read"]["architecture"], "qwen3");
+    assert_eq!(answer["read"]["offered"], "rewrite");
+    assert_eq!(answer["read"]["ctx"], 8192);
+    assert!(answer["read"]["fit"].is_string(), "{answer}");
+
+    let output = scratch.run_in(&["models", "inspect", &link, "--entry"], None, &vars);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let draft = json(&output);
+    assert!(stderr(&output).contains("a draft for manifests/models.v1.json"));
+    let manifest =
+        wipemark_models::Manifest::parse(&format!(r#"{{"schema": 1, "models": [{draft}]}}"#))
+            .expect("the catalogue takes the draft");
+    let entry = &manifest.models[0];
+    assert_eq!(
+        entry.files[0].url,
+        format!("hf://{HUB_REPO}@{HUB_COMMIT}/model-Q4_K_M.gguf")
+    );
+    assert_eq!(entry.files[0].sha256.as_deref(), Some(HUB_SHA));
+    assert_eq!(entry.files[0].size_bytes, HUB_SIZE);
+    assert_eq!(entry.status, wipemark_models::Status::Experimental);
+    assert_eq!(entry.license, "apache-2.0");
+}
+
+/// D835: a repository of several GGUF files is listed and asks which to
+/// read — and `--entry` without one is refused; a gated one says it cannot
+/// be downloaded and its header is unread (3); a link that is not a model,
+/// and a model that is not there, are refused (2).
+#[test]
+fn models_inspect_says_what_it_cannot_read() {
+    let hub = FakeHub::start(false);
+    let endpoint = hub.endpoint();
+    let scratch = Scratch::new("models-inspect-not");
+    let vars = [("WIPEMARK_HF_ENDPOINT", endpoint.as_str())];
+
+    let output = scratch.run_in(&["models", "inspect", HUB_REPO], None, &vars);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("name one with --file"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        hub.ranges().is_empty(),
+        "a header was read with no file named"
+    );
+    let output = scratch.run_in(&["models", "inspect", HUB_REPO, "--entry"], None, &vars);
+    assert_eq!(code(&output), 2);
+    assert!(stderr(&output).contains("--entry drafts one file's entry"));
+
+    let gated = FakeHub::start(true);
+    let gated_endpoint = gated.endpoint();
+    let output = scratch.run_in(
+        &["models", "inspect", HUB_REPO, "--file", "model-Q4_K_M.gguf"],
+        None,
+        &[("WIPEMARK_HF_ENDPOINT", gated_endpoint.as_str())],
+    );
+    assert_eq!(code(&output), 3, "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("gated (manual)"), "{text}");
+    assert!(text.contains("its header could not be read"), "{text}");
+
+    let output = scratch.run_in(
+        &["models", "inspect", "https://github.com/x/y"],
+        None,
+        &vars,
+    );
+    assert_eq!(code(&output), 2);
+    assert!(stderr(&output).contains("not a model on Hugging Face"));
+    let output = scratch.run_in(&["models", "inspect", "nobody/missing"], None, &vars);
+    assert_eq!(code(&output), 2);
+    assert!(
+        stderr(&output).contains("no such model or revision on Hugging Face"),
+        "{}",
+        stderr(&output)
+    );
+    let output = scratch.run_in(
+        &["models", "inspect", HUB_REPO, "--file", "README.md"],
+        None,
+        &vars,
+    );
+    assert_eq!(code(&output), 2);
+    assert!(stderr(&output).contains("is not a GGUF file"));
 }

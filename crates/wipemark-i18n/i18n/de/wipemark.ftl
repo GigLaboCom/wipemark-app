@@ -831,10 +831,14 @@ cli-command-models-verify = Ein Modell vollständig neu hashen: ein Katalogmodel
 cli-command-models-rm = Ein installiertes Modell löschen.
 cli-command-models-add = Eine GGUF-Datei hinzufügen, die der Katalog nicht hat: ihren Header lesen, sie einmal hashen und unter einer Id festhalten. Die Datei wird nie verschoben oder kopiert.
 cli-command-models-forget = Ein von Ihnen hinzugefügtes Modell vergessen. Die Datei wird nie gelöscht.
+cli-command-models-inspect = Ein Modell auf Hugging Face ansehen, bevor etwas heruntergeladen wird: seine Dateien beim Commit, auf dem die Revision des Links steht, mit Größen und Prüfsummen, und — aus dem Anfang einer GGUF gelesen — was es ist, ob dieser Build mit ihm sprechen kann und ob es auf diesen Rechner passt. Lädt nichts herunter und hält nichts fest.
 cli-command-audit = Einen Ordner durchlaufen und jede Textdatei darin mit Funden melden, und jedes PNG, JPEG oder WebP, dessen Metadaten KI-Herkunft tragen oder dessen Pixel ein sichtbares Zeichen tragen, für Pre-Commit-Hooks und CI. Nach unsichtbaren Zeichen in den Pixeln wird nicht gesucht. Exit 3, sobald eine Datei nicht gelesen werden konnte — auch wenn andere Funde hatten: Ein Scan mit einer Lücke ist nicht vollständig.
 
 cli-arg-path-or-stdin = Zu lesende Datei, oder `-` für die Standardeingabe.
 cli-arg-path = Zu lesende Datei.
+cli-arg-link = Ein Modell auf Hugging Face: https://huggingface.co/<Besitzer>/<Repository>, der Link einer Datei, hf://<Besitzer>/<Repository>@<Commit>/<Datei> oder <Besitzer>/<Repository>.
+cli-arg-file = Welche Datei des Repositorys gelesen wird, wenn es mehr als eine GGUF enthält.
+cli-arg-entry = Einen Entwurf des Katalogeintrags für die Datei auf die Standardausgabe schreiben, den Rest auf die Standardfehlerausgabe.
 cli-arg-out = Ausgabedatei, oder `-` für die Standardausgabe. Standard ist `<name>.cleaned.<ext>` neben der Eingabe — nie über eine, die schon da ist —, und die Standardausgabe, wenn die Eingabe die Standardeingabe ist; direktes Überschreiben braucht ein ausdrückliches Flag und ist nie der Standard.
 cli-arg-nfkc = NFKC-Normalisierung anwenden (standardmäßig aus — sie ändert mehr als nur Herkunftsmarkierungen).
 cli-arg-aggressive = Auch einen Buchstaben aus einer anderen Schrift innerhalb eines Wortes ersetzen (ein Homoglyph). Gemeldet werden solche Buchstaben in jedem Fall; höhere Falsch-positiv-Rate, deshalb nur auf Wunsch.
@@ -1034,6 +1038,31 @@ cli-models-folder = Modellordner: { $path }
 cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit }
 cli-models-chosen = zum Umschreiben gewählt
 cli-models-experimental = experimentell, nie als Vorgabe angeboten
+cli-models-inspect-repo = { $repo } beim Commit { $commit }
+cli-models-inspect-licence = Lizenz: { $licence }
+cli-models-inspect-gated = zugangsbeschränkt ({ $gate }): Ein Konto muss die Lizenz auf Hugging Face annehmen, und der Downloader von Wipemark hat keines — er kann dieses Modell nicht herunterladen
+cli-models-inspect-files = { $count ->
+        [one] eine GGUF-Datei:
+       *[other] { $count } GGUF-Dateien:
+    }
+cli-models-inspect-file = { $path } · { $size } · sha256 { $sha }
+cli-models-inspect-file-unhashed = { $path } · { $size } · keine sha256 auf Hugging Face
+cli-models-inspect-no-gguf = keine GGUF-Datei bei diesem Commit: Wipemark führt nur GGUF-Modelle aus
+cli-models-inspect-choose = nennen Sie eine mit --file, um ihren Header zu lesen
+cli-models-inspect-read = { $path }, der Header aus den ersten { $megabytes } MB gelesen:
+cli-models-inspect-facts = { $architecture } · { $parameters } · { $quant } · trainiert auf { $ctx } Token
+cli-models-inspect-not-stated = nicht angegeben
+cli-models-inspect-memory = braucht etwa { $mb } MB bei { $ctx } Token · { $fit }
+cli-models-inspect-not-offered = kein Modell zum Umschreiben: { $why }
+cli-models-inspect-unread = { $path }: der Header war nicht lesbar: { $reason }
+cli-models-inspect-entry = ein Entwurf für manifests/models.v1.json steht auf der Standardausgabe: quality_tier, langs und notes schreiben Sie, und er bleibt experimental, bis der Prüfstand anderes sagt
+cli-models-inspect-bad-link = kein Modell auf Hugging Face: { $link } — geben Sie https://huggingface.co/<Besitzer>/<Repository>, den Link einer Datei, hf://<Besitzer>/<Repository>@<Commit>/<Datei> oder <Besitzer>/<Repository> an
+cli-models-inspect-endpoint = { $var }: { $reason }
+cli-models-inspect-failed = Hugging Face hat zu { $repo } nicht geantwortet: { $reason }
+cli-models-inspect-not-found = { $repo }: kein solches Modell und keine solche Revision auf Hugging Face, oder kein öffentliches
+cli-models-inspect-no-file = { $repo } hat beim Commit { $commit } keine Datei { $path }
+cli-models-inspect-not-gguf = { $path } ist keine GGUF-Datei: Wipemark führt nur GGUF-Modelle aus
+cli-models-inspect-entry-needs-file = --entry entwirft den Eintrag einer Datei: nennen Sie sie mit --file
 cli-models-draft-entry = { $id } · { $name } · ein Entwurfsmodell für { $target }, nie allein verwendet · { $size } · { $state }
 cli-models-draft-off = nicht verwendet: schnelleres Dekodieren ist in der Anwendung ausgeschaltet
 cli-models-found-at = gefunden unter { $path }

@@ -124,6 +124,13 @@ curl -sIL "https://huggingface.co/<owner>/<repo>/resolve/<commit>/<file>" \
   | grep -iE "x-linked-(etag|size)|accept-ranges"
 ```
 
+`wipemark-cli models inspect <link> --file <name> --entry` drafts the whole
+entry from the same two answers — the URL pinned to the commit, each
+sha256 and size, the quantization, the default context and the memory by
+this recipe, `experimental` — and reads the file's header from its front to
+check that this build can talk to it (D835); the tier, the languages and
+the notes are yours to write.
+
 A file above 10 MB with no `sha256` is refused by the parser. Below that
 a tokenizer or a config sidecar may go unhashed.
 
