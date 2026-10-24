@@ -353,14 +353,36 @@ jobs:
             dist/*.dmg.sha256
           if-no-files-found: error
 
-  # One release job per platform (D778). Each needs only its own build, so a
-  # red macOS lane never keeps the Linux files off the draft, nor the other
-  # way round. They take turns (`release-publish-<tag>`): the first creates
+  # No tag puts files on a draft from a history that carries a secret: the
+  # scan gate.yml's `secrets` job runs, with the same config as the
+  # pre-commit hook (.gitleaks.toml), needed by both release jobs. The
+  # version is pinned here and in gate.yml — bump both.
+  secrets:
+    name: secret scan (gitleaks, the whole history)
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/wipemark-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.30.0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the whole history: a shallow clone scans one commit
+
+      - name: Scan the history for secrets
+        run: |
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks git --verbose --redact --config .gitleaks.toml .
+
+  # One release job per platform (D778). Each needs only its own build and
+  # the secret scan, so a red macOS lane never keeps the Linux files off the
+  # draft, nor the other way round. They take turns (`release-publish-<tag>`): the first creates
   # the draft, the second finds it and adds to it.
   release-linux:
     name: release (linux files to the draft)
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/wipemark-v')
-    needs: linux
+    needs: [linux, secrets]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -391,7 +413,7 @@ jobs:
   release-macos:
     name: release (macOS files to the draft)
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/wipemark-v')
-    needs: macos
+    needs: [macos, secrets]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

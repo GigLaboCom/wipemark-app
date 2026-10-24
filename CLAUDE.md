@@ -30,7 +30,18 @@ anything works — what the windows cannot do yet, they say out loud.
 ```sh
 git submodule sync --recursive      # picks up a moved URL in .gitmodules
 git submodule update --init --recursive
+scripts/install-hooks.sh            # once per clone: the pre-commit secret scan
 ```
+
+**Secrets never enter a commit.** `.githooks/pre-commit` scans the staged
+changes with gitleaks (`brew install gitleaks`) and `.gitleaks.toml`;
+`core.hooksPath` is local config, so a clone has no hook until
+`scripts/install-hooks.sh` runs. Without gitleaks the hook warns and lets
+the commit through, so CI's `secrets` job (`gate.yml`) scans the whole
+history with the same config, and a tag puts nothing on a draft while it
+fails (`release.yml`). An allowlist entry is a path before a regex, never a
+shape a real credential could match. The setup is Watchword
+`moat-atlas-gitleaks-hooks-2026-08-20`.
 
 The submodule is upstream **`longbridge/gpui-kit`**, branch **`next`**,
 at `146ab45a` (2026-10-19, D814). It holds our eight merged pull requests,

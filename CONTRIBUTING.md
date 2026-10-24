@@ -31,6 +31,13 @@ git submodule sync --recursive      # picks up a moved URL in .gitmodules
 git submodule update --init --recursive
 ```
 
+**The pre-commit hook.** Run `scripts/install-hooks.sh` once per clone: it
+points git at `.githooks/`, whose `pre-commit` scans the staged changes for
+secrets with [gitleaks](https://github.com/gitleaks/gitleaks#installing)
+and `.gitleaks.toml`, and stops a commit that carries one. Without gitleaks
+installed it only warns; CI scans the whole history with the same config
+either way.
+
 `sync` matters because the URL has moved more than once. Today it points at
 upstream **`longbridge/gpui-kit`**, branch `next`, which holds every pull
 request of ours; nothing is carried. While a pull request we need waits

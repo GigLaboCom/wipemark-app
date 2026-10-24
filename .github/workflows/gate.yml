@@ -36,6 +36,8 @@
 #             display watch and the AppKit window move run nowhere else. No
 #             model on a hosted runner: the `--ignored` live gate still runs
 #             by hand.
+#   secrets — gitleaks over the whole history with .gitleaks.toml, the
+#             config the pre-commit hook scans the staged changes with.
 name: gate
 
 on:
@@ -173,6 +175,31 @@ jobs:
       - name: Disk left
         if: always()
         run: df -h /
+
+  # The whole history scanned for secrets, with the config the pre-commit
+  # hook uses (.githooks/pre-commit, scripts/install-hooks.sh). The hook is
+  # the fast side and lets a commit through on a machine without gitleaks;
+  # this is the enforcing side. The CLI and not gitleaks-action, which wants
+  # a licence key for a repository an organisation owns. The version is
+  # pinned here and in release.yml — bump both.
+  secrets:
+    name: secret scan (gitleaks, the whole history)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.30.0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the whole history: a shallow clone scans one commit
+
+      - name: Install gitleaks
+        run: |
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - run: gitleaks git --verbose --redact --config .gitleaks.toml .
 
   native:
     name: native (llama.cpp prebuilt + Vulkan, model-free)
