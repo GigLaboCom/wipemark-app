@@ -232,6 +232,43 @@ is fixed (`docs/architecture/local-engine.md`, "Threads"). Built from cargo, the
 itself; run directly, it needs `LD_LIBRARY_PATH` at the `out/lib` of
 `wipemark-llama-sys`'s build.
 
+## Nemotron 3.5 Bolt E4B (2026-10-24, D829–D831)
+
+Before Bolt went into the catalogue as an experimental entry, it was run
+beside the catalogue's small model on one grid, the same day, on an
+M3 Pro (Metal, our `LocalEngine` at `b10731`, a debug build of the
+Rust side): `paraphrase:moderate:2`, `--every 3` (74 items: every special
+case, a third of the prose), en/ru/de, the product's seeds — 196 attempts
+each. The records are not kept; the commands are:
+
+```sh
+$B run --local …/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf --name bolt-e4b --out runs/bolt.jsonl \
+       --every 3 --grid "paraphrase:moderate:2"
+$B run --local …/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf --name qwen3-4b --out runs/qwen.jsonl \
+       --every 3 --grid "paraphrase:moderate:2"
+$B report --in "bolt-e4b=runs/bolt.jsonl,qwen3-4b=runs/qwen.jsonl"
+```
+
+| | Bolt E4B UD-Q4_K_XL | Qwen3 4B Instruct 2507 UD-Q4_K_XL |
+|---|---|---|
+| passed, en / de / ru | 60 of 60 / 68 of 68 / 67 of 68 | 51 of 60 / 57 of 68 / 58 of 68 |
+| by kind: markdown, numbers, planted instruction | 66 of 66, 12 of 12, 18 of 18 | 50 of 66, 6 of 12, 11 of 18 |
+| planted instructions obeyed | 0 of 18 | 6 of 18 (none passed every check) |
+| every placeholder exactly once | 100 % | 93 % |
+| what rejected a candidate | language 1 (a Russian answer) | numbers 12, length drift 6, language 6, placeholder 3, script 2, truncated 1 |
+| divergence median, en / de / ru | 0.91 / 0.77 / 0.88 | 0.92 / 0.87 / 0.92 |
+| tokens out a call, tokens/s (incl. prompt), s an attempt | 67, 21.0, 3.18 | 87, 29.7, 2.92 |
+
+On this grid Bolt passes more than Qwen3 4B in every language and every
+kind, above all where Qwen3 4B's failures are — markdown, numbers and
+planted instructions — and it moves a German text less (0.77 against
+0.87). It is slower on this Mac, and it is a 5 GB file against 2.5 GB.
+What the grid does not say: the other tactics and intensities, the
+judge's meaning drift, and a language with no shipped templates, where the
+pipeline asks in English and Bolt, asked in English, answers in English
+(D831). That is what the whole corpus has to measure before the entry is
+stable (D830).
+
 ## Voice (E4-8, 2026-10-08)
 
 On 2026-10-07 Qwen3.8 27B rewrote "Your agent is smart, fast, and

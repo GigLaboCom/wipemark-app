@@ -990,9 +990,21 @@ cargo test -p wipemark-engine --features llama-native --locked -- --ignored --te
 
 Each rewrites an English and a Russian text at temperature 0 and fails on
 a refusal, a template marker in the answer (`<think>`, `<|turn>`, …), a
-lost number, an answer not in the text's script, a copy, or a run to the
-token limit. `WIPEMARK_TEST_GPU_LAYERS_GEMMA4` / `_QWEN38` set
-`n_gpu_layers` (all, by default): Qwen3.8 27B UD-IQ3_S is 12 GB.
+lost number, an answer not in the text's script — or, for English and
+German, which share one, an answer with fewer of the language's common
+words than of the other's (D831) — a copy, or a run to the token limit.
+`WIPEMARK_TEST_GPU_LAYERS_GEMMA4` / `_QWEN38` set `n_gpu_layers` (all, by
+default): Qwen3.8 27B UD-IQ3_S is 12 GB.
+
+Nemotron 3.5 Bolt E4B, the catalogue's experimental entry, is held the
+same way by `WIPEMARK_TEST_GGUF_BOLT` (and `_GPU_LAYERS_BOLT`), over an
+English and a German text — two of the languages it was trained for
+(`nemotron_bolt_rewrites_in_english_and_german`). The German text is asked
+with the same instruction in German, as the pipeline asks for a German
+document (its templates are per language). Asked in English instead, Bolt
+answered the German text in English — "The updated software release,
+scheduled for 14. März, resolves 23 issues…" — which the script check let
+through and the words check fails.
 
 In a source build a GPU backend is built by naming it in the environment
 of every native command: `GGML_VULKAN=ON` (glslc and the Vulkan headers

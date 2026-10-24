@@ -7854,6 +7854,16 @@ impl SettingsView {
                                                 Message::SettingsModelsRecommended,
                                             )),
                                         ))
+                                    })
+                                    // Never beside the recommendation
+                                    // either: an experimental entry is
+                                    // never one (D830).
+                                    .when(card.experimental, |row| {
+                                        row.child(div().text_xs().text_color(muted).child(
+                                            SharedString::from(t(
+                                                Message::SettingsModelsExperimental,
+                                            )),
+                                        ))
                                     }),
                             )
                             .child(

@@ -1256,7 +1256,12 @@
   model runs. `a_constrained_machine_is_offered_the_small_model` is the
   gate; its roomy half now reads "the best entry this machine has room
   for" (E8-1's U6, D403), so an 18 GB Mac is offered Gemma 4 12B and a
-  64 GB box Qwen3.8 27B. The overlay is a `dialog`-shaped element in the main window's
+  64 GB box Qwen3.8 27B. **An experimental entry is never the
+  recommendation** (D830): `default_for_role` picks from
+  `Manifest::for_role`, stable entries only, while the selector lists
+  every entry on the machine (`Manifest::listed_for`, the experimental
+  after the stable); `no_machine_is_offered_an_experimental_entry` is the
+  gate. The overlay is a `dialog`-shaped element in the main window's
   own tree at the dialog priority; its backdrop swallows a click and
   does not answer to it (Skip is on screen for that), Enter is Next,
   Escape is Skip. "Run again" reaches the main window through

@@ -526,6 +526,28 @@ impl Manifest {
         found.sort_by(|a, b| b.quality_tier.cmp(&a.quality_tier).then(a.id.cmp(&b.id)));
         found
     }
+
+    /// Every entry serving `role` that a person may choose: the stable
+    /// ones best first, then the experimental ones best first (D830).
+    ///
+    /// [`Manifest::for_role`] is what a default is picked from, and an
+    /// experimental entry is never one; this is what a selector lists,
+    /// and an experimental entry downloaded is one the person asked for.
+    #[must_use]
+    pub fn listed_for(&self, role: Role) -> Vec<&ModelEntry> {
+        let mut found: Vec<&ModelEntry> = self
+            .models
+            .iter()
+            .filter(|entry| entry.serves(role))
+            .collect();
+        found.sort_by(|a, b| {
+            (a.status == Status::Experimental)
+                .cmp(&(b.status == Status::Experimental))
+                .then(b.quality_tier.cmp(&a.quality_tier))
+                .then(a.id.cmp(&b.id))
+        });
+        found
+    }
 }
 
 /// A single path segment that is safe to join onto a directory: no
@@ -665,6 +687,43 @@ mod tests {
         for entry in rewriters {
             assert_eq!(entry.status, Status::Stable);
         }
+    }
+
+    /// D830: an experimental entry is listed for its role after every
+    /// stable one, whatever its tier, and is never among the entries a
+    /// default is picked from.
+    #[test]
+    fn an_experimental_entry_is_listed_last_and_never_offered() {
+        let trial = entry("trial").replace(
+            r#""quality_tier": 5"#,
+            r#""quality_tier": 9, "status": "experimental""#,
+        );
+        let manifest = catalogue(&[entry("plain"), trial]).expect("a catalogue");
+        let listed: Vec<&str> = manifest
+            .listed_for(Role::Rewrite)
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect();
+        assert_eq!(listed, ["plain", "trial"]);
+        let offered: Vec<&str> = manifest
+            .for_role(Role::Rewrite)
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect();
+        assert_eq!(offered, ["plain"]);
+    }
+
+    /// D829: Nemotron 3.5 Bolt E4B ships as an experimental rewriter.
+    #[test]
+    fn the_shipped_bolt_is_an_experimental_rewriter() {
+        let manifest = Manifest::embedded().expect("embedded manifest");
+        let bolt = manifest
+            .get("nemotron-3.5-bolt-e4b-ud-q4")
+            .expect("the entry");
+        assert_eq!(bolt.status, Status::Experimental);
+        assert!(bolt.serves(Role::Rewrite));
+        assert!(manifest.listed_for(Role::Rewrite).contains(&bolt));
+        assert!(!manifest.for_role(Role::Rewrite).contains(&bolt));
     }
 
     /// D484: the shipped draft is Qwen3.8 27B's, it serves `draft` and

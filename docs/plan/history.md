@@ -376,6 +376,22 @@ result, an edited result asked about first
   owner's real data with the local build: the agent's calls, a restart,
   Remove, *Delete kept previews*, the switch, and a paste cleaned into
   Downloads, whose preview was kept again from its result.
+- **Nemotron 3.5 Bolt E4B, experimental** on `feat` (D829–D831, the owner,
+  2026-10-24: "давай поддержим просто это будет в след релизе"). NVIDIA's
+  post-training of Gemma 4 E4B joins the catalogue as unsloth's UD-Q4_K_XL,
+  the first entry with `"status": "experimental"`: listed, in the selector
+  once downloaded, "Experimental" on its card and in `models list`, never
+  recommended or a default — as a stable entry it would have become every
+  16 GB Mac's default over Qwen3 4B. Checked from its header and llama.cpp
+  at the pin before it was added (54 extra K/V tensors the pin creates as
+  optional; NVIDIA's Gemma 4 template, the bare opener); pulled and verified
+  by `models pull`; loaded and rewrote on Metal (an M3 Pro). Asked
+  in English it answers German and Russian text in English, so its live
+  gate asks the German text in German, as the pipeline does, and checks the
+  language by common words where the script cannot tell; the bench
+  (paraphrase, moderate, every third item) passed 195 of 196 attempts in
+  en/de/ru, Qwen3 4B 166 on the same grid that day. Its DFlash drafter is DFlash 1 and needs llama.cpp `b11808`:
+  not offered. Every protection deleted once went red.
 
 The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice

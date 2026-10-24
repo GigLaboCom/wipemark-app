@@ -345,7 +345,7 @@ mod tests {
     use super::{
         default_for_role, fit, Fit, Host, CONSTRAINED_UNIFIED_RAM_MAX_MB, CONSTRAINED_VRAM_MAX_MB,
     };
-    use crate::manifest::{Manifest, Role};
+    use crate::manifest::{Manifest, Role, Status};
 
     fn mac(ram_mb: u64) -> Host {
         Host {
@@ -545,6 +545,40 @@ mod tests {
             best.id,
             "an 18 GB Mac holds the best entry only tightly"
         );
+    }
+
+    /// D830: no machine is pointed at an experimental entry — not the
+    /// small Mac it would fit, not the roomy box, not the one too small
+    /// for anything.
+    #[test]
+    fn no_machine_is_offered_an_experimental_entry() {
+        let manifest = Manifest::embedded().expect("embedded manifest");
+        assert!(
+            manifest
+                .listed_for(Role::Rewrite)
+                .iter()
+                .any(|entry| entry.status == Status::Experimental),
+            "the catalogue ships an experimental rewriter for this to hold of"
+        );
+        let hosts = [8_192, 16_384, 18_432, 24_576, 36_864, 131_072]
+            .into_iter()
+            .map(mac)
+            .chain([
+                pc(512, None),
+                pc(16_384, None),
+                pc(16_384, Some(8_192)),
+                pc(32_768, Some(12_288)),
+                pc(65_536, Some(16_376)),
+            ]);
+        for host in hosts {
+            let offered = default_for_role(&manifest, Role::Rewrite, host).expect("a default");
+            assert_eq!(
+                offered.status,
+                Status::Stable,
+                "{host:?} got {}",
+                offered.id
+            );
+        }
     }
 
     /// No entry serves it, so nothing is invented for it.

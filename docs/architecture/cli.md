@@ -383,6 +383,14 @@ its own — and, while the application's `engine.local.speculative` row is
 `draft_for` and its model `draft` (`models_list_puts_the_draft_under_its_model`).
 It is pulled, verified and removed like any entry.
 
+**An experimental entry (D830).** Nemotron 3.5 Bolt E4B
+(`nemotron-3.5-bolt-e4b-ud-q4`) is listed with "experimental, never
+offered by default" after its fit, and every catalogue entry's
+`--json` carries its `"status"`, `"stable"` or `"experimental"`
+(`models_list_says_which_entry_is_experimental`). It is pulled, verified
+and removed like any entry, and rewrites when the application's
+`models.rewrite` names it.
+
 **`list [--json]`.** Every entry: id, name, roles, size, the state on
 this machine (`present` — every file matches, **wherever under the folder
 it was found** (D302); `absent`; `partial` with how far, which `pull`

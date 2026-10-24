@@ -54,7 +54,7 @@ use wipemark_models::gguf::{GgufError, Header, NotOffered, Offer};
 use wipemark_models::layout::Layout;
 use wipemark_models::user::{self, UserModel, UserState};
 use wipemark_models::{
-    fit, fit_mb, Cancel, Downloads, Fit, Host, Manifest, ModelEntry, Progress, Role, State,
+    fit, fit_mb, Cancel, Downloads, Fit, Host, Manifest, ModelEntry, Progress, Role, State, Status,
     StoreError,
 };
 
@@ -401,6 +401,7 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                     "roles": entry.roles.iter().map(|role| role.id()).collect::<Vec<_>>(),
                     "size_bytes": entry.total_bytes(),
                     "chosen": chosen,
+                    "status": entry.status,
                 });
                 if let Some(at) = found_at(entry) {
                     value["found_at"] = at.into();
@@ -564,6 +565,10 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                     "fit" => fit,
                 ),
             );
+            if entry.status == Status::Experimental {
+                line.push_str(" · ");
+                line.push_str(&say(Message::CliModelsExperimental, &FluentArgs::new()));
+            }
             if let Some(at) = found_at(entry) {
                 line.push_str(" · ");
                 line.push_str(&say(Message::CliModelsFoundAt, &args!("path" => at)));

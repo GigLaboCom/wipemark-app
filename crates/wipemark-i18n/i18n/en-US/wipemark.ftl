@@ -1050,6 +1050,9 @@ settings-models-host = This machine reports { $ram } MB of memory.
 settings-models-host-unknown = This machine's memory could not be read, so nothing below is judged against it.
 settings-models-fit-roomy = Room for this, with the rest of the machine still usable.
 settings-models-recommended = Recommended for this machine
+# D830: beside the name of a catalogue entry that is never recommended —
+# listed, downloadable and chosen only by the person.
+settings-models-experimental = Experimental
 settings-models-fit-tight = Would fit, with little left for anything else.
 # $short is whole megabytes.
 settings-models-fit-too-big = { $short } MB more memory than this machine has.
@@ -1738,6 +1741,8 @@ image-defect-inflate-limit = a compressed text decompresses past the limit this 
 cli-models-folder = Models folder: { $path }
 cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit }
 cli-models-chosen = chosen for rewriting
+# D830: a catalogue entry that is never recommended.
+cli-models-experimental = experimental, never offered by default
 # E2-dflash2: a draft, listed under the model it drafts for. $target is
 # that model's id.
 cli-models-draft-entry = { $id } · { $name } · a draft for { $target }, never used on its own · { $size } · { $state }

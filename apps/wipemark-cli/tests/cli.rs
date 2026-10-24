@@ -1918,6 +1918,34 @@ fn models_sizes_are_spelled_in_the_languages_decimals() {
     }
 }
 
+/// D830: an experimental entry says so on its line and in its JSON; a
+/// stable one says nothing on its line.
+#[test]
+fn models_list_says_which_entry_is_experimental() {
+    const BOLT: &str = "nemotron-3.5-bolt-e4b-ud-q4";
+    let scratch = Scratch::new("models-experimental");
+    let output = scratch.run(&["models", "list"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let text = stdout(&output);
+    let line = |id: &str| -> String {
+        text.lines()
+            .find(|line| line.starts_with(&format!("{id} ")))
+            .unwrap_or_else(|| panic!("{id} is not listed:\n{text}"))
+            .to_owned()
+    };
+    assert!(
+        line(BOLT).contains("experimental, never offered by default"),
+        "{text}"
+    );
+    assert!(!line(SMALL).contains("experimental"), "{text}");
+
+    let output = scratch.run(&["models", "list", "--json"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let answer = json(&output);
+    assert_eq!(model(&answer, BOLT)["status"], "experimental", "{answer}");
+    assert_eq!(model(&answer, SMALL)["status"], "stable", "{answer}");
+}
+
 /// E2-dflash2 (D488): Qwen3.8's draft is listed under the model it drafts
 /// for, says it is never used on its own, and says when the application's
 /// row keeps it from being used at all — by default since D503; `--json` names each from the

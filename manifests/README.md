@@ -78,6 +78,20 @@ cache, and whatever the target keeps for it (recurrent-state snapshots,
 the layer inputs the draft reads) — which `host::fit` adds to the
 target's.
 
+### `status` — an experimental entry is listed and never offered
+
+`stable` (the default) or `experimental` (D830). An experimental entry is
+on the Models page with its card saying so ("Experimental"), downloads,
+verifies and is removed like any other, and once it is on this machine it
+is in the role's selector after every stable one — but it is never the
+recommendation, never the default a first launch points at, and a machine
+is never moved onto it: `Manifest::for_role`, what a default is picked
+from, holds stable entries only (`no_machine_is_offered_an_experimental_entry`).
+`wipemark-cli models list` says it on the entry's line and as `"status"`
+in `--json`. It is how a model ships before the bench has measured it
+against the stable ones: its `quality_tier` orders it among the
+experimental entries and decides nothing else.
+
 ### `url` — pinned, always
 
 `hf://<owner>/<repo>@<commit>/<path>` resolves to Hugging Face's

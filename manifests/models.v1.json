@@ -46,6 +46,28 @@
       "notes": "Pinned to commit f18012b8, the last whose file is the one the local engine was measured on (E2-4: all 48 layers offloaded, 57 tokens a second); the repository's later re-upload carries an updated chat template that has not been checked against the renderer. Gemma 4's chat format is rendered by wipemark_llama::chat with thinking off (D181), because llama.cpp's built-in list does not know it. Memory: 6405 MiB of weights, about 832 MiB of context cache at 8192 tokens (Gemma 4 keeps Gemma 3's sliding 1024-token layers, so the cache is taken as Gemma 3 12B's) and about 1.3 GiB of compute buffer and overhead, rounded up to 8704 MiB. The header-based estimate over-states this model's cache several times over (its sliding layers are counted as full), which is why the figure is set here rather than computed; the resident memory measured after a load (D55) is the number to check it against."
     },
     {
+      "id": "nemotron-3.5-bolt-e4b-ud-q4",
+      "display": "Nemotron 3.5 Bolt E4B (UD-Q4_K_XL)",
+      "roles": ["rewrite"],
+      "format": "gguf",
+      "status": "experimental",
+      "files": [
+        {
+          "url": "hf://unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF@b738967d6da3441a7d1c71fcec15e49e32e16ecd/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf",
+          "sha256": "84ff34f5834b929043f5ae74799e8d562d4056998f6a5923ceb44831e8ad84d6",
+          "size_bytes": 5060482240
+        }
+      ],
+      "mem": { "min_ram_mb": 6656, "min_vram_mb": 6656 },
+      "ctx_default": 8192,
+      "quant": "UD-Q4_K_XL",
+      "quality_tier": 6,
+      "license": "openmdw-1.1",
+      "langs": ["en", "fr", "de", "zh", "ja", "pt", "vi", "it", "es", "ko", "hi", "ar"],
+      "vendor": "open-llm",
+      "notes": "Experimental (D830): listed, and chosen only by the person — never recommended, never a default, until the bench has measured it against the stable entries on the whole corpus; as a stable entry above Qwen3 4B it would have become every 16 GB Mac's default. NVIDIA's post-training of Gemma 4 E4B: 8B parameters, 4B effective (per-layer embeddings). unsloth's UD-Q4_K_XL, pinned at b738967d, rather than NVIDIA's own Q4_K_M (6.18 GB, its per-layer and token embeddings at Q8_0, no licence in its header): ungated, and its header names openmdw-1.1. It loads at the engine's pin: llama.cpp b10731 creates the K and V projections of its 18 shared-cache layers, which NVIDIA's conversion keeps and Gemma 4 E4B's files do not, as optional tensors. Its chat template is NVIDIA's updated Gemma 4 one, thinking off by default, rendered by wipemark_llama::chat with the bare opener; <turn|> ends a turn by its text, as the file names no end-of-turn token. Trained languages: en, fr, de, zh, ja, pt, vi, it, es, ko, hi, ar. Asked in English it answers German and Russian text in English; the pipeline asks for a German or Russian document in that language, and on the bench (paraphrase, moderate, every third item, an M3 Pro, Metal) 195 of 196 attempts passed, the one refusal a Russian answer in another language, against Qwen3 4B's 166 on the same grid that day. A document in a language with no shipped templates is asked in English and may come back translated, which the language check refuses. Memory: 4826 MiB of weights, about 168 MiB of KV cache at 8192 tokens (24 of its 42 layers keep one: 4 full-attention layers of two 512-wide heads, 20 sliding 512-token ones) and about 1.6 GiB of compute buffer and overhead, rounded up to 6656 MiB; on Metal at 4096 tokens the test process peaked at 4.6 GB, the per-layer embeddings read a row at a time. Not its DFlash drafter: NVIDIA's has no selector (DFlash 1, which the engine refuses, D481) and asks for llama.cpp b11808."
+    },
+    {
       "id": "qwen3-4b-instruct-2507-ud-q4",
       "display": "Qwen3 4B Instruct 2507 (UD-Q4_K_XL)",
       "roles": ["rewrite"],

@@ -22,6 +22,7 @@ state it can be in.
 | `gemma-4-12b-it-qat-ud-q4` | 6.7 GB | ~8704 MB | gemma | 9 |
 | `gemma-3-12b-it-qat-ud-q4` | 7.4 GB | ~9216 MB | gemma | 8 |
 | `qwen3-4b-instruct-2507-ud-q4` | 2.5 GB | ~4608 MB | apache-2.0 | 5 |
+| `nemotron-3.5-bolt-e4b-ud-q4` — **experimental** (below) | 5.1 GB | ~6656 MB | openmdw-1.1 | 6, among the experimental |
 | `qwen3.8-27b-dflash2-q4km` — a draft, not a rewriter (below) | 1.1 GB | ~2816 MB beside Qwen3.8 | apache-2.0 | — |
 
 Since E8-1 (U6, D403) the catalogue also carries the two models the owner
@@ -67,6 +68,59 @@ assumed:
 locally, under the user's control. Gemma is Google's open-weight family,
 and the entry's `notes` says so rather than letting the vendor field
 imply a lineage it does not describe.
+
+### An experimental entry: Nemotron 3.5 Bolt E4B (D829–D831)
+
+Since 2026-10-24 the catalogue ships **`nemotron-3.5-bolt-e4b-ud-q4`**,
+NVIDIA's post-training of Gemma 4 E4B (8B parameters, 4B effective — the
+per-layer embeddings), as unsloth's
+`NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf` at `b738967d`, 5 060 482 240
+bytes, sha256 `84ff34f5…e8ad84d6`, read off the tree API and confirmed by
+`wipemark-cli models pull` (downloaded and "matches the catalogue"). Not
+NVIDIA's own Q4_K_M: 6.18 GB, its per-layer and token embeddings at Q8_0,
+and no licence in its header; unsloth's is ungated and names
+`openmdw-1.1`.
+
+It is the first entry with **`"status": "experimental"`** (D830): its card
+says "Experimental", it downloads and is removed like any entry, and once
+it is on this machine it is in the rewrite selector after the stable
+ones — but it is never recommended, never the first launch's model, and
+no machine is moved onto it. As a stable entry at tier 6 it would have
+become the default of every 16 GB Mac, over Qwen3 4B
+(`a_constrained_machine_is_offered_the_small_model` goes red with the
+status filter deleted): a model the bench has not measured against the
+stable ones on the whole corpus, on the most common machine. `quality_tier`
+orders it among experimental entries only.
+
+What was checked before it was added, from its header and llama.cpp at the
+pin (D829):
+
+* **It loads at `b10731`.** Its architecture is `gemma4`, Gemma 4 E4B's
+  shape, but NVIDIA's conversion keeps the K and V projections of the 18
+  layers that share another's cache — 720 tensors where Gemma 4 E4B's
+  files have 666. The pin's `src/models/gemma4.cpp` creates `attn_k`,
+  `attn_v` and `attn_k_norm` for every layer, optional where the layer
+  has no cache of its own, so the count holds and the extra 54 are read
+  and never used.
+* **Its chat format is Gemma 4's, with the bare opener.** The template is
+  NVIDIA's "updated Gemma4 chat template", thinking off by default;
+  `<|channel>thought\n…<channel|>` is written only around a past turn's
+  reasoning, so `wipemark_llama::chat` renders it as E4B's
+  (`nemotron_bolt_is_rendered_as_its_template_renders_it`, the strings
+  llama.cpp's Jinja engine renders from the file).
+* **A turn ends.** The file names no end-of-turn token (Gemma 4 E4B's
+  says 106); the pin takes `<turn|>` as one by its text.
+* **Its languages** are en, fr, de, zh, ja, pt, vi, it, es, ko, hi and
+  ar (`general.languages`) — not Russian, which its base answered in
+  English at this pin (E2-4). Through the pipeline, which asks for a
+  Russian or German document in its language, the bench passed 195 of
+  196 attempts in en/de/ru, Qwen3 4B 166 on the same grid that day
+  ([prompt-bench.md](prompt-bench.md), "Nemotron 3.5 Bolt E4B").
+
+Its DFlash drafter (`nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB-DFlash`, and
+unsloth's `dflash-…-Q8_0.gguf`) is **not** offered: its header has no
+selector, so it is a DFlash 1 draft, which the engine refuses (D481); its
+card asks for llama.cpp `b11808`; and no draft is offered at all (D504).
 
 ### A draft (E2-dflash2, D484)
 
