@@ -21,7 +21,7 @@
 //! drop and concatenates them; the only bytes it ever computes are a
 //! WebP's RIFF size and two bits of its `VP8X` flags, and a JPEG's MP
 //! Index size of the first picture, and only when a block before it was
-//! removed. See `docs/architecture/images.md`.
+//! removed. See `dev/architecture/images.md`.
 //!
 //! # Status
 //!

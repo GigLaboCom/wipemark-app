@@ -11,7 +11,7 @@
 //! `R8d`'s since the owner's decisions of 2026-10-10). The restored raster is compared with
 //! the background inside the mark's box and four pixels around it (the
 //! ROI): PSNR, SSIM on luma (window 7) and CIEDE2000. Never over the whole
-//! picture. Plan: `docs/plan/E12-R5-recon-bench.md`; the host's commands are
+//! picture. Plan: `dev/plan/E12-R5-recon-bench.md`; the host's commands are
 //! `scripts/bench/README.md`.
 //!
 //! ```sh

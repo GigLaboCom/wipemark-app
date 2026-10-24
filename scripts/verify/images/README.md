@@ -15,7 +15,7 @@ Since E12-R1 a change to the picture crates is run over the whole corpus by `scr
 One folder per verification, named by the round whose work it verified
 and the commit it verified. The verdicts and figures are in the next
 round's task (Watchword FILE `wipemark-task-images-followups-<n+1>-…`,
-"What holds") and the implementer's reports in `docs/plan/reports/`.
+"What holds") and the implementer's reports in `dev/plan/reports/`.
 
 ## `round3-1a22a54/` — the third round's work at `1a22a54`
 
@@ -46,12 +46,12 @@ Findings: `wipemark-task-images-followups-5-2026-10-05` (V1–V5).
 
 ## `round5-4897d0b/` — the fifth round's work at `4897d0b`
 
-Report: `docs/plan/reports/images-followups-5-2026-10-05.md`.
+Report: `dev/plan/reports/images-followups-5-2026-10-05.md`.
 
 | script | what it was for |
 |---|---|
 | `repro.py` | the round's two new fixtures (`fine-1040-q98-444.jpg`, `scroll-1040-q90.webp`) rebuilt from the stickers byte for byte with Pillow 12.3.0 |
-| `mymut.py` | the verifier's own variants of 5V1, 5V2, 5V3 and 5V5, over `docs/plan/reports/images-followups-mutate.py`'s runner. **Edits the working tree and restores it** |
+| `mymut.py` | the verifier's own variants of 5V1, 5V2, 5V3 and 5V5, over `dev/plan/reports/images-followups-mutate.py`'s runner. **Edits the working tree and restores it** |
 | `gates.sh` | the same gate run as round 4's |
 
 ## At the top

@@ -23,7 +23,7 @@
 #             CPU-type one. No cmake, no clang, no glslc: only the Vulkan
 #             loader the archive's README asks for. No GPU and no model on a hosted
 #             runner: the `--ignored` live gate is not run here and still
-#             runs by hand (docs/architecture/local-engine.md, "Running the
+#             runs by hand (dev/architecture/local-engine.md, "Running the
 #             native gates"). The source build has its own workflow,
 #             llama-source.yml.
 #   macos   — the platform the GUI targets first, linted and tested:

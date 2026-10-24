@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R5 of the E12-R series (`docs/plan/E12-R5-recon-bench.md` §4.3),
+Step E12-R5 of the E12-R series (`dev/plan/E12-R5-recon-bench.md` §4.3),
 from the owner's spec `wipemark-recon-spec-2026-10-08` (`05-recon-bench.md`),
 dispatched by the coordinator on 2026-10-09. A user's file is degraded by
 whatever made it; every D247/D250/D252 figure was measured on Pillow 12.3.0's

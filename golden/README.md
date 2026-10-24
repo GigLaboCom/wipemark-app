@@ -4,7 +4,7 @@ Every change to `wipemark-pixels` or `wipemark-picture` is run over a fixed
 corpus of real pictures and compared with a baseline **file by file**, under
 the gates of the route the change says it touches (D492). The tool is
 `scripts/regress.py`; the plan is
-[`docs/plan/E12-R1-regression-harness.md`](../docs/plan/E12-R1-regression-harness.md).
+[`dev/plan/E12-R1-regression-harness.md`](../dev/plan/E12-R1-regression-harness.md).
 It is a host tool, like `scripts/verify/`, and not a gate of CI: CI has
 neither the corpus nor Python.
 
@@ -25,7 +25,7 @@ golden/baseline/4b5ba17/` is refused as "taken apart" unless the manifest
 is read as it was at `37a301e`. Its `reproduce.json` says FAIL on five
 §6.3 checks by design: those are R0's figures (the 4:4:4 texture, the
 4:2:0 fringe, the q90 refusals), and the decisions removed exactly them —
-`docs/plan/reports/E12-R-decided-2026-10-10.md`.
+`dev/plan/reports/E12-R-decided-2026-10-10.md`.
 
 **The owner's pictures never enter git.** The manifest names the Watchword
 key of each ZIP, the path inside it and each file's sha256; a run checks

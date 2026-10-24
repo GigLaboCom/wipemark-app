@@ -5,7 +5,7 @@
 #
 # Who asked, and when: the owner, 2026-10-07 ("запилить трей в линуксе
 # чтобы все уметь закрывать"); written with the Linux tray (E10,
-# docs/architecture/tray.md) so a launch that came up without an item can
+# dev/architecture/tray.md) so a launch that came up without an item can
 # be explained without reading the log.
 #
 # What it does, step by step — nothing is started, nothing is written:

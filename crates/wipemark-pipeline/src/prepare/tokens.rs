@@ -9,7 +9,7 @@
 //! (×1.39 on average): one English word is often one token whatever its
 //! length, which no per-character rule can see, and an overcount only
 //! makes a chunk smaller than its budget. The table is in
-//! `docs/architecture/pipeline.md`; the paragraphs are
+//! `dev/architecture/pipeline.md`; the paragraphs are
 //! `calibration.rs`, and a test holds the rule to them.
 
 /// The estimated token count of `text`: [`cost_milli`] rounded up.

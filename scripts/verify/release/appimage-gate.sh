@@ -5,7 +5,7 @@
 #
 # What it is for: the owner asked on 2026-10-12 for an AppImage like MnemoVi's,
 # with its gates; this is MnemoVi's scripts/ci/linux-launch-gate.sh for
-# Wipemark, and docs/plan/v1-release.md's P4/P6 for the AppImage. A floor
+# Wipemark, and dev/plan/v1-release.md's P4/P6 for the AppImage. A floor
 # check and a manifest both pass on an AppImage that cannot start; only
 # starting it on a machine that is not the builder says it starts.
 #
@@ -23,7 +23,7 @@
 #              picture fixtures/image/grok-x/HUVfYqgWkAAOhiJ.jpeg (exit 1,
 #              written: restored clean);
 #              `wipemark-cli inspect` over six inputs with the exits
-#              docs/architecture/cli.md gives them (listed in the leg);
+#              dev/architecture/cli.md gives them (listed in the leg);
 #              and, informational, where the application itself stops on a
 #              bare machine — a server is below its floor.
 #   display  Xvfb (-ac) and the X tools that look at it, and sqlite3 — kept
@@ -143,7 +143,7 @@ done <<EOF
 $rows
 EOF
 
-# inspect: the exits docs/architecture/cli.md gives these inputs — findings
+# inspect: the exits dev/architecture/cli.md gives these inputs — findings
 # 1, none 0, TIFF 2 (not in this version), a visible mark or C2PA 1.
 while read -r input want; do
   "$A" --cli inspect "/fixtures/$input" >"/out/inspect-$(basename "$input").log" 2>&1

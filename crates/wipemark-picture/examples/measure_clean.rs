@@ -2,7 +2,7 @@
 //! developer's tool (D162, D501).
 //!
 //! **What it is for.** Step E12-R12 of the E12-R series, stage 4a
-//! (`docs/plan/E12-R12-grok-thresholds-and-support.md` §4.1, filed
+//! (`dev/plan/E12-R12-grok-thresholds-and-support.md` §4.1, filed
 //! 2026-10-08 by the coordinator from the owner's spec
 //! `wipemark-recon-spec-2026-10-08`, `08-grok-evaluation.md` §5; the owner's
 //! S3), dispatched for Gemini on 2026-10-09. The bounds a restoration is

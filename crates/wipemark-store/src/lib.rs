@@ -427,7 +427,7 @@ impl Store {
         // delete the text, not leave it in a free page of the file for
         // anyone who opens it with a hex editor. The WAL can still hold a
         // copy until its next checkpoint; that is SQLite's, and stated in
-        // `docs/architecture/pipeline.md`.
+        // `dev/architecture/pipeline.md`.
         if let Err(error) = connection.execute_batch("PRAGMA secure_delete = ON;") {
             tracing::warn!(path = %self.path.display(), %error, "could not enable secure delete");
         }

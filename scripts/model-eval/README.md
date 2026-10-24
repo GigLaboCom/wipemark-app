@@ -1,7 +1,7 @@
 # Models after the restoration (E12-R10) — the host's runbook
 
 R10 answers "do we need a model?" with a measurement made **at a stated
-point, by a stated rule** (`docs/plan/E12-R10-model-evaluation.md`). "Not
+point, by a stated rule** (`dev/plan/E12-R10-model-evaluation.md`). "Not
 needed" is a result that closes the question. Two models, two jobs:
 **FDnCNN** removes the noise the codec left after the inverse (Gemini first,
 then Grok); **LaMa** makes up what is under a hole (Grok only — no Gemini map
@@ -58,7 +58,7 @@ Crops come from two places, in one layout (`evalkit.py`'s header):
        --baseline golden/baseline/<commit>/ --route lossy --select recon-jpeg-444 --select recon-jpeg-420 \
        --out reports/regress-r10-<date>/
    python3 scripts/model-eval/trigger.py fdncnn --run reports/regress-r10-<date>/ \
-       --out docs/plan/reports/E12-R10-fdncnn-decision-<date>.md
+       --out dev/plan/reports/E12-R10-fdncnn-decision-<date>.md
    ```
 
    If the owner has answered Q-R7, add the blind look (20 items):
@@ -91,7 +91,7 @@ Crops come from two places, in one layout (`evalkit.py`'s header):
    ```
 
    Copy `bench/out/<run>/fdncnn/report.md` into
-   `docs/plan/reports/E12-R10-fdncnn-<date>.md`.
+   `dev/plan/reports/E12-R10-fdncnn-<date>.md`.
 4. **The LaMa trigger** (§3.1), after R11 stage 1: it reads R11's
    `invariance.csv` as `scripts/grok/invariance.py run` wrote it (one row
    per source and size; a row with no support is left out and said), or a
@@ -100,7 +100,7 @@ Crops come from two places, in one layout (`evalkit.py`'s header):
 
    ```sh
    python3 scripts/model-eval/trigger.py lama --holes reports/r11/invariance/invariance.csv \
-       --out docs/plan/reports/E12-R10-lama-decision-<date>.md
+       --out dev/plan/reports/E12-R10-lama-decision-<date>.md
    ```
 
    "Grok has no holes: LaMa not evaluated" closes it.
@@ -157,7 +157,7 @@ composite that is checked is ours.
 
 | what | where it comes from | sha256 |
 |---|---|---|
-| `fdncnn_color.pth` | https://github.com/cszn/KAIR/releases/download/v1.0/fdncnn_color.pth (KAIR's model zoo) | `777dfba5d17a76de96229ac894376632fbb8fc6e33bff01355a75009448c68df` (read 2026-10-11, `docs/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md`) |
+| `fdncnn_color.pth` | https://github.com/cszn/KAIR/releases/download/v1.0/fdncnn_color.pth (KAIR's model zoo) | `777dfba5d17a76de96229ac894376632fbb8fc6e33bff01355a75009448c68df` (read 2026-10-11, `dev/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md`) |
 | KAIR, the network the export restates | https://github.com/cszn/KAIR, `models/network_dncnn.py` (`class FDnCNN`) | commit `fc1732f4a4514e42ce15e5b3a1e18c828af47a1e` (`--kair-commit`) |
 | `big-lama` (folder: `config.yaml`, `models/best.ckpt`) | LaMa's README, "Download pre-trained models" (`big-lama.zip`) | `best.ckpt` *to fill in*; `config.yaml` *to fill in* |
 | advimman/lama | https://github.com/advimman/lama | commit *to fill in* |

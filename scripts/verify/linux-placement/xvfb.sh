@@ -7,7 +7,7 @@
 #   wherever the desktop cascades new windows, not in the zone the Placement
 #   page names, and the window manager's own rectangle was then filed as the
 #   person's "manual" answer. Branch fix/linux-placement-x11, D611–D619,
-#   docs/plan/reports/linux-placement-x11-2026-10-12.md.
+#   dev/plan/reports/linux-placement-x11-2026-10-12.md.
 #
 #   The coordinator's rule for this check (2026-10-12): no mutter — a mutter
 #   started for an earlier experiment crashed and reached the owner's crash

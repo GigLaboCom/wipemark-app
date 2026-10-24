@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """live-check.py — the update check in a running debug build, on loopback
-(docs/sdd/self-update.md §8.8, step 1, as far as a debug build on a Mac goes).
+(dev/sdd/self-update.md §8.8, step 1, as far as a debug build on a Mac goes).
 
 What it is for: the coordinator's task of 2026-10-16 (self-update) — one live
 check at the end, for what a test cannot see: that the General page's row,

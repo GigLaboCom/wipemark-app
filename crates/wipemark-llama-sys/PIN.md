@@ -99,7 +99,7 @@ What the bump did **not** fix, and what was fixed beside it instead:
 3. `git merge-base --is-ancestor d8a24cc 0eadefe` holds: everything the
    previous pin carried is here, `fb83cc9` included.
 4. Measured at this pin on this machine (Ryzen 5 2600X, RTX 5070 Ti, Vulkan,
-   2026-10-04; `docs/plan/reports/E2-4-2026-10-04.md`): Qwen3 4B — the
+   2026-10-04; `dev/plan/reports/E2-4-2026-10-04.md`): Qwen3 4B — the
    whole native suite and the live gate; Gemma 4 12B — a rewrite in English
    and in Russian at 57 tokens/s, fully offloaded; Qwen3.8 27B UD-IQ3_S —
    the same rewrites at 10.9 tokens/s with 62 of 65 layers offloaded; Gemma
@@ -172,7 +172,7 @@ deliberate event, done in one commit:
    row. `every_copy_of_the_pin_agrees` fails while one of them is behind.
 4. Build from source: `vendor/fetch.sh`, then the three native gates and
    the live gate with `WIPEMARK_LLAMA_SOURCE=1`
-   (`docs/architecture/local-engine.md`, "Running the native gates").
+   (`dev/architecture/local-engine.md`, "Running the native gates").
 5. Check that the API `wipemark-llama`'s `ffi` module calls is unchanged in
    `include/llama.h` at **L** — when the header and the code disagree, the
    header wins. `git diff <old> <L> -- include/llama.h` is the list.

@@ -15,7 +15,7 @@
 #   fork's portal fix is seen to hold in the test-support build too.
 #   Since the GPUI bump (2026-10-07) no fork is used: the same check over
 #   gpui-pre 0.3.8 without patch B found no panic in the test-support
-#   build (docs/plan/reports/gpui-bump-startup-2026-10-07.md).
+#   build (dev/plan/reports/gpui-bump-startup-2026-10-07.md).
 #
 # What it does
 #   1. `cargo test -p wipemark-app --no-run --locked` — the same unit

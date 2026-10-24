@@ -1,7 +1,7 @@
 //! The planar inverse against the RGB one, file by file (E12-R6, D471) — a
 //! developer's tool, not a surface (D162, D501).
 //!
-//! Asked for by the E12-R6 step document (`docs/plan/E12-R6-planar-inverse.md`
+//! Asked for by the E12-R6 step document (`dev/plan/E12-R6-planar-inverse.md`
 //! §6.4: `max_alpha_dev_in_block`'s distribution and the out-of-range split
 //! per variant; §4.3: where `BLEND_LEVELS_C` sits), 2026-10-09.
 //!
@@ -32,7 +32,7 @@
 //!     fixtures/image/gemini/*-420.jpg [more.jpg …]
 //! ```
 //!
-//! It needs the zune-jpeg fork (`docs/architecture/zune-jpeg-pin.md`) and
+//! It needs the zune-jpeg fork (`dev/architecture/zune-jpeg-pin.md`) and
 //! nothing else; a file without planes is reported as such. Output: `r0` and
 //! `r6` side by side; `curve` maps an allowance to the share; a share over
 //! 0.01 is a refusal (the luma term stays at `BLEND_LEVELS`). Figures read off it are in the E12-R6 report.

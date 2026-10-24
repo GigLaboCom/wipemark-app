@@ -171,7 +171,7 @@ generate_linux() {
 # the OS with `icon_as_template` and the menu bar inverts it for us; on
 # Linux `tray::panel_image` derives the icon from that same template at
 # run time — the broom white over a dark outline (D342,
-# docs/architecture/tray.md) — rather than picking a file by theme. The
+# dev/architecture/tray.md) — rather than picking a file by theme. The
 # white files and the smaller sizes are read by nothing.
 generate_tray() {
     echo "=== tray ==="

@@ -664,7 +664,7 @@ fn the_engine_reports_what_it_is_and_where() {
 }
 
 /// The engine against a real OpenAI-compatible server — llama.cpp's own
-/// `llama-server` in the live check (`docs/architecture/remote-engine.md`):
+/// `llama-server` in the live check (`dev/architecture/remote-engine.md`):
 /// a completion, a cancel inside half a second, and the same seed giving
 /// the same answer twice when the server honours it.
 ///
@@ -773,7 +773,7 @@ async fn a_real_endpoint_answers_cancels_and_repeats_itself() {
         // Not this client: it sends the same body both times. A server
         // with a prompt cache (llama-server's default) evaluates a prompt
         // it has seen differently from one it has not, and the low bits of
-        // the logits move — docs/architecture/remote-engine.md,
+        // the logits move — dev/architecture/remote-engine.md,
         // "Reproducibility".
         eprintln!(
             "the server does not reproduce a seeded answer (a prompt cache? \

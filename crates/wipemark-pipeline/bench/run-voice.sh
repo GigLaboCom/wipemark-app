@@ -3,16 +3,16 @@
 # keep-voice variant, judged and reported with the voice measures (E4-8, V3).
 #
 # What it is for
-#   The coordinator's task docs/plan/E4-8-bench-voice.md (Watchword
+#   The coordinator's task dev/plan/E4-8-bench-voice.md (Watchword
 #   `wipemark-task-bench-voice-2026-10-08`, written 2026-10-08 for the owner)
 #   asks whether the keep-voice rule (crates/wipemark-pipeline/prompts/
 #   profiles/keep-voice since E4-9, the built-in template profile "Keep
 #   voice"; bench/variants/keep-voice before) should become the shipped
 #   templates. On one article and one
 #   model it brought the second person back at no cost in pairs left
-#   (docs/plan/reports/divergence-vs-upstream-2026-10-07.md); this run asks
+#   (dev/plan/reports/divergence-vs-upstream-2026-10-07.md); this run asks
 #   the same of the four local models over the whole en/ru/de corpus, and
-#   reads the voice measures (docs/architecture/prompt-bench.md, "Voice")
+#   reads the voice measures (dev/architecture/prompt-bench.md, "Voice")
 #   beside everything the bench measured before. It runs on the owner's host
 #   (a GPU, the models); the container that wrote it ran only --dry-run.
 #
@@ -85,7 +85,7 @@
 #     "### Voice — GPU 2 × 2, …": per model × tactic × intensity, the loop's
 #     pick (max ≥ 0.2) beside the least diverged (min ≥ 0.2); compare a
 #     model's row with its `+voice` row. What to read first is in
-#     docs/plan/reports/E4-8-bench-voice-2026-10-08.md, "The run on the host".
+#     dev/plan/reports/E4-8-bench-voice-2026-10-08.md, "The run on the host".
 #   timings.tsv — part, calls, seconds, seconds per call.
 #   Exit 2: refused before anything ran (a variable, a file, the cache).
 set -euo pipefail
@@ -100,7 +100,7 @@ GRID='paraphrase:light,moderate,strong:4;humanize:moderate,strong:2'
 EVERY=3
 MODELS="qwen3-4b gemma3-12b gemma4-12b qwen38-27b"
 # The judge's time per call: E4-5's, "about 30 minutes for 8 500
-# judgements" (docs/architecture/prompt-bench.md, "How to rerun").
+# judgements" (dev/architecture/prompt-bench.md, "How to rerun").
 JUDGE_SECS=0.21
 B=(cargo run -q --offline --locked -p wipemark-pipeline --features llama-native --example bench --)
 BUILD=(cargo build --offline --locked -p wipemark-pipeline --features llama-native --example bench)

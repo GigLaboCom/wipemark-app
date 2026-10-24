@@ -14,7 +14,7 @@
 # llama.cpp needs) and libstdcxx-floor (3.4.32, GCC 13, Ubuntu 24.04's
 # libstdc++6). libstdc++ is the host's (excludelist-policy), so its floor is
 # as load-bearing as glibc's. Anything that states a minimum to a person —
-# the release notes, docs/architecture/packaging.md — reads these files.
+# the release notes, dev/architecture/packaging.md — reads these files.
 #
 # What it does: for every ELF under <dir>, reads the UNDEFINED versioned
 # symbols (objdump -T, *UND* only — what an object requires, not what it

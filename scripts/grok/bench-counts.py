@@ -6,7 +6,7 @@ What it is for, and who asked
 The coordinator's task `wipemark-task-grok-x-mark-2026-10-11` (G5, 2026-10-11)
 asks for the bench with the shipped Grok profiles — the white mark over the
 bench's 60 flat and text backgrounds, the black one over their negatives, as
-the FDnCNN step ran it (`docs/plan/reports/E12-R10-grok-fdncnn-2026-10-11.sh`),
+the FDnCNN step ran it (`dev/plan/reports/E12-R10-grok-fdncnn-2026-10-11.sh`),
 slices png, jpeg420-q95 (X's own re-encode), jpeg420-q90 and resize-0.9, the
 product's config R8d — and for its proved / restored / refused counts and the
 median and 5th-percentile PSNR over the mark's ROI. `scripts/bench/report.py`

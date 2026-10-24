@@ -85,7 +85,7 @@ pub const DEFAULT_GRID: &str = "paraphrase:light,moderate,strong:4;humanize:mode
 /// own (`SamplingParams::default()`, base seed 0): `--temperature`,
 /// `--top-p`, `--min-p`, `--base-seed`. A bench knob only — the product's
 /// defaults are not moved by it (added for the divergence study,
-/// `docs/plan/reports/divergence-vs-upstream-2026-10-07.md`).
+/// `dev/plan/reports/divergence-vs-upstream-2026-10-07.md`).
 pub fn tune(args: &Args, options: &mut Options) {
     if let Some(v) = args.value("--temperature") {
         options.sampling.temperature = v.parse().expect("--temperature is a number");
@@ -678,7 +678,7 @@ mod tests {
 
     #[test]
     fn the_corpus_speaks_to_its_reader_in_every_language() {
-        // The figures in docs/plan/reports/E4-8-bench-voice-2026-10-08.md,
+        // The figures in dev/plan/reports/E4-8-bench-voice-2026-10-08.md,
         // "Host verification": `-- --nocapture` prints them.
         let corpus = the_corpus();
         let before: Vec<Item> = corpus

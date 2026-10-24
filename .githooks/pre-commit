@@ -5,6 +5,13 @@
 # Install: ./scripts/install-hooks.sh
 # Requires: gitleaks (https://github.com/gitleaks/gitleaks#installing)
 #
+# With the developer repository at dev/ (scripts/dev-checkout.sh) the scan
+# also holds the private rules in dev/gitleaks-local.toml: no developer
+# document, no path into a developer's machine, no machine's name and no
+# private infrastructure in a public commit. They are private because the
+# patterns name those things; without dev/ the scan is .gitleaks.toml's alone,
+# as in CI.
+#
 
 set -euo pipefail
 
@@ -18,9 +25,14 @@ if ! command -v gitleaks &>/dev/null; then
   exit 0
 fi
 
-echo "Running gitleaks on staged changes..."
+config=.gitleaks.toml
+if [ -f dev/gitleaks-local.toml ]; then
+  config=dev/gitleaks-local.toml
+fi
+
+echo "Running gitleaks on staged changes ($config)..."
 
 # --staged scans only what's about to be committed
-gitleaks git --staged --verbose --config .gitleaks.toml
+gitleaks git --staged --verbose --redact --config "$config"
 
 echo "No secrets detected."

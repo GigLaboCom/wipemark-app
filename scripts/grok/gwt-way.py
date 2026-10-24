@@ -11,7 +11,7 @@ using what this repository already has (R10's `scripts/model-eval/`, the
 first look's provisional `grok-x-dark` / `grok-x-light` profiles, the bench
 with `--catalogue`). The coordinator's task is Watchword FILE
 `wipemark-task-recon-grok-fdncnn-2026-10-11` (N1–N5); the report is
-`docs/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md`. Nothing here is in the
+`dev/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md`. Nothing here is in the
 product (D166, R10 §7): a pixel a model made is *reconstructed*, never
 *restored* (D499).
 
@@ -99,7 +99,7 @@ for `weights`, onnxruntime for `pictures` and `crops`):
         --out <md> [--inv-tiles <invert's tiles>]
     python3 scripts/grok/gwt-way.py selftest
 
-The whole sequence, with the bench, is `docs/plan/reports/
+The whole sequence, with the bench, is `dev/plan/reports/
 E12-R10-grok-fdncnn-2026-10-11.sh`.
 
 What it needs

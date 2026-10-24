@@ -30,7 +30,7 @@ wipemark-models.workspace = true
 tracing.workspace = true
 # Same log file shape as the app, in the same directory, under a
 # different stem. A hook that fails in CI leaves the same evidence a
-# window would. See docs/architecture/logging.md.
+# window would. See dev/architecture/logging.md.
 wipemark-log.workspace = true
 # A read-only open of `wipemark.db`: the `ui.language` the app saved
 # (`configured_language`); `models.dir` and `models.rewrite` for `models`

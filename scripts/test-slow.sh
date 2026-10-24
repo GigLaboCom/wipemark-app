@@ -38,7 +38,7 @@
 # Needs: the toolchain `rust-toolchain.toml` pins, nothing else.
 # Output: cargo test's; exit 0 when every test passed. On an Apple M3 Pro
 # with the build warm (2026-10-17): 748 s, the false-positive suite 266 s
-# of it (D805 in docs/plan/README.md).
+# of it (D805 in dev/plan/README.md).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

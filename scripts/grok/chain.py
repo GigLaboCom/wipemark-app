@@ -4,7 +4,7 @@
 What it is for
 --------------
 The E12-R close-out (the coordinator's task `wipemark-task-recon-closeout-grok-ready-2026-10-10`,
-2026-10-10; `docs/plan/E12-R-closeout-grok-ready.md`, K2–K3; D526–D528). `scripts/grok/run.sh` is the
+2026-10-10; `dev/plan/E12-R-closeout-grok-ready.md`, K2–K3; D526–D528). `scripts/grok/run.sh` is the
 one command from a folder of Grok captures to a proposed profile; the parts of it that read and write
 JSON and Markdown are here, so the shell script stays a list of steps. `selftest` is K3's guard: it runs
 `run.sh` end to end on stand-in captures (`scripts/grok/render.py`, the synthetic wordmark fixture — not
@@ -185,7 +185,7 @@ def summary(out, captures, manifest_path, stage0_path, date):
     steps = read_steps(out)
     lines = [f"# Grok chain — {date}", "",
              f"Written by `scripts/grok/run.sh` over `{captures}` (the steps: the script's header; the capture guide: "
-             "`docs/plan/E12-R-grok-capture-guide.md`). Every figure below is about these captures alone.", "",
+             "`dev/plan/E12-R-grok-capture-guide.md`). Every figure below is about these captures alone.", "",
              "## Steps", "", "| step | outcome | what |", "|---|---|---|"]
     for s in steps:
         lines.append(f"| {s['step']} | {s['status']} | {s['what'].replace('|', '/')} |")

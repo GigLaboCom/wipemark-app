@@ -5,7 +5,7 @@
 //! hook, and Fluent's U+2068/U+2069 isolates are exactly what Layer A
 //! removes. What is not a word is a format and is printed as itself: the
 //! code point, the character's Unicode name (an identifier of the
-//! standard, never translated — D16, `docs/architecture/i18n.md`), format
+//! standard, never translated — D16, `dev/architecture/i18n.md`), format
 //! and encoding names, paths and numbers.
 //!
 //! The lines, in order: a summary that never calls the text clean; the

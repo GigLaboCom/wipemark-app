@@ -2,7 +2,7 @@
 # update-keys.sh — make the update signing keys, once, on the owner's machine
 # (D782).
 #
-# What it is for: docs/sdd/self-update.md §3.2. A release statement is signed
+# What it is for: dev/sdd/self-update.md §3.2. A release statement is signed
 # with Ed25519, and the program believes a signature only by a key compiled
 # into it. Two keys from the first release that carries them:
 #   * the WORKING key, which signs; its private half goes to the GitHub

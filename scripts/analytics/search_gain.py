@@ -5,7 +5,7 @@ What it is for
 --------------
 The owner's question of 2026-10-11 (dispatched by the coordinator as
 `recon/search-gain-resampled`, decision D530,
-`docs/plan/reports/E12-R-search-gain-2026-10-11.md`): D470 keeps the
+`dev/plan/reports/E12-R-search-gain-2026-10-11.md`): D470 keeps the
 search from proving a mark at a row's place that the row refused by gain,
 but a resampled mark is at no row's place, so R5's bench marks drawn at
 `k = 0.93` are proved there by the search, while the real resized stickers

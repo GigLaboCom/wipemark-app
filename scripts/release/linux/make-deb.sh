@@ -3,7 +3,7 @@
 # of (D608).
 #
 # What it is for: the owner asked on 2026-10-12 for an AppImage like MnemoVi's,
-# and MnemoVi ships a .deb beside it; docs/plan/v1-release.md's P2 asked for
+# and MnemoVi ships a .deb beside it; dev/plan/v1-release.md's P2 asked for
 # one too. With the AppDir already laid out as a /usr tree, the .deb is that
 # tree with the opposite contract: an AppImage CARRIES what a machine may lack,
 # a .deb DECLARES it. So the libraries the policy marks SHIP are left out and

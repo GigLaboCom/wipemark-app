@@ -87,7 +87,7 @@
       "license": "apache-2.0",
       "langs": ["multi"],
       "vendor": "open-llm",
-      "notes": "4.0B parameters, 3.6B of them outside the embeddings. The 2507 Instruct build and not the hybrid Qwen3-4B on purpose: the hybrid reasons before it answers, and the measurement recorded in docs/sdd/layer-b-rewrite-reference.md is 9894 completion tokens against 12 for the same rewrite. A rewriter that thinks out loud is paying for tokens nobody reads. Estimated memory is 2429 MiB of weights, 1152 MiB of KV cache at 8192 tokens, and about 1 GiB of compute buffer and overhead."
+      "notes": "4.0B parameters, 3.6B of them outside the embeddings. The 2507 Instruct build and not the hybrid Qwen3-4B on purpose: the hybrid reasons before it answers, and the measurement recorded in dev/sdd/layer-b-rewrite-reference.md is 9894 completion tokens against 12 for the same rewrite. A rewriter that thinks out loud is paying for tokens nobody reads. Estimated memory is 2429 MiB of weights, 1152 MiB of KV cache at 8192 tokens, and about 1 GiB of compute buffer and overhead."
     },
     {
       "id": "qwen3.8-27b-ud-iq3s",

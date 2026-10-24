@@ -10,12 +10,12 @@
 //! class's ceiling for the scrubber to decide on (E1-3).
 //!
 //! The rules are spec A §4.2, made exact by decisions D19, D20, D34–D39
-//! (`docs/plan/README.md` §4) and by E1-2's precisions P4, P6, P8
-//! (`docs/plan/E1-2-classifier.md` §4.0). The design constraint under all
+//! (`dev/plan/README.md` §4) and by E1-2's precisions P4, P6, P8
+//! (`dev/plan/E1-2-classifier.md` §4.0). The design constraint under all
 //! of them is A §5.3's: **a rule never reads a character that can itself
 //! be removed** (D34), so what is kept on one pass is kept on the next —
 //! `what_is_kept_stays_kept_on_the_output` is that argument as a test.
-//! `docs/architecture/layer-a.md` › *Classes and context* is the long
+//! `dev/architecture/layer-a.md` › *Classes and context* is the long
 //! form.
 //!
 //! The pass is O(n): two pre-passes (right-to-left paragraphs, valid

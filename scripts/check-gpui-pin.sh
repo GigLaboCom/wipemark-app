@@ -19,7 +19,7 @@
 #   published gpui-pre-linux plus `vendor/gpui-pre-linux.patch`, for a file
 #   drop lost on the first try on X11 and on Wayland. Step 5 is what keeps
 #   that copy honest: the published crate and the patch, nothing else. See
-#   docs/architecture/gpui-pin.md.
+#   dev/architecture/gpui-pin.md.
 #
 # What it does, step by step
 #   1. Reads the root Cargo.toml's [workspace.dependencies]: every
@@ -47,7 +47,7 @@
 #      other than through the patch fails, naming the file.
 #   4. Asks `cargo metadata --locked` where the resolved `gpui-pre-linux`
 #      and `gpui-pre` sources are, and reads them for what protects the X11
-#      windows (docs/architecture/gpui-pin.md §2):
+#      windows (dev/architecture/gpui-pin.md §2):
 #        A. the stale first frame (zed #62081): after each foreground
 #           runnable the idle callback calls the `after_runnable` hook, and
 #           the X11 client sets that hook to `process_x11_events`;

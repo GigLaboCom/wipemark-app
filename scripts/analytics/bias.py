@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R4 of the E12-R series (`docs/plan/E12-R4-corpus-analytics.md`
+Step E12-R4 of the E12-R series (`dev/plan/E12-R4-corpus-analytics.md`
 §4.3), filed 2026-10-08 by the coordinator from the owner's spec
 `wipemark-recon-spec-2026-10-08` (`04-corpus-analytics.md` §3; the owner's
 S8: a bias only as profile data, D497). The restoration inverts

@@ -7,7 +7,7 @@ defect fixed on `integrate/e7-compare-save` under a test that is red
 without the fix. `CLAUDE.md` ("Tests must be able to fail") asks that each
 protection be deleted once and its test seen to go red. This script is
 that check for the two fixes, in the shape of
-`docs/plan/reports/E7-9-compare-save-2026-10-08-red.py`:
+`dev/plan/reports/E7-9-compare-save-2026-10-08-red.py`:
 
   * Reset is an edit the history keeps (`ResultEditor::replace_text`), so
     the edits autosave wrote over a moment after Reset are one Undo away;

@@ -57,5 +57,5 @@ needs it, not in anticipation. The script finds the corpus (a pulled
 `dev-staging/`, a `--from` path, `$WIPEMARK_FA_CORPUS`, or another
 checkout on this machine — the package is public, so the pull needs no
 token) and checks the rules above, and the Free attribution, before
-the file lands. `docs/architecture/icons.md` has the whole workflow, and
+the file lands. `dev/architecture/icons.md` has the whole workflow, and
 the note on handing one of these to a `gpui-component` control.

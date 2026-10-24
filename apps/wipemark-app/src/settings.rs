@@ -5876,7 +5876,7 @@ impl SettingsView {
                     // files have to be ours under *those* spellings or
                     // the button paints blank space and logs
                     // `asset not found` once a frame — see
-                    // docs/architecture/icons.md.
+                    // dev/architecture/icons.md.
                     .mask_toggle()
                     .disabled(!wanted),
             )

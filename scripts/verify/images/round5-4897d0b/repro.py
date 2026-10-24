@@ -5,7 +5,7 @@ What it is for
 --------------
 Written by the host verifier of the images series' fifth round (2026-10-05),
 which verified `images/series-v3` at `4897d0b` (V1-V5: tests and docs only;
-the round's report is `docs/plan/reports/images-followups-5-2026-10-05.md`)
+the round's report is `dev/plan/reports/images-followups-5-2026-10-05.md`)
 for the coordinator of `GigLaboCom/wipemark-app`.
 The round committed two fixtures cut from the owner's stickers —
 `fixtures/image/gemini/fine-1040-q98-444.jpg` (`10_this_is_fine`, the

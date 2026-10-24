@@ -1,7 +1,7 @@
 //! The OpenAI-compatible wire format: what is sent to
 //! `{base}/v1/chat/completions`, and what one streamed chunk says (D59).
 //!
-//! Upstream's request (`docs/sdd/layer-b-rewrite-reference.md` §1) is
+//! Upstream's request (`dev/sdd/layer-b-rewrite-reference.md` §1) is
 //! `model`, `messages`, `temperature` and `reasoning_effort`. Ours adds
 //! `stream: true` (the answer arrives as server-sent events), a `system`
 //! message when the request has one, `top_p`, `seed` and `max_tokens` —

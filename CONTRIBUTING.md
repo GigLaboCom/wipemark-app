@@ -9,10 +9,15 @@ around it, and make sure every gate passes before you push.
 Please submit **one pull request that does one thing**. It is easier to
 review, and it can be merged sooner.
 
+The developer documentation — the architecture documents, the plan and its
+decisions, the reports — is a private repository, cloned into `dev/` by
+`scripts/dev-checkout.sh`; a `dev/…` path below, and in the code's comments,
+names a document there.
+
 Before you change something, read the architecture document of whatever
-you touch ([docs/README.md](docs/README.md) lists them all). What a window
+you touch ([dev/README.md](dev/README.md) lists them all). What a window
 cannot do yet, its document says out loud. The rules that are not visible
-in the code are in [docs/architecture/rules.md](docs/architecture/rules.md),
+in the code are in [dev/architecture/rules.md](dev/architecture/rules.md),
 each with the test that holds it.
 
 ## GPUI and GPUI Kit
@@ -42,7 +47,7 @@ either way.
 upstream **`longbridge/gpui-kit`**, branch `next`, which holds every pull
 request of ours; nothing is carried. While a pull request we need waits
 upstream, the submodule may point at a personal fork for a while.
-[docs/architecture/gpui-pin.md](docs/architecture/gpui-pin.md) has every
+[dev/architecture/gpui-pin.md](dev/architecture/gpui-pin.md) has every
 move and why.
 
 **GPUI itself** comes from crates.io: the **`gpui-pre`** snapshots of Zed's
@@ -99,7 +104,7 @@ upstream.
 Read the code around your change first, and write what reads like it:
 the same comment density, the same naming, the same idiom.
 
-- One file per concern. [docs/architecture/map.md](docs/architecture/map.md)
+- One file per concern. [dev/architecture/map.md](dev/architecture/map.md)
   says what every crate and module owns, and
   `scripts/check-dep-direction.sh` holds the dependency direction
   (`core ← engine ← pipeline ← app/cli`). `wipemark-core` has no
@@ -110,7 +115,7 @@ the same comment density, the same naming, the same idiom.
   (`crates/wipemark-i18n/i18n/*/wipemark.ftl`), in English, German and
   Russian. Nothing a machine reads does, and nothing the MCP server says.
 - A choice that the code cannot show is recorded as a numbered decision in
-  [docs/plan/README.md](docs/plan/README.md) and cited where it lives
+  [dev/plan/README.md](dev/plan/README.md) and cited where it lives
   (`(D809)`).
 - Every script stays in the repository and opens with a header: what it is
   for, how to run it, and what its output means.
@@ -139,7 +144,7 @@ sudo apt-get install -y --no-install-recommends \
   libgtk-3-dev libayatana-appindicator3-dev
 ```
 
-[docs/development.md](docs/development.md) covers the rest: the local
+[dev/development.md](dev/development.md) covers the rest: the local
 engine's features, the run flags and the environment variables.
 
 ### Before you push
@@ -191,7 +196,7 @@ scripts/test-slow.sh
 No gate compiles llama.cpp. A change under `crates/wipemark-llama*` or
 `crates/wipemark-engine/src/local.rs` runs the native gates by hand; the
 third needs the catalogue's Qwen3 4B. The commands are in
-[docs/architecture/local-engine.md](docs/architecture/local-engine.md),
+[dev/architecture/local-engine.md](dev/architecture/local-engine.md),
 "Running the native gates".
 
 ### Checking a window by hand
@@ -269,6 +274,6 @@ samply record cargo run -p wipemark-app
 ## Where specs live
 
 Specs, tasks and reports live in Watchword, not in the repository;
-[docs/watchword.md](docs/watchword.md) lists them. Working copies go in
+[dev/watchword.md](dev/watchword.md) lists them. Working copies go in
 `ssd-docs/`, which is gitignored. Durable notes belong in `docs/`, and a
 spec is referred to by its Watchword key.

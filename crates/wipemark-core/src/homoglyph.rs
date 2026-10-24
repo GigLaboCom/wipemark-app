@@ -40,7 +40,7 @@
 //!
 //! # Where it is more precise than A §5.4
 //!
-//! H1–H9 in `docs/plan/E1-4-homoglyphs.md` §4.5 (H1–H5 = D41, H6 = D40,
+//! H1–H9 in `dev/plan/E1-4-homoglyphs.md` §4.5 (H1–H5 = D41, H6 = D40,
 //! H7 = D42), each with the test that goes red without it.
 //!
 //! H8 is a definition, not a protection: only *voting letters* are ever

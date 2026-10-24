@@ -1,6 +1,6 @@
 # The register proxy's list for English — what `bench report` counts as a
 # formal word when a rewrite brings in one the source did not have
-# (examples/bench/measure.rs, `register_new`; docs/architecture/prompt-bench.md,
+# (examples/bench/measure.rs, `register_new`; dev/architecture/prompt-bench.md,
 # "Voice"). A proxy, not a judgement: a word here can be plain in context,
 # and a rewrite can turn formal with words that are not here. It is only
 # ever compared between runs on the same corpus.

@@ -13,7 +13,7 @@
 //! role named here traces to something this repository already
 //! describes: [`Role::Rewrite`] is Layer B, [`Role::Detect`] and
 //! [`Role::Embed`] are the evaluator and the no-op guard of the
-//! selection loop (`docs/sdd/layer-b-rewrite-reference.md` §5–6),
+//! selection loop (`dev/sdd/layer-b-rewrite-reference.md` §5–6),
 //! [`Role::FillMask`] is the `mlm` tactic that survey records as a
 //! deliberate gap, and [`Role::Pixel`] is phase 2b. Only `rewrite`
 //! entries ship in v1; the others exist so that adding one later is a
@@ -109,7 +109,7 @@ pub enum ManifestError {
 /// with 3.03 tokens accepted a step (en ≈ 4.3, ru ≈ 1.3, de ≈ 1.6). Either
 /// the port does something per step that llama.cpp's own loop does not, or
 /// DFlash2 does not pay on Vulkan with a recurrent target; which one is not
-/// known yet (`scripts/verify/e2-dflash2/host-check.sh`,
+/// known yet (`dev/scripts/verify/e2-dflash2/host-check.sh`,
 /// `crates/wipemark-pipeline/bench/results/dflash-2026-10-10/`). Turned on
 /// again only once a draft is measured faster on a machine of ours.
 pub const DRAFTS_OFFERED: bool = false;
@@ -129,7 +129,7 @@ pub enum Role {
     /// MarkLLM-style detector.
     Detect,
     /// Masked-language infilling: the `mlm` tactic. Recorded in
-    /// `docs/sdd/layer-b-rewrite-reference.md` as a deliberate gap, and
+    /// `dev/sdd/layer-b-rewrite-reference.md` as a deliberate gap, and
     /// named here so filling it is a catalogue edit.
     FillMask,
     /// Sentence embeddings, for the similarity floor that stops the
@@ -154,7 +154,7 @@ impl Role {
     ];
 
     /// The stable id. A **format** — it appears in the manifest, so it
-    /// is never localized (see `docs/architecture/i18n.md`).
+    /// is never localized (see `dev/architecture/i18n.md`).
     #[must_use]
     pub fn id(self) -> &'static str {
         match self {

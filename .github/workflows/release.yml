@@ -1,4 +1,4 @@
-# wipemark — the release lane (docs/plan/v1-release.md, P1; D609, D775–D779).
+# wipemark — the release lane (dev/plan/v1-release.md, P1; D609, D775–D779).
 #
 #   linux   the AppImage and the .deb, built in the pinned builder image
 #           (ci/linux-builder, Ubuntu 24.04, D600) by
@@ -253,7 +253,7 @@ jobs:
             echo "All six APPLE_* secrets are set: Developer ID and notarization."
           elif [ "${#have[@]}" -eq 0 ]; then
             echo "mode=adhoc" >> "$GITHUB_OUTPUT"
-            echo "::warning title=macOS not signed::No APPLE_* secret is set: the .dmg is signed ad hoc and not notarized (docs/architecture/packaging.md, the owner's checklist)."
+            echo "::warning title=macOS not signed::No APPLE_* secret is set: the .dmg is signed ad hoc and not notarized (dev/architecture/packaging.md, the owner's checklist)."
           else
             echo "::error title=macOS signing half set up::Set: ${have[*]}. Missing: ${missing[*]}. Set all six or none (D775)."
             exit 1
@@ -332,7 +332,7 @@ jobs:
               echo "**Signed ad hoc, not notarized.** No APPLE_* secret is set on this repository,"
               echo "so macOS blocks a downloaded copy on its first open until the person allows it"
               echo "in System Settings › Privacy & Security, and the release notes must say so (D583)."
-              echo "The secrets to add: docs/architecture/packaging.md, \"The owner's checklist\"."
+              echo "The secrets to add: dev/architecture/packaging.md, \"The owner's checklist\"."
             fi
             echo
             echo "Size $(du -h "$dmg" | cut -f1); sha256 \`$(cut -d' ' -f1 "$dmg.sha256")\`."
@@ -450,7 +450,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.platform == 'publish-update')
     runs-on: ubuntu-24.04
     # Admits only wipemark-v* tags (the owner's checklist in
-    # docs/architecture/packaging.md): a branch cannot reach the key.
+    # dev/architecture/packaging.md): a branch cannot reach the key.
     environment: releases
     timeout-minutes: 60
     permissions:
@@ -486,13 +486,13 @@ jobs:
             echo "The three update secrets are set: the release's statements are signed and published."
           elif [ "${#have[@]}" -eq 0 ]; then
             echo "mode=skip" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Update not published::No update secret is set in the Environment 'releases': nothing is signed or published to releases.giglabo.com, and no installation is offered this version (docs/architecture/packaging.md, the owner's checklist)."
+            echo "::notice title=Update not published::No update secret is set in the Environment 'releases': nothing is signed or published to releases.giglabo.com, and no installation is offered this version (dev/architecture/packaging.md, the owner's checklist)."
             {
               echo "### Update not published"
               echo
               echo "No update secret is set in the Environment \`releases\`, so this release's files were not signed or"
               echo "published to releases.giglabo.com. Installations are not offered it. The secrets to add:"
-              echo "docs/architecture/packaging.md, \"The owner's checklist\"."
+              echo "dev/architecture/packaging.md, \"The owner's checklist\"."
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::error title=Update half set up::Set: ${have[*]}. Missing: ${missing[*]}. Set all three or none."

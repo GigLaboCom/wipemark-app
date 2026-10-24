@@ -20,7 +20,7 @@ directories.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 # The downloader. Blocking, on a caller-owned thread — see
-# src/store.rs and docs/architecture/model-downloads.md.
+# src/store.rs and dev/architecture/model-downloads.md.
 ureq.workspace = true
 sha2.workspace = true
 hex.workspace = true

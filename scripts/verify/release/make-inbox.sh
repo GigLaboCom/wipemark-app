@@ -2,7 +2,7 @@
 # make-inbox.sh — the files the owner's acceptance of 0.1.0 is run on.
 #
 # What it is for: the owner asked on 2026-10-12 to start accepting the first
-# release (docs/plan/v1-release.md §3). Steps A2–A4 need a text with
+# release (dev/plan/v1-release.md §3). Steps A2–A4 need a text with
 # invisible characters, pictures carrying Gemini's and Grok's marks and
 # AI metadata, a camera photo whose EXIF must survive, and two short texts
 # to rewrite. This script puts them in one folder.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # statement.sh — the release statement of one artifact (D781).
 #
-# What it is for: docs/sdd/self-update.md §2.2. Every artifact the release
+# What it is for: dev/sdd/self-update.md §2.2. Every artifact the release
 # service serves for Wipemark carries a `sig`, an Ed25519 signature over a
 # statement of eight lines that bind what the application acts on: the
 # channel, the version, the platform, the format, the file, its size and its

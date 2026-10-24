@@ -1470,7 +1470,7 @@ cli-arg-language = Language for messages and help, as a BCP-47 tag such as de or
 ## plain text (`Rendering::PlainText`). What a machine reads is not here:
 ## `--json`, the code point and the character's Unicode name (an
 ## identifier of the standard, never translated — see
-## docs/architecture/i18n.md), format and encoding names, and paths.
+## dev/architecture/i18n.md), format and encoding names, and paths.
 ## $source is a path exactly as typed, or `cli-report-stdin`.
 
 cli-report-stdin = standard input

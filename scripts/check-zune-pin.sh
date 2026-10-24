@@ -39,7 +39,7 @@
 # per broken rule and exit 1. A zune-jpeg that is not ours in the table
 # (`image`'s and `tiff`'s crates.io 0.5.15, `resvg`'s 0.4.21) is
 # expected: those crates decode for themselves, never for a picture of
-# ours. docs/architecture/zune-jpeg-pin.md has the why.
+# ours. dev/architecture/zune-jpeg-pin.md has the why.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

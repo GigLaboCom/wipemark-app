@@ -10,13 +10,13 @@
 #   arrived before the file list it had asked for, and the late list then
 #   left a stale drag behind — so the *second* drop landed, with whatever the
 #   first had carried. The fix is carried in vendor/gpui-pre-linux (D620–D623,
-#   docs/architecture/gpui-pin.md §2, docs/architecture/drag-and-drop.md).
+#   dev/architecture/gpui-pin.md §2, dev/architecture/drag-and-drop.md).
 #   The unit tests hold the decision; this holds the whole road — a real X
 #   server, the real application, its queue — with the race made certain.
 #   Acceptance F15 (the owner, 2026-10-12): a text dragged out of a browser
 #   or an editor was taken by no window on Linux; the carried crate now hands
 #   it over as a private drop file that drop.rs reads back as a text and
-#   removes (D653–D659, docs/plan/reports/linux-text-drop-2026-10-12.md).
+#   removes (D653–D659, dev/plan/reports/linux-text-drop-2026-10-12.md).
 #   Steps e–i check that road.
 #   Acceptance F15b (the owner, 2026-10-12, GNOME on Wayland, the
 #   application under XWayland): a text from a Wayland-native application was
@@ -25,7 +25,7 @@
 #   pointer being stale while a Wayland client drags. Steps j–o check the
 #   fallback through the offered types and TARGETS, a refusal of everything,
 #   mutter's XdndLeave right after XdndDrop, and the position taken from
-#   XdndPosition (D696–D701, docs/plan/reports/linux-text-drop-2-2026-10-12.md).
+#   XdndPosition (D696–D701, dev/plan/reports/linux-text-drop-2-2026-10-12.md).
 #
 # What it does, step by step
 #   1. Starts Xvfb on $XDISPLAY (default :96; refused if taken) and a private

@@ -9,7 +9,7 @@
 #   resize on an 8 MiB text (compare::TEXT_LIMIT) and on a 200-paragraph prose
 #   document. If a resize frame exceeds 16 ms, say so with figures." This is
 #   that measurement; the report is
-#   docs/plan/reports/E7-11-compare-spacer-rows-2026-10-12.md, D677.
+#   dev/plan/reports/E7-11-compare-spacer-rows-2026-10-12.md, D677.
 #
 # What it does, step by step
 #   1. Writes the two documents with make-fixture.py beside it into a scratch

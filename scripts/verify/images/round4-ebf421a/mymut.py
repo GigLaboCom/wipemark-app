@@ -7,7 +7,7 @@ Written by the host verifier of the images series' fourth round (2026-10-05),
 which verified `images/series-v3` at `ebf421a` (the D250-D253 texture
 criterion, U2) for the coordinator of `GigLaboCom/wipemark-app`; findings:
 Watchword FILE `wipemark-task-images-followups-5-2026-10-05`, "What holds".
-Besides `docs/plan/reports/images-followups-mutate.py` (76 of 76 red), the
+Besides `dev/plan/reports/images-followups-mutate.py` (76 of 76 red), the
 verifier broke the texture criterion where it read it: `TEXTURE_LEVELS` 5.0
 and 6.0, roughness over luma only, "around" taken over the band or empty, a
 lossy WebP decoded as lossless, `texture_left` on any source, the

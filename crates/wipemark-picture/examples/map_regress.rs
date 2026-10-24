@@ -2,7 +2,7 @@
 //! not a feature, a developer's tool (D162), as `measure_map` is.
 //!
 //! **What it is for.** Step E12-R4 of the E12-R series
-//! (`docs/plan/E12-R4-corpus-analytics.md` §4.4, filed 2026-10-08 by the
+//! (`dev/plan/E12-R4-corpus-analytics.md` §4.4, filed 2026-10-08 by the
 //! coordinator from the owner's spec `wipemark-recon-spec-2026-10-08`,
 //! `04-corpus-analytics.md` §4; D240, D243). `gemini-v1-96-measured` was
 //! fitted by `measure_map` over one saturated-green background *assuming*

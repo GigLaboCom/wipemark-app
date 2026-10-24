@@ -5,9 +5,9 @@ What it is for
 --------------
 Written by the host verifier of the images series' fifth round (2026-10-05),
 which verified `images/series-v3` at `4897d0b` (V1-V5: tests and docs only;
-the round's report is `docs/plan/reports/images-followups-5-2026-10-05.md`)
+the round's report is `dev/plan/reports/images-followups-5-2026-10-05.md`)
 for the coordinator of `GigLaboCom/wipemark-app`.
-Besides `docs/plan/reports/images-followups-mutate.py` (its 5V1-5V5 all
+Besides `dev/plan/reports/images-followups-mutate.py` (its 5V1-5V5 all
 red), the verifier wrote its own variants of each new protection, to check
 the tests guard the behaviour and not only the one edit the implementer
 chose: the texture sentence's "around" figure taken from `texture` (own-V1b),
@@ -20,7 +20,7 @@ as expected.
 What it does
 ------------
 **It edits the working tree.** It loads
-`docs/plan/reports/images-followups-mutate.py` for its `mutate` (apply one
+`dev/plan/reports/images-followups-mutate.py` for its `mutate` (apply one
 exact text, run the body, restore from memory whatever happens) and `run`
 (`cargo test --locked … -- <name>`), applies each of its own mutations
 alone, and runs the named tests. A text not there exactly once is `NOT
@@ -45,7 +45,7 @@ gap, `NOCOMPILE` no evidence, then the cargo command.
 import importlib.util, os, sys
 os.chdir(os.environ.get("WIPEMARK_REPO") or os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..")))
-s = importlib.util.spec_from_file_location('m', 'docs/plan/reports/images-followups-mutate.py')
+s = importlib.util.spec_from_file_location('m', 'dev/plan/reports/images-followups-mutate.py')
 m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
 CLI, PIC, VISIBLE = m.CLI, m.PIC, m.VISIBLE
 MY = [

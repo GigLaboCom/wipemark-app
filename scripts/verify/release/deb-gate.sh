@@ -7,7 +7,7 @@
 # scripts/ci/linux-deb-install-gate.sh, whose point is its third question: a
 # library satisfied by a package the .deb does not declare is satisfied by
 # accident (MnemoVi's libgomp1). This is that gate for Wipemark, plus the
-# uninstall half of acceptance A12 (docs/plan/v1-release.md §3).
+# uninstall half of acceptance A12 (dev/plan/v1-release.md §3).
 #
 # What it does, in a container from the builder's pinned ubuntu:24.04, as
 # root (apt needs it; nothing is written to the host):

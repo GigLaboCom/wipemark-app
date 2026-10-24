@@ -1,7 +1,7 @@
 # `scripts/analytics/` — four questions the corpus answers with numbers
 
 Step E12-R4 of the E12-R series
-([`docs/plan/E12-R4-corpus-analytics.md`](../../docs/plan/E12-R4-corpus-analytics.md)).
+([`dev/plan/E12-R4-corpus-analytics.md`](../../dev/plan/E12-R4-corpus-analytics.md)).
 Before any change to the blend model, the map, the rows or `L`, four
 questions are answered from real files, as numbers and not as opinions;
 R9's three changes (R2b, R-lm, R-lin) exist only if these answers ask for
@@ -104,4 +104,4 @@ the other shapes, `"resample": true`) is refused by `bias.py` and
 `forced_search` takes every verified row, resampled or not.
 
 What each figure means, and what to expect, is in each tool's header and in
-the step's report (`docs/plan/reports/E12-R4-*.md`).
+the step's report (`dev/plan/reports/E12-R4-*.md`).

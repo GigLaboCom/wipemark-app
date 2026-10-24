@@ -9,7 +9,7 @@
 //!
 //! Nothing outside this module may depend on a table's layout — only on
 //! the functions below, which are the contract later E1 documents build
-//! against (`docs/plan/README.md` §3.3). The one exception is `NAME`,
+//! against (`dev/plan/README.md` §3.3). The one exception is `NAME`,
 //! which `name.rs` reads.
 //!
 //! Each property is kept **as published**. Where Layer A wants something

@@ -22,7 +22,7 @@
 //!   decode steps. Its llama.cpp is `wipemark-llama`, code copied into
 //!   this repository from a closed project at a named commit and pinned to
 //!   one llama.cpp commit (D45, `crates/wipemark-llama-sys/PIN.md`,
-//!   `docs/architecture/local-engine.md`). `local-llama` alone compiles it
+//!   `dev/architecture/local-engine.md`). `local-llama` alone compiles it
 //!   over a shim that refuses every load; `llama-native` builds llama.cpp
 //!   into it. The application's `duty::engine_for` hands it out, and its
 //!   `EngineHost` decides when it is loaded (E2-2).

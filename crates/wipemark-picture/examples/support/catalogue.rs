@@ -1,6 +1,6 @@
 //! A mark catalogue read from a file — the `--catalogue FILE` road of the
 //! developer tools (`recon_bench`, `measure_clean`), added by E12-R12's
-//! stage 4b on 2026-10-09 (`docs/plan/E12-R12-grok-thresholds-and-support.md`
+//! stage 4b on 2026-10-09 (`dev/plan/E12-R12-grok-thresholds-and-support.md`
 //! §4.1–§4.2). Not a surface (D162): the product reads the compiled-in
 //! catalogue and nothing else.
 //!

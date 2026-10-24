@@ -147,7 +147,7 @@ ctrlc = "3"
 # `scripts/check-gpui-pin.sh` is the gate: `=x.y.z` here, one version,
 # equal to the component's, and one copy of each `gpui-pre*` crate in the
 # lock with no zed git source. A bump moves this and the submodule
-# together, never one alone. See docs/architecture/gpui-pin.md.
+# together, never one alone. See dev/architecture/gpui-pin.md.
 #
 # The snapshot carries one crate of ours: gpui-pre-linux, through
 # `[patch.crates-io]` at the end of this file, for the file drop lost on the
@@ -157,7 +157,7 @@ ctrlc = "3"
 # `RefCell already mutably borrowed` panic. `scripts/check-gpui-pin.sh`
 # reads the resolved sources for both, so a snapshot that loses either is
 # a red gate rather than a window that misbehaves. See
-# docs/architecture/gpui-pin.md §2.
+# dev/architecture/gpui-pin.md §2.
 gpui = { package = "gpui-pre", version = "=0.3.8" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
 
@@ -193,7 +193,7 @@ gpui-base = { path = "vendor/gpui-component/crates/base" }
 # 0.5.15 and every crate of ours gets the fork's. `version` makes Cargo
 # check the fork still is the pre-release this was written for. The fork
 # goes once upstream releases raw output with the getter. D490;
-# docs/architecture/zune-jpeg-pin.md.
+# dev/architecture/zune-jpeg-pin.md.
 zune-jpeg = { git = "https://github.com/GigLaboCom/zune-image", rev = "e8d24f7e6007d74116bffe320ffff639e47eb702", version = "=0.5.16-rc2" }
 
 wipemark-core = { path = "crates/wipemark-core" }
@@ -279,7 +279,7 @@ codegen-units = 1
 # request (the owner, 2026-10-12). `scripts/check-gpui-pin.sh` fails when the
 # directory is anything but the published crate with that patch applied. It
 # goes when upstream fixes the race: delete the directory, the patch, these
-# lines and the `exclude` entry. See docs/architecture/gpui-pin.md §2.
+# lines and the `exclude` entry. See dev/architecture/gpui-pin.md §2.
 [patch.crates-io]
 gpui-pre-linux = { path = "vendor/gpui-pre-linux" }
 

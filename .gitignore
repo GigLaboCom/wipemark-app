@@ -22,10 +22,17 @@ Cargo.lock.bak
 # the pin (PIN.md), not source this repository maintains.
 /crates/wipemark-llama-sys/vendor/llama.cpp/
 
+# ── The developer documentation (dev/) ───────────────────────────────
+# Plans, decisions, reports, architecture notes and the working notes are
+# the private GigLaboCom/wipemark-dev, cloned here by
+# scripts/dev-checkout.sh. Its own repository, never this one's. No trailing
+# slash: in a linked worktree dev is a link to the main copy's dev/.
+/dev
+
 # ── Local spec / design drops (ssd-docs) ─────────────────────────────
 # Watchword-sourced specs and working design documents land here so they
 # sit next to the code without ever being committed. Anything durable
-# belongs in docs/ instead; the canonical copy of a spec is its
+# belongs in dev/ instead; the canonical copy of a spec is its
 # Watchword key.
 /ssd-docs/
 
@@ -52,7 +59,7 @@ Thumbs.db
 # The prompt bench's raw records and judgements (texts included) under a
 # run's results directory — e.g. bench/run-voice.sh's voice-<date>/. A
 # run's tables.md and summary.json are what may be committed
-# (docs/architecture/prompt-bench.md).
+# (dev/architecture/prompt-bench.md).
 /crates/wipemark-pipeline/bench/results/*/runs/
 /crates/wipemark-pipeline/bench/results/*/judge.jsonl
 
@@ -85,7 +92,7 @@ Thumbs.db
 # an unpacked tarball is the same thing by another road, and
 # package-lock.json records the resolved registry URL. The build reads
 # only the promoted SVGs, which are committed. See
-# docs/architecture/icons.md.
+# dev/architecture/icons.md.
 /dev-staging/node_modules/
 /dev-staging/fontawesome-free/
 /dev-staging/package-lock.json
@@ -99,7 +106,7 @@ Thumbs.db
 
 # ── Scratch clones / upstream reference checkouts ────────────────────
 # Third-party repositories cloned for reference (e.g. the
-# watermarks-remover survey in docs/sdd/). Read-only, never vendored:
+# watermarks-remover survey in dev/sdd/). Read-only, never vendored:
 # vendoring goes through .gitmodules so the rev is pinned and the
 # licence is recorded in NOTICE.
 /tmp/

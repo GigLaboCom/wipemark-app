@@ -4,9 +4,9 @@
 //! separated by `\n\n---\n`, no chunking, no guards, no selection — so its
 //! answer can be measured beside the loop's on the same model and engine.
 //!
-//! Added for `docs/plan/reports/divergence-vs-upstream-2026-10-07.md`. The
+//! Added for `dev/plan/reports/divergence-vs-upstream-2026-10-07.md`. The
 //! instruction is read from `--prompt <file>` rather than written here:
-//! `docs/plan/reports/divergence-vs-upstream/prepare.py` extracts it from an
+//! `dev/plan/reports/divergence-vs-upstream/prepare.py` extracts it from an
 //! upstream clone under `tmp/`, so nothing of upstream's is vendored.
 //!
 //! ```sh

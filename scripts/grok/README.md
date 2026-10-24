@@ -16,7 +16,7 @@ scripts/grok/run.sh <captures dir> [--out reports/grok-<date>/] [--cli-with-prof
 ```
 
 From a folder of the owner's captures, laid out as
-[`docs/plan/E12-R-grok-capture-guide.md`](../../docs/plan/E12-R-grok-capture-guide.md)
+[`dev/plan/E12-R-grok-capture-guide.md`](../../dev/plan/E12-R-grok-capture-guide.md)
 says (`web/`, `x/`, `api/`, `video/`, an optional `grok.toml`), through R2's
 stage 0 (`scripts/corpus/manifest.py grok`), the stored ZIP for Watchword,
 stage 1 below, R11's stages 2–3 (`manifest.py captures`, `calibrate`) to a
@@ -30,9 +30,9 @@ with what a person has to look at. The header of `run.sh` has every option.
 |---|---|
 | `run.sh` | the chain above |
 | `chain.py` | its helpers (`catalogue`, `degradations`, `summary`) and its self-test: `run.sh` end to end on stand-ins |
-| `first-look.py` | the first look from a handful of real outputs (2026-10-11): where the mark is and the size/margin laws, which variant (dark/light) each picture carries, the dark map from a flat picture, a provisional two-profile `--catalogue` file (`look`); the product on the pictures through it, with an inverted and a control measurement (`product`). Report: `docs/plan/reports/E12-R11-grok-first-look-2026-10-11.md` |
-| `gwt-way.py` | Grok's mark taken off GeminiWatermarkTool's way — the inverse, then FDnCNN — against ours (2026-10-11): GWT's embedded network against KAIR's weights (`weights`), the real pictures through GWT's two rules and R10's (`pictures`), the bench's dark variant through negated backgrounds (`invert`), GWT's rules over bench crops (`crops`) and the table with R10's gates (`verdict`). Report: `docs/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md` |
-| `captures-check.py` | the owner's first captures from X by the prompts of 2026-10-11 (`wipemark-grok-generation-prompts-2026-10-11`, `-v2-`) checked against what they asked: the file (format, size and nearest ratio, JPEG sampling, libjpeg quality, every block, EXIF/XMP/C2PA), the size or orientation asked against the one given, the mark found and the corner under it (`ring.py`'s criterion, a gradient, a vignette), α read directly off a flat black or white corner against the first look's map, pairs of one size compared, the scene's place; a sheet of the corners ×4 (`check`, `selftest`). Report: `docs/plan/reports/E12-R11-grok-captures-check-2026-10-11.md` |
+| `first-look.py` | the first look from a handful of real outputs (2026-10-11): where the mark is and the size/margin laws, which variant (dark/light) each picture carries, the dark map from a flat picture, a provisional two-profile `--catalogue` file (`look`); the product on the pictures through it, with an inverted and a control measurement (`product`). Report: `dev/plan/reports/E12-R11-grok-first-look-2026-10-11.md` |
+| `gwt-way.py` | Grok's mark taken off GeminiWatermarkTool's way — the inverse, then FDnCNN — against ours (2026-10-11): GWT's embedded network against KAIR's weights (`weights`), the real pictures through GWT's two rules and R10's (`pictures`), the bench's dark variant through negated backgrounds (`invert`), GWT's rules over bench crops (`crops`) and the table with R10's gates (`verdict`). Report: `dev/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md` |
+| `captures-check.py` | the owner's first captures from X by the prompts of 2026-10-11 (`wipemark-grok-generation-prompts-2026-10-11`, `-v2-`) checked against what they asked: the file (format, size and nearest ratio, JPEG sampling, libjpeg quality, every block, EXIF/XMP/C2PA), the size or orientation asked against the one given, the mark found and the corner under it (`ring.py`'s criterion, a gradient, a vignette), α read directly off a flat black or white corner against the first look's map, pairs of one size compared, the scene's place; a sheet of the corners ×4 (`check`, `selftest`). Report: `dev/plan/reports/E12-R11-grok-captures-check-2026-10-11.md` |
 | `fit-maps.py` | the shipped maps of Grok on X (`grok-x-dark`, `grok-x-light`, D571, D572): one per picture size, the white mark read off flat black captures, the black one off flat white (or the first look's grey), both of one size averaged when they are one shape, a size with no flat capture drawn from the 1792 map; writes `crates/wipemark-pixels/marks/grok/*.wma` and the rows' numbers (`fit`, `selftest`). Its run and every map's source: `crates/wipemark-pixels/marks/grok/README.md` |
 | `bench-counts.py` | the restoration bench's counts for the shipped Grok profiles (G5): per slice and per size, proved, restored, refused by reason, not found, a mark left after a restoration and why, the PSNR over the ROI (`selftest`) |
 | `weak-resized.py` | whether the search proves a weaker Grok mark (`k = 0.93`) on a resized picture (D573): the bench's own canvases and maps, drawn at `k` and at 1, resized as the bench's slice, through the real CLI (`selftest`) |
@@ -45,13 +45,13 @@ python3 scripts/grok/render.py selftest
 python3 scripts/grok/chain.py selftest    # needs the release CLI and the examples built
 ```
 
-`docs/plan/reports/E12-R-closeout-2026-10-10-k3.sh` is the end-to-end run
+`dev/plan/reports/E12-R-closeout-2026-10-10-k3.sh` is the end-to-end run
 on stand-ins the close-out report quotes.
 
 ## Stage 1, the tools
 
 Step E12-R11 of the E12-R series
-([`docs/plan/E12-R11-grok-map.md`](../../docs/plan/E12-R11-grok-map.md) §4.1).
+([`dev/plan/E12-R11-grok-map.md`](../../dev/plan/E12-R11-grok-map.md) §4.1).
 Before a map, a profile or a threshold, stage 1 asks whether each source
 puts **one** mark — one map, one opacity, one place — on its outputs, and
 whether that mark has holes. These are developer tools (D162): no
@@ -108,7 +108,7 @@ mkdir -p reports/r11
 
 # 3. R10's LaMa trigger reads the hole shares as invariance.py wrote them
 python3 scripts/model-eval/trigger.py lama --holes reports/r11/invariance/invariance.csv \
-    --out docs/plan/reports/E12-R10-lama-decision-<date>.md
+    --out dev/plan/reports/E12-R10-lama-decision-<date>.md
 ```
 
 The manifest is read as `scripts/corpus/manifest.py grok` writes it: the
@@ -117,7 +117,7 @@ Grok source is the row's `profile`, the mark is `stage0`'s `mark`,
 skipped. Its paths are relative to the folder `manifest.py grok --root`
 was given, which is `--root` here.
 
-Then `docs/plan/reports/E12-R11-stage1-<date>.md`, R11 §4.1's gate:
+Then `dev/plan/reports/E12-R11-stage1-<date>.md`, R11 §4.1's gate:
 
 * the maps (`mean.png`, `std.png`, `ratio.png`, `alpha_hat.png`,
   `alpha_fit.png`, `q.png`, `support.png` per pair) — uploaded with the

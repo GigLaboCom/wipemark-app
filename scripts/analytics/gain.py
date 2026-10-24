@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R4 of the E12-R series (`docs/plan/E12-R4-corpus-analytics.md`
+Step E12-R4 of the E12-R series (`dev/plan/E12-R4-corpus-analytics.md`
 §4.1), filed 2026-10-08 by the coordinator from the owner's spec
 `wipemark-recon-spec-2026-10-08` (`04-corpus-analytics.md` §1; the owner's
 S8: D154 stays — `k != 1` is another profile, never a per-image `k`). The

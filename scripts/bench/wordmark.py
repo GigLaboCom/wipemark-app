@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R12 of the E12-R series, stage 4b (`docs/plan/E12-R12-grok-thresholds-and-support.md`
+Step E12-R12 of the E12-R series, stage 4b (`dev/plan/E12-R12-grok-thresholds-and-support.md`
 §4.2, filed 2026-10-08), the part that can exist before a Grok profile does; written for the
 coordinator on 2026-10-09. The bench (`recon_bench`) and `measure_clean` take a profile from a
 catalogue file (`--catalogue`), the shape R11 §4.3 will commit Grok's provisional profile in. Until

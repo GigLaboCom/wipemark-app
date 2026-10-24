@@ -3,7 +3,7 @@
 #
 # What it is for, and who asked: the Linux tray (E10; the owner,
 # 2026-10-07, "запилить трей в линуксе чтобы все уметь закрывать";
-# docs/architecture/tray.md). The unit tests drive the tray's thread with a
+# dev/architecture/tray.md). The unit tests drive the tray's thread with a
 # fake desktop; this runs the real one — libayatana-appindicator loaded,
 # `gtk::init` and `gtk::main` on the `wipemark-tray` thread, the session
 # bus asked, the menu changed over the channel, the item taken down by a

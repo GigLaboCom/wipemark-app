@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sign.sh — sign one release statement with the update key (D782).
 #
-# What it is for: docs/sdd/self-update.md §2.5 step 5. The release lane's
+# What it is for: dev/sdd/self-update.md §2.5 step 5. The release lane's
 # publish-update job signs each artifact's statement (statement.sh) with the
 # working key from the GitHub Environment `releases`, and hands the result to
 # publish.sh as the asset's `sig`. Raw Ed25519 over the statement's exact

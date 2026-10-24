@@ -1,6 +1,6 @@
 # `scripts/corpus/` — the E12-R2 corpora
 
-Step E12-R2 (`docs/plan/E12-R2-corpora.md`) collects sets of real
+Step E12-R2 (`dev/plan/E12-R2-corpora.md`) collects sets of real
 pictures — two since 2026-10-10, when the third, `gemini-midtone`, was
 dropped (D520: Gemini's new outputs carry no visible mark). The pictures are the owner's and **never enter git** (D493): a set
 is a **stored** ZIP under a dated Watchword key, and its manifest in git,
@@ -125,7 +125,7 @@ this set will never be collected. Its runbook is in this file's history
 **The one command** (D528): `scripts/grok/run.sh <captures dir>` runs every
 step below and everything R11 and R12b built after it, and says which step
 it stopped at and why; the owner's half — what to generate and how to save
-it — is `docs/plan/E12-R-grok-capture-guide.md`. The steps, one at a time:
+it — is `dev/plan/E12-R-grok-capture-guide.md`. The steps, one at a time:
 
 1. The owner's captures under `<grok>/web/`, `<grok>/x/`, `<grok>/api/`,
    `<grok>/video/` (the long names `grok.com`, `grok-in-x`, `xai-api`,
@@ -150,7 +150,7 @@ it — is `docs/plan/E12-R-grok-capture-guide.md`. The steps, one at a time:
    note = ""
    # source = "grok.com"        # only when the folder does not say it
    ```
-3. `python3 scripts/corpus/manifest.py grok --root <grok> --sidecar grok.toml --out docs/plan/reports/E12-R2-grok-stage0-<date>.md --manifest corpus/grok/manifest.json --cli $CLI --date <date> --template grok.toml.template`.
+3. `python3 scripts/corpus/manifest.py grok --root <grok> --sidecar grok.toml --out dev/plan/reports/E12-R2-grok-stage0-<date>.md --manifest corpus/grok/manifest.json --cli $CLI --date <date> --template grok.toml.template`.
    Every by-hand cell nobody filled reads "to fill"; `--template` writes a
    sidecar to fill for the files the sidecar does not name yet.
    The table is §4.3's; the gate line says whether every source has a mark

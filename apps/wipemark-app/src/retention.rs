@@ -49,7 +49,7 @@
 //! database or touches the disk: the page gathers the rows and the
 //! folders, and `plan` says what would happen. Nothing *does* happen
 //! yet — cleaning is E1 and the batch is E4 — and the banner says so.
-//! See `docs/architecture/retention.md`.
+//! See `dev/architecture/retention.md`.
 
 use std::path::{Path, PathBuf};
 

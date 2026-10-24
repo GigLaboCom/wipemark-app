@@ -1,7 +1,7 @@
 //! Writing a result where its item said — through
 //! `wipemark_intake::inplace`, the one module that writes a user's file.
 //!
-//! Retention rules 1 and 2 (`docs/architecture/retention.md`): beside the
+//! Retention rules 1 and 2 (`dev/architecture/retention.md`): beside the
 //! file, or a path somebody chose, is a new file and never the source; in
 //! place sets the original aside first and never over an original already
 //! there; nothing changed, nothing touched. The bytes are the result in

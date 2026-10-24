@@ -44,7 +44,7 @@
 //!
 //! # In place, and the order that is the protection
 //!
-//! Retention rule 2 (`docs/architecture/retention.md`): the original is
+//! Retention rule 2 (`dev/architecture/retention.md`): the original is
 //! **set aside first** as `name.original.ext` beside it, and only then is
 //! the result written over the path the original had. Setting aside is the
 //! same no-clobber step: a hard link gives the original its second name —

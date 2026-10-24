@@ -2,7 +2,7 @@
 # dmg.sh — pack Wipemark.app into its .dmg, the installer window (P3, P8;
 # D816–D821).
 #
-# What it is for: docs/plan/v1-release.md P3 — the macOS release is a .app
+# What it is for: dev/plan/v1-release.md P3 — the macOS release is a .app
 # inside a .dmg. The image is made twice on a signed release: by bundle.sh
 # around the ad hoc bundle, and again by sign-and-notarize.sh around the
 # bundle it signed and stapled (D776). This is the one place it is made, so

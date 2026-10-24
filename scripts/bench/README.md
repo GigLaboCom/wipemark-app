@@ -4,8 +4,8 @@ Level A of the E12-R series: a known mark composited over a known
 background, degraded the way a user's file is, run through **the user's
 path**, and compared with the background in the mark's ROI. Level B is R1's
 regression over real files (`scripts/regress.py`, `golden/`); a change to
-the restoration passes both (`docs/plan/E12-R-recon.md` §4). The plan is
-`docs/plan/E12-R5-recon-bench.md`; the decisions are D493 (the manifest)
+the restoration passes both (`dev/plan/E12-R-recon.md` §4). The plan is
+`dev/plan/E12-R5-recon-bench.md`; the decisions are D493 (the manifest)
 and D501 (where the bench and `synth` live).
 
 Asked for by the coordinator on 2026-10-09, from the owner's spec
@@ -118,7 +118,7 @@ figures prove that the pipeline works; they are not results.
 ## On the host: the R0 run, in order
 
 0. **Build** at the commit under test, with the zune-jpeg fork R3 needs
-   (`docs/architecture/zune-jpeg-pin.md`):
+   (`dev/architecture/zune-jpeg-pin.md`):
    `cargo build --release -p wipemark-picture --example recon_bench --locked`.
 1. **Self-checks** — all three must pass before anything else:
    `cargo test -p wipemark-picture --example recon_bench --locked`,
@@ -206,7 +206,7 @@ report.
 ## Any profile: the bench for Grok (E12-R12 §4.2, stage 4b)
 
 The mark is data, so the bench takes a **profile**, not "Gemini" (added
-2026-10-09, before any Grok profile exists; `docs/plan/reports/E12-R12-stage4b-tools-2026-10-09.md`).
+2026-10-09, before any Grok profile exists; `dev/plan/reports/E12-R12-stage4b-tools-2026-10-09.md`).
 
 * **`gen --profile ID`**: a Gemini id keeps that profile's rows of the table
   above; any other id — in the shipped catalogue, or in the file
@@ -249,7 +249,7 @@ The mark is data, so the bench takes a **profile**, not "Gemini" (added
 Nothing here runs before R11 has left a provisional profile (its `.wma` and
 its catalogue row) and R2 stage 0 has said what Grok hands out.
 
-0. **Build** with the zune-jpeg fork (`docs/architecture/zune-jpeg-pin.md`),
+0. **Build** with the zune-jpeg fork (`dev/architecture/zune-jpeg-pin.md`),
    at the commit under test:
    `cargo build --release -p wipemark-picture --example recon_bench --locked`
    (every config, R6 and R8 included, is in every build).
@@ -284,7 +284,7 @@ its catalogue row) and R2 stage 0 has said what Grok hands out.
 
 R9's three sub-steps — a bias (R9a, D497), a logo colour per pixel (R9b,
 D502), linear light (R9c, D500), all proposed — are code behind the
-`blend-preview` feature (`docs/architecture/visible-marks.md`, "A mark is
+`blend-preview` feature (`dev/architecture/visible-marks.md`, "A mark is
 data"). Nothing in the repository carries R4's values: the host writes
 them into **one profile row in a file**, and the bench reads that file, so
 plugging in a measured `b`, a regressed `L(p)` or the linear model is an

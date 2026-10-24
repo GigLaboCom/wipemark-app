@@ -37,7 +37,7 @@
 //! (`every_tooltip_is_attached_through_tip`).
 //!
 //! The write-up for upstream, with a reproduction of each, is
-//! `docs/architecture/gpui-pin.md`, "The pointer leaving a window, and
+//! `dev/architecture/gpui-pin.md`, "The pointer leaving a window, and
 //! tooltips".
 
 use std::cell::Cell;

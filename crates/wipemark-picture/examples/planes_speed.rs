@@ -1,5 +1,5 @@
 //! What reading a JPEG's planes costs — not a feature, a developer's tool
-//! (D162), for step E12-R3's acceptance (`docs/plan/E12-R3-jpeg-planes.md`
+//! (D162), for step E12-R3's acceptance (`dev/plan/E12-R3-jpeg-planes.md`
 //! §6.3, filed 2026-10-08 by the coordinator of the E12-R series): decoding
 //! a 2048 JPEG with planes is to be at most ×1.10 of decoding it without,
 //! or the planes are taken only when a mark is verified.

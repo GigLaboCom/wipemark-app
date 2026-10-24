@@ -2,7 +2,7 @@
 """redcheck.py — every protection of the update, deleted once, its test red.
 
 What it is for: the repository's rule that a test must be able to fail
-(docs/architecture/rules.md, "Tests must be able to fail"), for the update
+(dev/architecture/rules.md, "Tests must be able to fail"), for the update
 check and install (D780–D789, the coordinator's task of 2026-10-16:
 "for the protections that matter — signature check, host check, downgrade
 refusal, refusal under running work — delete the protection once and watch

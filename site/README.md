@@ -119,16 +119,16 @@ Where the facts come from, to check them when the product changes:
 
 | on the page | source |
 |---|---|
-| invisible characters, homoglyphs, Unicode 18.0 | `docs/architecture/layer-a.md`, `crates/wipemark-core/src/lib.rs` (`Options`) |
+| invisible characters, homoglyphs, Unicode 18.0 | `dev/architecture/layer-a.md`, `crates/wipemark-core/src/lib.rs` (`Options`) |
 | picture metadata, generators, what stays | `crates/wipemark-image/src/lib.rs` (`MetadataKind`, `Scope`), `src/signatures.rs` (`Generator`) |
 | visible marks | `manifests/marks.v1.json` (profiles `gemini-sparkle-v1`, `-v2`, `grok-x-dark`, `grok-x-light`) |
-| re-encoding after a mark is removed | `docs/architecture/visible-marks.md`, README |
+| re-encoding after a mark is removed | `dev/architecture/visible-marks.md`, README |
 | the three shelves | `crates/wipemark-core/src/report.rs` (`not_established`) |
 | remote endpoint refused by default, keys | `apps/wipemark-app/src/engine.rs` (`EngineSettings::default`), the catalogue's Engine strings |
 | what goes online | `crates/wipemark-models` (Hugging Face downloads) and `crates/wipemark-engine` (endpoints) are the only crates with an HTTP client |
 | MCP off by default, port, tools | `apps/wipemark-app/src/config.rs` (`mcp.enabled`), `src/mcp/mod.rs`, `src/mcp/protocol.rs` |
 | file types | `apps/wipemark-app/src/clean.rs` (`cleanable`), `crates/wipemark-intake/src/format.rs` |
-| where results go, Retention | `docs/architecture/retention.md`, `apps/wipemark-app/src/retention.rs` (`Destination`) |
+| where results go, Retention | `dev/architecture/retention.md`, `apps/wipemark-app/src/retention.rs` (`Destination`) |
 | models, sizes, memory, licences | `manifests/models.v1.json` (`size_bytes`, `mem.min_ram_mb`, `license`) |
 | platforms, install, data folder, uninstall | `docs/release/0.1.0.md`, `scripts/release/macos/bundle.sh` (`LSMinimumSystemVersion`) |
 | the panel's shortcut | `apps/wipemark-app/src/hotkey.rs` (`PANEL_DEFAULT`) |

@@ -4,7 +4,7 @@
 What it is for
 --------------
 Host verification of the E7 "windows clean" series (asked by the coordinator,
-2026-10-05). `docs/plan/reports/E7-windows-clean-live-check.md` puts text on
+2026-10-05). `dev/plan/reports/E7-windows-clean-live-check.md` puts text on
 the clipboard with `pbcopy` and reads it back with `pbpaste` (cases 7, 11, 12)
 — macOS commands. The Ubuntu host has neither xclip, xsel nor wl-copy, and
 nothing is to be installed; it does have PyGObject with GTK 3. This is the

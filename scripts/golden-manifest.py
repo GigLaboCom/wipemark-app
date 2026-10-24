@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R1 of the E12-R series (`docs/plan/E12-R1-regression-harness.md`
+Step E12-R1 of the E12-R series (`dev/plan/E12-R1-regression-harness.md`
 §4.1), dispatched by the coordinator on 2026-10-09. The regression's corpus
 is named by a manifest in git (D493): the Watchword key of each ZIP, the
 path inside it, each file's sha256 and class, and how each derived file is

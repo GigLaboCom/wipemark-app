@@ -7,7 +7,7 @@
 //! *Verifiable* is what a check in this build established and anyone can
 //! check again: for a text, what Layer A removed, by character, class,
 //! confidence and count — Layer A is deterministic, and every one of them
-//! is gone from the result (`docs/architecture/layer-a.md`); for a
+//! is gone from the result (`dev/architecture/layer-a.md`); for a
 //! picture, the metadata blocks removed and the library's **second
 //! inspection** of the result, and the visible marks that were proved and
 //! restored. *Best-effort* is everything that makes a result less than

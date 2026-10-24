@@ -8,7 +8,7 @@
 //! one answer per chunk — a candidate, or `None` for "keep the source" —
 //! and gives the document back.
 //!
-//! Three rules carry the design (`docs/architecture/pipeline.md`,
+//! Three rules carry the design (`dev/architecture/pipeline.md`,
 //! "Preparing the text"):
 //!
 //! * **Everything outside a chunk is the source's own bytes.** Headings,

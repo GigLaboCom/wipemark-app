@@ -3,7 +3,7 @@
 // commit 7c6a99f, MIT, Copyright (c) 2024 AllenK (Kwyshell) — see NOTICE.
 // Taken: the reverse alpha blend over stored values,
 // `O = (I − α·L)/(1 − α)` per channel, its forward form for compositing,
-// and the 0.002 noise floor, as `docs/sdd/visible-marks.md` §1.1 records
+// and the 0.002 noise floor, as `dev/sdd/visible-marks.md` §1.1 records
 // them. Changed: no 0.99 clamp — `α` at or above the profile's
 // `opaque_above` is a hole, left untouched and counted (D155); the logo
 // is a colour per profile, not one scalar; rounding is half away from

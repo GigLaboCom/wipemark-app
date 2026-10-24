@@ -46,7 +46,7 @@
 //! planes were read. Pixel POCS and Wiener stay for the bench's configs
 //! (`recon_bench --config R8p|R8w`); nothing in the product reaches them,
 //! and no environment variable chooses among the three. Plan:
-//! `docs/plan/E12-R8-value-inside-the-interval.md`.
+//! `dev/plan/E12-R8-value-inside-the-interval.md`.
 
 use serde::Serialize;
 
