@@ -36,9 +36,11 @@ if [ "$MAIN" != "$REPO_ROOT" ] && [ -d "$MAIN/dev/.git" ]; then
 fi
 
 git clone "$URL" "$DEV"
-# Commits there carry the same author as commits here.
+# Commits there carry the same author as commits here, and are scanned for
+# secrets by its own hook (dev/.githooks, dev/.gitleaks.toml).
 name="$(git -C "$REPO_ROOT" config user.name || true)"
 if [ -n "$name" ]; then
   git -C "$DEV" config user.name "$name"
 fi
+git -C "$DEV" config core.hooksPath .githooks
 echo "dev/ cloned from $URL"
