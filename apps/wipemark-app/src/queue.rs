@@ -2466,10 +2466,22 @@ fn keep_preview(
 ) {
     let named = writer.id_of(key);
     let journal = Arc::clone(journal);
+    let executor = cx.background_executor().clone();
     cx.background_executor()
         .spawn(async move {
-            if let Ok(Some(id)) = named.recv_async().await {
-                journal.keep_preview(id, source);
+            // Polled rather than awaited, as `listen` hears the journal: its
+            // writer is a thread of its own, and a task it wakes is a wake no
+            // executor scheduled — under test, a non-determinism the
+            // scheduler fails the test on, now and then.
+            loop {
+                match named.try_recv() {
+                    Ok(Some(id)) => {
+                        journal.keep_preview(id, source);
+                        return;
+                    }
+                    Ok(None) | Err(flume::TryRecvError::Disconnected) => return,
+                    Err(flume::TryRecvError::Empty) => executor.timer(rewriting::TICK).await,
+                }
             }
         })
         .detach();
