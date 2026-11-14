@@ -12,6 +12,7 @@
 #   store is a leaf: it takes a path and hands back rows
 #   i18n is a leaf: apps localize, libraries stay locale-neutral
 #   update is a leaf: whether a newer version exists, proved (D789)
+#   giglabo-products is a leaf: the other GigLabo products (D836)
 #   nothing depends on an app crate
 #
 # Why a script rather than a convention: the rule is invisible in the
@@ -56,6 +57,7 @@ LIBS = {
     "wipemark-secret",
     "wipemark-log",
     "wipemark-update",
+    "giglabo-products",
 }
 ALLOWED = {
     # Zero dependencies at all — external ones too. See the crate docs.
@@ -158,6 +160,13 @@ ALLOWED = {
     # row, and it hands back a verdict rather than a sentence — the
     # application words it, and the CLI words it differently (D789).
     "wipemark-update": set(),
+    # The other GigLabo products: the toolbar's "More from GigLabo" and the
+    # cards of its dialog, from a list and icons that are data (D836). Not
+    # this product's at all — gpui-kit-grid's crate of the same name — so no
+    # wipemark crate, and locale-neutral like every library here: the
+    # application hands in every word but the products' own, and opens the
+    # dialog in its own tree.
+    "giglabo-products": set(),
     "wipemark-app": LIBS,
     "wipemark-cli": LIBS,
 }
@@ -201,7 +210,9 @@ for member in members:
             f"wipemark-core must have no dependencies at all, found: {sorted(deps)}"
         )
 
-    workspace_deps = {d for d in deps if d.startswith("wipemark-")}
+    # A workspace crate is a wipemark one or one this table classifies
+    # under another name (giglabo-products).
+    workspace_deps = {d for d in deps if d.startswith("wipemark-") or d in ALLOWED}
     illegal = workspace_deps - ALLOWED[name]
     for dep in sorted(illegal):
         failures.append(f"{name} -> {dep}: not allowed by the dependency direction rule")

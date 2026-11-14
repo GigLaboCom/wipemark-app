@@ -33,6 +33,18 @@ toolbar-help-preview = Den Zeiger auf einer Vorschau ruhen lassen, um sie größ
 toolbar-help-pending = „Bereinigen“ und „Umschreiben“ stehen in jeder Zeile und in ihrem Menü „Aktionen“; „Alles bereinigen“ und „Alle umschreiben“ nehmen jede nicht begonnene Zeile. Eine Bereinigung läuft sofort mit der { -layer-a }; eine Umschreibung wartet in der einen Umschreib-Warteschlange — der dieses Fensters, eines Agenten und der Kommandozeile — auf die Engine im Dienst, und „Alle umschreiben“ nennt zuerst den Preis. Ergebnisse kommen dorthin, wo die Seite „Aufbewahrung“ es sagt.
 toolbar-help-elsewhere = Das Schnellreinigungs-Panel sitzt in der Menüleiste; die Einstellungen liegen hinter dem Zahnrad unten rechts.
 
+## Mehr von GigLabo
+
+products-button = Mehr von GigLabo
+products-button-tooltip = Die anderen Apps und Werkzeuge von GigLabo, jeweils mit einem Link zur Website.
+products-title = Mehr von GigLabo
+products-intro = { -brand-name } ist eines der Dinge, die bei GigLabo entstehen, einem Studio für Software nach Maß, Web-Apps und KI. Das hier sind die anderen, die wir bauen und betreiben.
+products-desktop = Desktop-Apps
+products-ai = KI-Werkzeuge
+products-web = Im Web
+products-studio = Das Studio
+products-close = Schließen
+
 queue-column-preview = Vorschau
 queue-column-id = ID
 queue-column-keyword = Stichwort

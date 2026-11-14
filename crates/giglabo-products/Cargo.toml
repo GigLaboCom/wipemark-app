@@ -1,0 +1,37 @@
+[package]
+name = "giglabo-products"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The other GigLabo products: a toolbar button, and the cards of the list it opens, read from products.json."
+
+# gpui-kit-grid's `crates/products` (its "More from GigLabo"), ported from
+# gpui-kit to gpui and gpui-component, under the same package name so that
+# moving it into a repository both applications share is a move and not a
+# rename (D836). `products.json` and `icons/` are that crate's, unchanged:
+# the list is data, not code.
+#
+# A leaf, and locale-neutral: no wipemark crate, no catalogue. The host
+# hands in every word a person reads here but the products' own, and opens
+# the dialog itself — Wipemark's are elements of the window's own tree
+# (`apps/wipemark-app/src/dialog.rs`). Enforced by
+# scripts/check-dep-direction.sh. Every package below is already in the
+# lock; it gains this crate and nothing else.
+
+[dependencies]
+gpui.workspace = true
+gpui-component.workspace = true
+# The list, `products.json`, read once.
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# `#[gpui::test]` and `debug_bounds`: the button and the cards painted in a
+# window with no display.
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true
