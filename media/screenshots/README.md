@@ -56,9 +56,11 @@ Everything runs from `media/screenshots/`, each script with its own header.
    MCP on.
 2. `launch.sh <Wipemark.app>` — starts the build on that data directory
    with four `--clean=` rows and one `--import=`, and prints its pid. Drive
-   only that pid. On macOS a second `wipemark --panel` on the same data
-   directory starts a **second instance** rather than handing the panel to
-   the first; summon the panel with a shortcut recorded in
+   only that pid. A build after 0.1.4 has *More from GigLabo* on the
+   toolbar; `GIGLABO_PRODUCTS=off launch.sh …` takes it off, since the
+   build inherits the script's environment. On macOS a second
+   `wipemark --panel` on the same data directory starts a **second
+   instance** rather than handing the panel to the first; summon the panel with a shortcut recorded in
    Settings › General instead (⌃⌥⌘9 was used).
 3. `wm.py` — every step after that, by pid: `place <pid> Wipemark 100 70 1280 800`,
    `click`, `dragfile <file> <from x y> <to x y>` (a drag from a tiny
