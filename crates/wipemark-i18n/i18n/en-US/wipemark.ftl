@@ -73,6 +73,7 @@ toolbar-help-elsewhere = The quick-scrub panel is in the menu bar; the preferenc
 ## one-line descriptions come with the list and stay in English.
 
 products-button = More from GigLabo
+products-button-tooltip = The other apps and tools GigLabo builds, each with a link to its site.
 products-title = More from GigLabo
 products-intro = { -brand-name } is one of the things built at GigLabo, a studio for custom software, web apps and AI. These are the others we build and run.
 products-desktop = Desktop apps

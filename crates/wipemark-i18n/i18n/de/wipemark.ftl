@@ -36,6 +36,7 @@ toolbar-help-elsewhere = Das Schnellreinigungs-Panel sitzt in der Menüleiste; d
 ## Mehr von GigLabo
 
 products-button = Mehr von GigLabo
+products-button-tooltip = Die anderen Apps und Werkzeuge von GigLabo, jeweils mit einem Link zur Website.
 products-title = Mehr von GigLabo
 products-intro = { -brand-name } ist eines der Dinge, die bei GigLabo entstehen, einem Studio für Software nach Maß, Web-Apps und KI. Das hier sind die anderen, die wir bauen und betreiben.
 products-desktop = Desktop-Apps

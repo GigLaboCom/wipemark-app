@@ -6,8 +6,8 @@
 //! browser.
 //!
 //! gpui-kit-grid's `crates/products`, ported from gpui-kit to gpui and
-//! gpui-component (D836). Two things are the host's here that the original
-//! did itself:
+//! gpui-component (D836). Three things are the host's here that the
+//! original did itself:
 //!
 //! * **The dialog.** The original opened gpui-component's `Root` dialog
 //!   (`open_products`). An application whose dialogs are elements of its
@@ -19,11 +19,18 @@
 //!   [`Words`]. The products' names and taglines are `products.json`'s, in
 //!   English. And the host names itself ([`ProductsList::with_current`]),
 //!   so that it is not in its own list.
+//! * **The tooltip.** The host attaches it the way it attaches its other
+//!   controls' ([`ProductsButton::with_button`]): Wipemark's go through
+//!   its own `Tip`, never gpui-component's `Button::tooltip` (D796).
 //!
 //! ```ignore
 //! h_flex()
 //!     // the application's own toolbar …
-//!     .child(ProductsButton::new(label).on_click(|_, window, cx| …))
+//!     .child(
+//!         ProductsButton::new(label)
+//!             .with_button(move |button| button.tip(tooltip))
+//!             .on_click(|_, window, cx| …),
+//!     )
 //! ```
 //!
 //! The list is `products.json`, the entries of the site's Products page;
@@ -243,6 +250,10 @@ fn hides(value: Option<&str>) -> bool {
 /// What a click on [`ProductsButton`] does, the host's.
 type OnClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
+/// The host's last touch on [`ProductsButton`]'s button
+/// ([`ProductsButton::with_button`]).
+type FinishButton = Box<dyn FnOnce(Button) -> Button>;
+
 /// The button's label beside the studio's logo, a button in the theme's
 /// primary colour (outlined, so it never outweighs the window's own primary
 /// action) whose click is the host's ([`ProductsButton::on_click`]: it
@@ -253,6 +264,7 @@ pub struct ProductsButton {
     label: SharedString,
     size: Size,
     on_click: Option<OnClick>,
+    finish: Option<FinishButton>,
 }
 
 impl ProductsButton {
@@ -263,6 +275,7 @@ impl ProductsButton {
             label: label.into(),
             size: Size::Small,
             on_click: None,
+            finish: None,
         }
     }
 
@@ -272,6 +285,14 @@ impl ProductsButton {
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_click = Some(Box::new(handler));
+        self
+    }
+
+    /// The host's last touch on the button, given it as it is drawn: its
+    /// tooltip above all, attached the way the host attaches its other
+    /// controls'. Not called while the button is hidden.
+    pub fn with_button(mut self, finish: impl FnOnce(Button) -> Button + 'static) -> Self {
+        self.finish = Some(Box::new(finish));
         self
     }
 }
@@ -290,6 +311,7 @@ impl RenderOnce for ProductsButton {
             label,
             size,
             on_click,
+            finish,
         } = self;
         div().flex_none().when(shown, |this| {
             this.child(
@@ -311,7 +333,8 @@ impl RenderOnce for ProductsButton {
                     )
                     .when_some(on_click, |button, handler| {
                         button.on_click(move |event, window, cx| handler(event, window, cx))
-                    }),
+                    })
+                    .when_some(finish, |button, finish| finish(button)),
             )
         })
     }
@@ -715,6 +738,56 @@ mod tests {
                 "hidden: {hidden}"
             );
         }
+    }
+
+    /// A toolbar whose button the host finishes: it marks the button with a
+    /// selector of its own, and counts how often it was asked.
+    struct Finished {
+        finishes: Rc<Cell<usize>>,
+    }
+
+    impl Render for Finished {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let finishes = self.finishes.clone();
+            div()
+                .size_full()
+                .child(
+                    ProductsButton::new("More from GigLabo").with_button(move |button| {
+                        finishes.set(finishes.get() + 1);
+                        button.debug_selector(|| "finished-by-the-host".to_owned())
+                    }),
+                )
+        }
+    }
+
+    /// The host's last touch (its tooltip, in an application) is on the
+    /// button that is painted; while the button is hidden it is never
+    /// asked for.
+    #[gpui::test]
+    fn the_host_finishes_the_button_it_shows(cx: &mut TestAppContext) {
+        assert!(
+            !hidden_by_environment(),
+            "{ENVIRONMENT_VARIABLE}=off is set; this test needs the button shown"
+        );
+        cx.update(gpui_component::init);
+        let finishes = Rc::new(Cell::new(0));
+        let counted = finishes.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| Finished { finishes: counted });
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("finished-by-the-host").is_some(),
+            "the host's touch is not on the painted button"
+        );
+        let asked = finishes.get();
+        assert!(asked > 0);
+
+        cx.update(|window, cx| {
+            set_hidden(cx, true);
+            window.refresh();
+        });
+        cx.run_until_parked();
+        assert_eq!(finishes.get(), asked, "a hidden button was finished");
+        assert!(cx.debug_bounds("finished-by-the-host").is_none());
     }
 
     /// The list as a host shows it, naming itself.

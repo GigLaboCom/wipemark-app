@@ -6,10 +6,12 @@
 //! of that name, with the list and the icons as its data); what this module
 //! adds is what makes them Wipemark's:
 //!
-//! * **its words**: the button's label, the dialog's title, the line over
-//!   the cards, the sections' headings and Close come from the catalogue,
-//!   in every language; the products' names and their one-line descriptions
-//!   are the list's, in English;
+//! * **its words**: the button's label and tooltip, the dialog's title, the
+//!   line over the cards, the sections' headings and Close come from the
+//!   catalogue, in every language; the products' names and their one-line
+//!   descriptions are the list's, in English;
+//! * **its tooltip**, attached through [`Tip`] like every other toolbar
+//!   button's, never gpui-component's `Button::tooltip` (D796);
 //! * **Wipemark not in its own list** ([`CURRENT`]);
 //! * **the dialog**: an element in the main window's own tree, with
 //!   `dialog.rs`'s walls — never the component's `Root` dialog, which the
@@ -29,6 +31,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable as _, StyledExt as _};
 use wipemark_i18n::{t, Message};
 
 use crate::dialog::{self, Accept, Answer, Dismiss, Next, Previous};
+use crate::hover::Tip;
 
 /// Wipemark's `id` in the crate's `products.json`: the card left out of
 /// the list.
@@ -38,10 +41,13 @@ const CURRENT: &str = "wipemark";
 const WIDTH: f32 = 680.0;
 const HEIGHT: f32 = 640.0;
 
-/// The toolbar's button, in the catalogue's words; the toolbar says what a
-/// click does.
+/// The toolbar's button, in the catalogue's words, with its tooltip
+/// attached as every other toolbar button's is ([`Tip`], D796); the toolbar
+/// says what a click does.
 pub fn button() -> ProductsButton {
-    ProductsButton::new(SharedString::from(t(Message::ProductsButton))).small()
+    ProductsButton::new(SharedString::from(t(Message::ProductsButton)))
+        .with_button(|button| button.tip(SharedString::from(t(Message::ProductsButtonTooltip))))
+        .small()
 }
 
 /// Every word of the cards' dialog that is the catalogue's.
@@ -164,8 +170,9 @@ impl Render for ProductsDialog {
 mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
+    use std::time::Duration;
 
-    use gpui::{Entity, TestAppContext, VisualTestContext};
+    use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
 
     use super::*;
 
@@ -202,6 +209,50 @@ mod tests {
         ] {
             assert!(cx.debug_bounds(id).is_some(), "{id} is not painted");
         }
+    }
+
+    /// The toolbar's button alone in a window.
+    struct Bar;
+
+    impl Render for Bar {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().p_4().child(button())
+        }
+    }
+
+    /// The pointer resting on the button brings up its tooltip, one of
+    /// ours ([`Tip`]) like every other toolbar button's. Take
+    /// `with_button` out of [`button`] and none comes up — red.
+    #[gpui::test]
+    fn the_button_has_a_tooltip(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|_| Bar);
+            gpui_component::Root::new(view, window, cx)
+        });
+        cx.run_until_parked();
+        let bounds = cx
+            .debug_bounds("giglabo-products")
+            .expect("the button is painted");
+        assert!(cx.debug_bounds(crate::hover::TIP).is_none());
+
+        cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
+        for _ in 0..3 {
+            cx.executor().advance_clock(Duration::from_secs(1));
+            cx.run_until_parked();
+        }
+        cx.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
+        cx.run_until_parked();
+        let tip = cx
+            .debug_bounds(crate::hover::TIP)
+            .expect("no tooltip over More from GigLabo");
+        assert!(
+            tip.left() <= bounds.right() && tip.right() >= bounds.left(),
+            "the tooltip is not at the button {bounds:?}: {tip:?}"
+        );
     }
 
     /// Escape, Enter, the backdrop and Close are four roads to one answer,

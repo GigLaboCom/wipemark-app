@@ -41,6 +41,7 @@ toolbar-help-elsewhere = Панель быстрой очистки — в ст�
 ## Ещё от GigLabo
 
 products-button = Ещё от GigLabo
+products-button-tooltip = Другие приложения и инструменты GigLabo, у каждого ссылка на его сайт.
 products-title = Ещё от GigLabo
 products-intro = { -brand-name } — одна из вещей, сделанных в GigLabo, студии заказных программ, веб-приложений и ИИ. Вот остальные — те, что мы делаем и поддерживаем.
 products-desktop = Приложения для компьютера
