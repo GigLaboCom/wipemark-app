@@ -32,7 +32,7 @@
 #   filler where it stands and has nothing dark; before it, inside a changed
 #   passage lines were paired by position, and case 3 showed the filler
 #   beside the last paragraph and every pair after the deleted one off by one
-#   (docs/architecture/compare.md, "Which paragraph stands beside which").
+#   (dev/architecture/compare.md, "Which paragraph stands beside which").
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)

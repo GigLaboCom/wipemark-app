@@ -3,10 +3,10 @@
 # committed fixtures — never the owner's corpus.
 #
 # What it is for
-#   Step E12-R4 (docs/plan/E12-R4-corpus-analytics.md), dispatched by the
+#   Step E12-R4 (dev/plan/E12-R4-corpus-analytics.md), dispatched by the
 #   coordinator of the E12-R series on 2026-10-09 to a container that has
 #   neither the owner's stickers nor R2's gemini-midtone. Every figure the
-#   step's container report (docs/plan/reports/E12-R4-2026-10-09.md) gives
+#   step's container report (dev/plan/reports/E12-R4-2026-10-09.md) gives
 #   comes out of this script, so anyone can make it again; the answers to
 #   §4's four questions are the host's runs (scripts/analytics/README.md).
 #

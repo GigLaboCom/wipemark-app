@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R9 of the E12-R series (`docs/plan/E12-R9-blend-model-changes.md`
+Step E12-R9 of the E12-R series (`dev/plan/E12-R9-blend-model-changes.md`
 §4, R9b), dispatched by the coordinator on 2026-10-09 with the owner's
 instruction that R9's code be finished before its evidence exists. R9b's
 `L(p)` comes from R4's `map_regress` on `gemini-midtone` (held-out files

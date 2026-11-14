@@ -18,7 +18,7 @@
 //!   forever, a device is not a document; both are listed as skipped.
 //!
 //! `.gitignore` is not read: a later flag if anyone asks
-//! (`docs/architecture/cli.md`).
+//! (`dev/architecture/cli.md`).
 //!
 //! # Three outcomes per file, and the exit code
 //!

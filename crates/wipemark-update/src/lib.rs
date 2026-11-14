@@ -1,7 +1,7 @@
 //! Whether a newer Wipemark exists, proved — and, where the program may
 //! replace itself, the new copy fetched, checked and swapped in.
 //!
-//! Design: `docs/sdd/self-update.md` (D780–D789). In one paragraph: the
+//! Design: `dev/sdd/self-update.md` (D780–D789). In one paragraph: the
 //! giglabo release service serves a manifest for the slug `wipemark`
 //! ([`Base::manifest_url`]). Every artifact in it carries a `sig`, an
 //! Ed25519 signature over a short **release statement** — eight lines that

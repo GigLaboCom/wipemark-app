@@ -7,7 +7,7 @@
 //! the database is a plain file in a directory people back up, sync,
 //! copy to a new machine and attach to bug reports, and a row holding
 //! `sk-…` in cleartext turns every one of those into a disclosure.
-//! `docs/sdd/layer-b-rewrite-reference.md` §8 records the same
+//! `dev/sdd/layer-b-rewrite-reference.md` §8 records the same
 //! conclusion from upstream's side — it reads the key from the
 //! environment and refuses to take one on the command line, because
 //! `argv` is visible in `ps`.

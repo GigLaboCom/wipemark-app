@@ -545,7 +545,7 @@ impl Road {
 /// How many things a drop that reached us carried — what the log says,
 /// one line per drop, so a drop lost before it got here is told apart
 /// from one that arrived empty (acceptance F9, D624). Counts and the road
-/// only: never a path or a text, which is the document (`docs/architecture/
+/// only: never a path or a text, which is the document (`dev/architecture/
 /// logging.md`).
 fn things_in(handed: &[Handed]) -> usize {
     handed.iter().filter(|handed| !handed.is_nothing()).count()

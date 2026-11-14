@@ -29,8 +29,8 @@
 #   and does not apply after the bump: the workspace now takes GPUI from
 #   the gpui-pre snapshots on crates.io, which have A (zed #62081) and no
 #   longer need B (zed #61789 defers the appearance callback; measured,
-#   docs/plan/reports/gpui-bump-startup-2026-10-07.md), and carries
-#   neither (docs/architecture/gpui-pin.md §2). Run it from a checkout of
+#   dev/plan/reports/gpui-bump-startup-2026-10-07.md), and carries
+#   neither (dev/architecture/gpui-pin.md §2). Run it from a checkout of
 #   a commit before the bump, where the lock still names zed's git source.
 #
 # What it does

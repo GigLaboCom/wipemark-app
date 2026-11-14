@@ -13,7 +13,7 @@ What it does, and refuses:
 1. Reads `assets/embedded_assets.hpp` and takes the four byte arrays
    `bg_48_png`, `bg_96_png`, `bg_b_36_png`, `bg_b_96_png` (the hex between
    `{` and `};`), written as bytes. Refuses unless each file's sha256 is the
-   one `docs/plan/E12-visible-marks.md` §3 recorded.
+   one `dev/plan/E12-visible-marks.md` §3 recorded.
 2. Writes them beside this script under their own names (`bg_48.png` ...):
    they are the provenance, MIT, committed as they are.
 3. Decodes each PNG (8-bit, non-interlaced; grey, grey+alpha, RGB, RGBA)

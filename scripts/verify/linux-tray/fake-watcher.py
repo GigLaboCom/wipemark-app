@@ -2,7 +2,7 @@
 """A StatusNotifier watcher and host that draws nothing, for headless.sh.
 
 What it is for, and who asked: the Linux tray (E10, the owner,
-2026-10-07; docs/architecture/tray.md). `tray::install` registers an item
+2026-10-07; dev/architecture/tray.md). `tray::install` registers an item
 only where `org.kde.StatusNotifierWatcher` is owned on the session bus and
 says a host is registered with it (D341). `headless.sh` runs the real
 GTK thread under Xvfb on a *private* session bus; this script stands in

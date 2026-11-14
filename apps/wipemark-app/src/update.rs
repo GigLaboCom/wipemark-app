@@ -1,5 +1,5 @@
 //! New versions: the check, its schedule, what the person sees, and the
-//! verified download (D780–D789; `docs/sdd/self-update.md`).
+//! verified download (D780–D789; `dev/sdd/self-update.md`).
 //!
 //! Everything that proves a version — the manifest, the release statement
 //! and its Ed25519 signature, the download held to its sha256, the

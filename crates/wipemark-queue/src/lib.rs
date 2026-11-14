@@ -17,7 +17,7 @@
 //! The pipeline may reach none of the last three, the store is a leaf,
 //! and nothing may depend on an application — so this crate sits above
 //! all four and is the one place they meet.
-//! `docs/plan/E4-4-the-queue.md` §0.2.
+//! `dev/plan/E4-4-the-queue.md` §0.2.
 //!
 //! # Nothing blocks the caller
 //!

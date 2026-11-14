@@ -1,7 +1,7 @@
 # Die Liste des Registerproxys für Deutsch — was `bench report` als Wort der
 # gehobenen, amtlichen Stilebene zählt, wenn eine Überarbeitung es einführt
 # und die Quelle es nicht hatte (examples/bench/measure.rs, `register_new`;
-# docs/architecture/prompt-bench.md, "Voice"). Ein Proxy, kein Urteil: ein
+# dev/architecture/prompt-bench.md, "Voice"). Ein Proxy, kein Urteil: ein
 # Wort hier kann im Zusammenhang schlicht sein, und ein Text kann mit Wörtern
 # förmlicher werden, die hier fehlen. Verglichen wird nur zwischen Läufen auf
 # demselben Korpus.

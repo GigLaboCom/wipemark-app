@@ -431,6 +431,11 @@ fn a_process_that_shuts_its_engine_down_under_a_running_job_exits_cleanly() {
 //   WIPEMARK_TEST_GGUF_GEMMA4=/path/to/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
 //   WIPEMARK_TEST_GGUF_QWEN38=/path/to/Qwen3.8-27B-UD-IQ3_S.gguf
 //   WIPEMARK_TEST_GPU_LAYERS_QWEN38=40     # optional; default: all layers
+//
+// Nemotron 3.5 Bolt E4B is in the catalogue as an experimental entry and
+// is held the same way, by a variable of its own (D831):
+//
+//   WIPEMARK_TEST_GGUF_BOLT=/path/to/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf
 // ---------------------------------------------------------------------------
 
 /// A model named by `var`, or `None` (and a line on stderr) when unset.
@@ -482,7 +487,7 @@ fn cyrillic(c: char) -> bool {
 }
 
 fn latin(c: char) -> bool {
-    c.is_ascii_alphabetic()
+    c.is_ascii_alphabetic() || (('\u{00C0}'..='\u{00FF}').contains(&c) && c.is_alphabetic())
 }
 
 const REWRITE_SYSTEM: &str = "You rewrite text. Say the same thing in different words, in the \
@@ -494,22 +499,93 @@ const EN_TEXT: &str = "The release notes are published every Tuesday morning. Ve
 const RU_TEXT: &str = "Первая сборка проекта занимает около 12 минут на обычном ноутбуке, а \
      повторная — меньше минуты, потому что зависимости уже скомпилированы.";
 
-/// Rewrite one text with `engine`, greedy, and check the answer is a
-/// rewrite in the text's own script that kept `number` — what token salad,
-/// a wrong turn structure or an unclosed thinking block all fail.
-async fn rewrites(
-    engine: &LocalEngine,
-    label: &str,
-    text: &str,
-    number: &str,
+/// The same instruction in German: the pipeline asks for a German
+/// document's rewrite in German (its templates are per language), and so
+/// does a test of a model that must keep German (D831).
+const REWRITE_SYSTEM_DE: &str = "Du schreibst Texte um. Sag dasselbe mit anderen Worten, in \
+     derselben Sprache wie der Text, und behalte jede Zahl. Gib nur den umgeschriebenen Text aus.";
+
+/// One text a model is asked to rewrite.
+struct Text {
+    language: &'static str,
+    /// The instruction it is asked with.
+    system: &'static str,
+    text: &'static str,
+    /// A number the rewrite must keep.
+    number: &'static str,
+    /// The script the rewrite must stay in.
     script: fn(char) -> bool,
-) {
+    /// Common words of the text's language, and of another language in its
+    /// script: the rewrite must use more of the first. A script cannot tell
+    /// German from English, and Nemotron 3.5 Bolt E4B, asked in English,
+    /// answered the German text in English (D831).
+    words: Option<(&'static [&'static str], &'static [&'static str])>,
+}
+
+/// Words of one of the two languages and not of the other: no `was`,
+/// `will` or `am`, which German writes too.
+const ENGLISH: &[&str] = &[
+    "the", "and", "of", "to", "is", "are", "were", "for", "by", "with", "since", "from", "that",
+    "this", "it", "on", "at", "has", "have", "about", "every", "each",
+];
+
+const GERMAN: &[&str] = &[
+    "der", "die", "das", "und", "ist", "sind", "wird", "werden", "von", "mit", "seit", "dem",
+    "den", "des", "ein", "eine", "einer", "für", "auf", "im", "zu", "nicht", "sich", "nach", "bei",
+    "als", "auch", "über", "etwa",
+];
+
+const EN: Text = Text {
+    language: "en",
+    system: REWRITE_SYSTEM,
+    text: EN_TEXT,
+    number: "37",
+    script: latin,
+    words: Some((ENGLISH, GERMAN)),
+};
+const RU: Text = Text {
+    language: "ru",
+    system: REWRITE_SYSTEM,
+    text: RU_TEXT,
+    number: "12",
+    script: cyrillic,
+    words: None,
+};
+const DE: Text = Text {
+    language: "de",
+    system: REWRITE_SYSTEM_DE,
+    text: DE_TEXT,
+    number: "23",
+    script: latin,
+    words: Some((GERMAN, ENGLISH)),
+};
+
+/// How many of `text`'s words are in `words`, case aside.
+fn words_among(text: &str, words: &[&str]) -> usize {
+    text.split(|c: char| !c.is_alphabetic())
+        .filter(|word| words.contains(&word.to_lowercase().as_str()))
+        .count()
+}
+
+/// Rewrite one text with `engine`, greedy, and check the answer is a
+/// rewrite in the text's own language that kept its number — what token
+/// salad, a wrong turn structure, an unclosed thinking block or a
+/// translation all fail.
+async fn rewrites(engine: &LocalEngine, label: &str, asked: &Text) {
+    let Text {
+        system,
+        text,
+        number,
+        script,
+        words,
+        ..
+    } = *asked;
     let (sink, streamed) = flume::unbounded();
     let started = Instant::now();
     let out = engine
         .complete(
             ChatRequest {
-                system: Some(REWRITE_SYSTEM.to_owned()),
+                system: Some(system.to_owned()),
                 prompt: text.to_owned(),
                 params: SamplingParams {
                     temperature: 0.0,
@@ -560,11 +636,19 @@ async fn rewrites(
         "{label}: only {:.0} % of the letters are in the text's script: {answer:?}",
         share * 100.0
     );
+    if let Some((own, other)) = words {
+        let (own, other) = (words_among(answer, own), words_among(answer, other));
+        assert!(
+            own > other,
+            "{label}: {own} common words of the text's language against {other} of another: \
+             {answer:?}"
+        );
+    }
     assert_ne!(answer, text.trim(), "{label}: the text came back unchanged");
 }
 
-/// Load the model named by `var` and rewrite an English and a Russian text.
-async fn a_named_model_rewrites(var: &str, layers_var: &str, model_id: &str) {
+/// Load the model named by `var` and rewrite each of `texts`.
+async fn a_named_model_rewrites(var: &str, layers_var: &str, model_id: &str, texts: &[Text]) {
     let Some(weights) = optional_gguf(var) else {
         return;
     };
@@ -586,8 +670,9 @@ async fn a_named_model_rewrites(var: &str, layers_var: &str, model_id: &str) {
         started.elapsed().as_millis(),
         Runtime::get().map(|r| r.backends().to_vec())
     );
-    rewrites(&engine, &format!("{model_id} en"), EN_TEXT, "37", latin).await;
-    rewrites(&engine, &format!("{model_id} ru"), RU_TEXT, "12", cyrillic).await;
+    for text in texts {
+        rewrites(&engine, &format!("{model_id} {}", text.language), text).await;
+    }
     // Given back before the next test loads another model.
     engine.unload().await;
 }
@@ -599,6 +684,7 @@ async fn gemma_4_rewrites_in_english_and_russian() {
         "WIPEMARK_TEST_GGUF_GEMMA4",
         "WIPEMARK_TEST_GPU_LAYERS_GEMMA4",
         "gemma-4-12b-it-qat-ud-q4",
+        &[EN, RU],
     )
     .await;
 }
@@ -610,6 +696,23 @@ async fn qwen_3_8_rewrites_in_english_and_russian() {
         "WIPEMARK_TEST_GGUF_QWEN38",
         "WIPEMARK_TEST_GPU_LAYERS_QWEN38",
         "qwen3.8-27b-ud-iq3s",
+        &[EN, RU],
+    )
+    .await;
+}
+
+/// D831: Nemotron 3.5 Bolt E4B rewrites in two of the languages it was
+/// trained for. Russian is not one of them, and its base, Gemma 4 E4B,
+/// answered the Russian text in English at this pin (E2-4) — so Russian is
+/// measured by hand and not held here.
+#[tokio::test]
+#[ignore = "needs WIPEMARK_TEST_GGUF_BOLT"]
+async fn nemotron_bolt_rewrites_in_english_and_german() {
+    a_named_model_rewrites(
+        "WIPEMARK_TEST_GGUF_BOLT",
+        "WIPEMARK_TEST_GPU_LAYERS_BOLT",
+        "nemotron-3.5-bolt-e4b-ud-q4",
+        &[EN, DE],
     )
     .await;
 }

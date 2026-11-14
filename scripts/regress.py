@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R1 of the E12-R series (`docs/plan/E12-R1-regression-harness.md`),
+Step E12-R1 of the E12-R series (`dev/plan/E12-R1-regression-harness.md`),
 from the owner's spec `wipemark-recon-spec-2026-10-08`
 (`01-regression-harness.md`, `02-data-collection.md` §2; the owner's S5 and
 S11, 2026-10-08), dispatched by the coordinator on 2026-10-09. Every change

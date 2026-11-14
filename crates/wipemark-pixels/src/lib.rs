@@ -20,8 +20,8 @@
 //! * **Invisible marks are out of reach.** Every report says so on its
 //!   third shelf ([`not_established`]), whatever was found.
 //!
-//! See `docs/architecture/visible-marks.md`, and
-//! `docs/sdd/visible-marks.md` for why.
+//! See `dev/architecture/visible-marks.md`, and
+//! `dev/sdd/visible-marks.md` for why.
 
 #![forbid(unsafe_code)]
 

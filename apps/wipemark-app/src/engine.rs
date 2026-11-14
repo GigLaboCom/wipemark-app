@@ -5,7 +5,7 @@
 //! `wipemark-engine`'s `HttpEngine` (E2-3), built from these settings by
 //! `duty::engine_for`; the only one this build sends is the Engine page's
 //! **Check**, a fixed sentence and never a document, and the pane says so
-//! out loud rather than implying a rewrite is a click away. `docs/sdd/layer-b-rewrite-reference.md` is where the
+//! out loud rather than implying a rewrite is a click away. `dev/sdd/layer-b-rewrite-reference.md` is where the
 //! wire format, the prompts and the security rules were read out of
 //! upstream, and §8 of it is the table this module is the other half
 //! of.

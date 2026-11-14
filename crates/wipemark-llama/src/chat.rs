@@ -622,6 +622,24 @@ mod tests {
     const GEMMA_4_SMALL: &str = "{{- '<|turn>system\\n' -}}{{- '<turn|>\\n' -}}\n\
         {%- if add_generation_prompt -%}{{- '<|turn>model\\n' -}}{%- endif -%}";
 
+    /// The parts of Nemotron 3.5 Bolt E4B's template (NVIDIA's "updated
+    /// Gemma4 chat template", the same in NVIDIA's and unsloth's GGUFs) the
+    /// recognition reads: Gemma 4's turns, a thought channel written only
+    /// around a past turn's reasoning, and the bare opener (D829).
+    const NEMOTRON_BOLT: &str =
+        "{%- set enable_thinking = enable_thinking | default(false) -%}\n\
+        {{- bos_token -}}\n\
+        {%- if enable_thinking or tools or (messages and messages[0]['role'] in ['system', 'developer']) -%}\n\
+        {{- '<|turn>system\\n' -}}\n\
+        {%- if enable_thinking -%}{{- '<|think|>\\n' -}}{%- endif -%}\n\
+        {{- '<turn|>\\n' -}}\n{%- endif %}\n\
+        {{- '<|channel>thought\\n' + thinking_text + '\\n<channel|>' -}}\n\
+        {%- if add_generation_prompt -%}\n\
+        {%- if ns.prev_message_type != 'tool_response' and ns.prev_message_type != 'tool_call' -%}\
+        {{- '<|turn>model\\n' -}}\n\
+        {%- elif ns.prev_message_type == 'tool_response' and enable_thinking -%}\
+        {{- '<|channel>thought\\n' -}}\n{%- endif -%}\n{%- endif -%}";
+
     /// The parts of Qwen3.8 27B's template the recognition reads.
     const QWEN_3_8: &str = "{%- if enable_thinking is undefined or enable_thinking is true %}\n\
         {{- '<|im_start|>system\\n' }}\n\
@@ -654,6 +672,14 @@ mod tests {
             })
         );
         assert_eq!(family_of(QWEN_3_8), Some(Family::ChatmlThinkingOff));
+        // Its thought channel is only ever around a past turn's reasoning:
+        // with thinking off the opener is bare, as E4B's.
+        assert_eq!(
+            family_of(NEMOTRON_BOLT),
+            Some(Family::Gemma4 {
+                thought_closed: false
+            })
+        );
     }
 
     #[test]
@@ -711,6 +737,32 @@ mod tests {
         assert_eq!(
             render(GEMMA_4_E4B, Some("Rewrite the text."), "Привет."),
             "<|turn>system\nRewrite the text.<turn|>\n<|turn>user\nПривет.<turn|>\n<|turn>model\n"
+        );
+    }
+
+    /// D829: Nemotron 3.5 Bolt E4B as its own template renders it, from
+    /// `NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf` (Homebrew's
+    /// llama-server, build 10809, a later build than the pin's — the
+    /// renderer is Jinja and not the pinned library).
+    #[test]
+    fn nemotron_bolt_is_rendered_as_its_template_renders_it() {
+        let bolt = family_of(NEMOTRON_BOLT).expect("Gemma 4's family");
+        assert_eq!(
+            render(
+                bolt,
+                Some("  Rewrite the text.\n"),
+                "The quick brown fox.\n\n"
+            ),
+            "<|turn>system\nRewrite the text.<turn|>\n\
+             <|turn>user\nThe quick brown fox.<turn|>\n<|turn>model\n"
+        );
+        assert_eq!(
+            render(bolt, None, "Привет."),
+            "<|turn>user\nПривет.<turn|>\n<|turn>model\n"
+        );
+        assert_eq!(
+            render(bolt, Some(" \n"), "x"),
+            "<|turn>system\n<turn|>\n<|turn>user\nx<turn|>\n<|turn>model\n"
         );
     }
 

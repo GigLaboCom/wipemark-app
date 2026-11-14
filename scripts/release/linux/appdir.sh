@@ -4,7 +4,7 @@
 # What it is for: the owner asked on 2026-10-12 for a Wipemark AppImage like
 # MnemoVi's, "icons all done properly". MnemoVi's AppDir is linuxdeploy's;
 # Wipemark's is laid out here by hand, because what it carries is short and
-# every file of it is decided (docs/architecture/packaging.md, "The layout").
+# every file of it is decided (dev/architecture/packaging.md, "The layout").
 # The same tree is the .deb's /usr (make-deb.sh copies it).
 #
 # What it does:

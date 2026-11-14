@@ -2,7 +2,7 @@
 # verify-served.sh — check what the release service serves for a version, as
 # the application will read it (D783).
 #
-# What it is for: docs/sdd/self-update.md §2.5 step 6, and MnemoVi's lesson
+# What it is for: dev/sdd/self-update.md §2.5 step 6, and MnemoVi's lesson
 # (2026-08-05): check what is served, not what was built. The release lane
 # runs it after publish.sh; anybody may run it by hand against production at
 # any time — it needs no secret. For every asset the manifest lists under

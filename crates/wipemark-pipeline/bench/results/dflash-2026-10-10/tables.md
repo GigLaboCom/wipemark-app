@@ -323,7 +323,7 @@
 
 ### Voice — the loop's pick (E4-7) beside the least diverged; every language
 
-GPU 2 × 2 where the run made four candidates a chunk, CPU 1 × 2 where it made two. Second and first person are pronouns counted, kept by count; a chunk kept as it was keeps its voice. The register shift is a proxy: the share of the answer's words that a list of formal words and suffixes matches and the source has no word for (`docs/architecture/prompt-bench.md`, "Voice").
+GPU 2 × 2 where the run made four candidates a chunk, CPU 1 × 2 where it made two. Second and first person are pronouns counted, kept by count; a chunk kept as it was keeps its voice. The register shift is a proxy: the share of the answer's words that a list of formal words and suffixes matches and the source has no word for (`dev/architecture/prompt-bench.md`, "Voice").
 
 | model | tactic | intensity | executor | policy | chunks | with 2nd person | 2nd person kept, by count | per chunk, med [q1–q3] | lost any / lost all | ты↔вы, du↔Sie switched | 1st person kept | words ×, all · per chunk med [q1–q3] | register shift med [q1–q3] · mean | voice judged YES / PARTLY / NO |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|

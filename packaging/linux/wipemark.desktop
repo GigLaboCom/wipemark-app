@@ -14,5 +14,5 @@ Keywords=watermark;provenance;unicode;invisible;C2PA;rewrite;
 # to this file by WM_CLASS / app_id, through StartupWMClass when the file was
 # renamed on its way in (an AppImage integrator does rename it). The windows
 # must set the app_id for that to hold — WindowOptions::app_id, see
-# docs/architecture/packaging.md, "The app_id".
+# dev/architecture/packaging.md, "The app_id".
 StartupWMClass=wipemark

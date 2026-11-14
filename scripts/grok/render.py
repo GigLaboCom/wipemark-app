@@ -4,13 +4,13 @@
 What it is for
 --------------
 The E12-R close-out (the coordinator's task `wipemark-task-recon-closeout-grok-ready-2026-10-10`,
-2026-10-10; `docs/plan/E12-R-closeout-grok-ready.md`, K3) asks that `scripts/grok/run.sh` — the one
+2026-10-10; `dev/plan/E12-R-closeout-grok-ready.md`, K3) asks that `scripts/grok/run.sh` — the one
 command from a folder of Grok captures to a proposed profile (K2, D528) — be proved end to end before
 a single real capture exists. No Grok picture may enter the repository or the container, so the proof
 runs on **stand-ins**: the synthetic wordmark fixture R12b built (`fixtures/marks/synthetic-wordmark/`,
 `scripts/bench/wordmark.py` — not Grok's mark, a text-like map that is not a sparkle) composited over
 flat and textured backgrounds, written in the folder layout and with the sidecar the owner's guide
-(`docs/plan/E12-R-grok-capture-guide.md`) describes. Every figure a run over them gives is about the
+(`dev/plan/E12-R-grok-capture-guide.md`) describes. Every figure a run over them gives is about the
 fixture, never about Grok.
 
 What it does

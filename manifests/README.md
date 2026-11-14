@@ -78,6 +78,20 @@ cache, and whatever the target keeps for it (recurrent-state snapshots,
 the layer inputs the draft reads) — which `host::fit` adds to the
 target's.
 
+### `status` — an experimental entry is listed and never offered
+
+`stable` (the default) or `experimental` (D830). An experimental entry is
+on the Models page with its card saying so ("Experimental"), downloads,
+verifies and is removed like any other, and once it is on this machine it
+is in the role's selector after every stable one — but it is never the
+recommendation, never the default a first launch points at, and a machine
+is never moved onto it: `Manifest::for_role`, what a default is picked
+from, holds stable entries only (`no_machine_is_offered_an_experimental_entry`).
+`wipemark-cli models list` says it on the entry's line and as `"status"`
+in `--json`. It is how a model ships before the bench has measured it
+against the stable ones: its `quality_tier` orders it among the
+experimental entries and decides nothing else.
+
 ### `url` — pinned, always
 
 `hf://<owner>/<repo>@<commit>/<path>` resolves to Hugging Face's
@@ -110,6 +124,13 @@ curl -sIL "https://huggingface.co/<owner>/<repo>/resolve/<commit>/<file>" \
   | grep -iE "x-linked-(etag|size)|accept-ranges"
 ```
 
+`wipemark-cli models inspect <link> --file <name> --entry` drafts the whole
+entry from the same two answers — the URL pinned to the commit, each
+sha256 and size, the quantization, the default context and the memory by
+this recipe, `experimental` — and reads the file's header from its front to
+check that this build can talk to it (D835); the tier, the languages and
+the notes are yours to write.
+
 A file above 10 MB with no `sha256` is refused by the parser. Below that
 a tokenizer or a config sidecar may go unhashed.
 
@@ -140,20 +161,20 @@ Two more rules the shipped entries follow:
   mirror of the same weights is not, which is why it is the one listed.
 * **Non-thinking builds for `rewrite`.** A hybrid model that reasons
   before it answers burns tokens nobody reads —
-  `docs/sdd/layer-b-rewrite-reference.md` records 9,894 completion tokens
+  `dev/sdd/layer-b-rewrite-reference.md` records 9,894 completion tokens
   against 12 for the same rewrite. Prefer an Instruct build.
 
 The starting list in the spec: Qwen3 8B and 4B, Gemma 3 12B/4B,
 Llama 3.x 8B, Mistral Nemo 12B. Two of them ship today, chosen so that a
 12 GB machine and a workstation are each offered something rather than
 the same thing with a warning beside it — see
-`docs/architecture/model-downloads.md`.
+`dev/architecture/model-downloads.md`.
 
 # The mark catalogue
 
 `marks.v1.json`, beside `models.v1.json`, is the catalogue of visible marks, compiled into
 `wipemark-pixels` and documented field by field in
-`docs/architecture/visible-marks.md` ("A mark is data"). One field is a
+`dev/architecture/visible-marks.md` ("A mark is data"). One field is a
 tuning knob rather than a fact about the vendor, so it is named here:
 a profile's `search.gain` (D530) — the gain bands a mark the search found
 resampled must fall in, by the template's width:
@@ -166,4 +187,4 @@ Absent, `null` or `[]` is no band: the second proof as for a row, the
 product before D530. Changing it is a JSON edit; trying another value
 needs no rebuild — `recon_bench run --catalogue <copy>` over the bench's
 Gemini rows, `search_gain --catalogue <copy>` over real files
-(`docs/plan/reports/E12-R-search-gain-2026-10-11.md`).
+(`dev/plan/reports/E12-R-search-gain-2026-10-11.md`).

@@ -64,7 +64,7 @@ use wipemark_engine::{ChatRefusal, ChatSupport, DraftRefusal};
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_models::gguf::{GgufError, Header, KvShape, NotOffered, Offer};
 use wipemark_models::host::{default_for_role, fit, fit_mb, Fit, Host};
-use wipemark_models::manifest::{Format, Manifest, ModelEntry, Role};
+use wipemark_models::manifest::{Format, Manifest, ModelEntry, Role, Status};
 use wipemark_models::scan::{format_of, Found};
 use wipemark_models::store::{Progress, State};
 use wipemark_models::user::{self, UserModel, UserState};
@@ -213,6 +213,9 @@ pub struct Card {
     /// What this machine has room for.
     pub fit: Fit,
     pub availability: Availability,
+    /// A catalogue entry that is never recommended (D830): the card says
+    /// so beside its name.
+    pub experimental: bool,
 }
 
 impl Card {
@@ -389,6 +392,7 @@ pub fn card(
         ),
         fit: host.map_or(Fit::Unknown, |host| fit(entry, host)),
         availability,
+        experimental: entry.status == Status::Experimental,
     }
 }
 
@@ -521,7 +525,7 @@ pub fn adopted<'a>(
 }
 
 /// Every catalogue entry that serves `role` **and is on this machine**,
-/// best first.
+/// best first — an experimental one after the stable ones (D830).
 ///
 /// The filter is the load-bearing half. A model that has not been
 /// downloaded is a file that does not exist, and offering it in the
@@ -535,7 +539,7 @@ pub fn installed_for<'a>(
     states: &BTreeMap<String, State>,
 ) -> Vec<&'a ModelEntry> {
     catalogue
-        .for_role(role)
+        .listed_for(role)
         .into_iter()
         .filter(|entry| matches!(states.get(&entry.id), Some(State::Present { .. })))
         .collect()
@@ -1269,7 +1273,7 @@ mod tests {
     use wipemark_i18n::{args, t, t_args, Message};
     use wipemark_models::gguf::{synthetic, synthetic_chat_model, Meta, NotOffered};
     use wipemark_models::host::{Fit, Host};
-    use wipemark_models::manifest::{Manifest, ModelEntry, Role};
+    use wipemark_models::manifest::{Manifest, ModelEntry, Role, Status};
     use wipemark_models::scan::Found;
     use wipemark_models::store::{Progress, State};
     use wipemark_models::user::{UserEntry, UserModel, UserState};
@@ -2356,6 +2360,43 @@ mod tests {
             },
         );
         assert!(installed_for(&catalogue, Role::Rewrite, &damaged).is_empty());
+    }
+
+    /// D830: an experimental entry that is on this machine is in the
+    /// selector, after the stable ones; its card says it is experimental;
+    /// it is never the recommendation — and a stable card says nothing.
+    #[test]
+    fn an_experimental_model_on_this_machine_is_offered_and_never_recommended() {
+        let catalogue = catalogue();
+        let trial = catalogue
+            .listed_for(Role::Rewrite)
+            .into_iter()
+            .find(|entry| entry.status == Status::Experimental)
+            .expect("the catalogue ships an experimental rewriter");
+        let stable = catalogue.for_role(Role::Rewrite)[0];
+
+        let mut both = BTreeMap::new();
+        both.insert(trial.id.clone(), State::Present { bytes: 1 });
+        both.insert(stable.id.clone(), State::Present { bytes: 1 });
+        let offered: Vec<&str> = installed_for(&catalogue, Role::Rewrite, &both)
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect();
+        assert_eq!(offered, [stable.id.as_str(), trial.id.as_str()]);
+
+        assert!(card(trial, Some(roomy()), &State::Absent, None, None).experimental);
+        assert!(!card(stable, Some(roomy()), &State::Absent, None, None).experimental);
+        for ram_mb in [8_192, 16_384, 65_536] {
+            let host = Host {
+                total_ram_mb: ram_mb,
+                ..roomy()
+            };
+            let offered = recommended(&catalogue, Role::Rewrite, Some(host), None);
+            assert_ne!(
+                offered.map(|entry| entry.id.as_str()),
+                Some(trial.id.as_str())
+            );
+        }
     }
 
     /// The selector lists what is on the machine, and the empty row's

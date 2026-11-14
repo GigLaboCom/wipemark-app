@@ -40,7 +40,7 @@
 #      reads naturally, and checked for any `U+` spelling or backslash
 #      outside what W12 escapes.
 #   C. The windows' "in place" clean of a symbolic link (the CLI refuses a
-#      link with exit 2, docs/architecture/cli.md). Printed: the verdict, what
+#      link with exit 2, dev/architecture/cli.md). Printed: the verdict, what
 #      the link's target holds afterwards, and what the two names are. Since
 #      D287 the verdict must be not-cleaned and the target still marked.
 #      C2 (X1–X14): the same clean of a file reached through a symbolic link

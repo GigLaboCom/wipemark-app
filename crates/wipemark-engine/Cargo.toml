@@ -13,7 +13,7 @@ default = []
 # The local engine's Rust surface over a shim: compiles with no C++
 # toolchain, refuses every load with "not built". The CI lane builds this.
 # The engine is `LocalEngine` (src/local.rs) over crates/wipemark-llama
-# (D45, docs/architecture/local-engine.md).
+# (D45, dev/architecture/local-engine.md).
 local-llama = ["dep:wipemark-llama"]
 # The real llama.cpp build (cmake + bindgen + a C++ compiler). Implies
 # local-llama. See crates/wipemark-llama-sys/PIN.md.

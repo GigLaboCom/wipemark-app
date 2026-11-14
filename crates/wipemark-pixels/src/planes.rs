@@ -30,7 +30,7 @@
 //! > a neighbour past the plane's last sample is that sample (the decoder
 //! > reads the MCU padding there instead — which an odd width or height
 //! > never asks for, and an even one asks for in its last column or row
-//! > only; see `docs/architecture/zune-jpeg-pin.md`).
+//! > only; see `dev/architecture/zune-jpeg-pin.md`).
 
 use crate::raster::Raster;
 

@@ -15,4 +15,4 @@
 # How to run: scripts/pin-gpui-component.sh — it changes nothing.
 # What it needs: nothing.
 # What its output means: the line below; there is no failure.
-echo "pin-gpui-component.sh: retired — GPUI is gpui-pre from crates.io at the component's exact version; scripts/check-gpui-pin.sh checks it (docs/architecture/gpui-pin.md)"
+echo "pin-gpui-component.sh: retired — GPUI is gpui-pre from crates.io at the component's exact version; scripts/check-gpui-pin.sh checks it (dev/architecture/gpui-pin.md)"

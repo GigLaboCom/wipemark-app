@@ -9,7 +9,7 @@ What it is for, and who asked
     creates its drag only when SelectionNotify brings the list back, so an
     XdndDrop that arrives first finds no drag, and the late list then leaves
     a stale one behind. The fix is carried in vendor/gpui-pre-linux (D620,
-    docs/architecture/gpui-pin.md). This script is the drag source the live
+    dev/architecture/gpui-pin.md). This script is the drag source the live
     check needs: no xdotool, no dragon and no python-xlib exist on the
     owner's host, and nothing may send input to the owner's own display, so
     it speaks XDND itself over libX11 (ctypes) on a virtual display.

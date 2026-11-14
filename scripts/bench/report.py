@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R5 of the E12-R series (`docs/plan/E12-R5-recon-bench.md` §4.5–§4.6),
+Step E12-R5 of the E12-R series (`dev/plan/E12-R5-recon-bench.md` §4.5–§4.6),
 from the owner's spec `wipemark-recon-spec-2026-10-08` (`05-recon-bench.md`),
 dispatched by the coordinator on 2026-10-09. `recon_bench run` writes one JSON
 line per file and config: the metrics against the ground truth in the mark's
@@ -39,7 +39,7 @@ What it does
      more than 0.3 dB;
   9. what was not done;
  10. the value inside the interval (E12-R8, added by its agent on 2026-10-09
-     for the coordinator; `docs/plan/E12-R8-value-inside-the-interval.md`
+     for the coordinator; `dev/plan/E12-R8-value-inside-the-interval.md`
      §6.2): per config, slice and encoder over the restored lossy files,
      `texture` and its ratio to `texture_around`, how many are `smoothed`
      (D496), refined, refined as text, in how many rounds, the largest

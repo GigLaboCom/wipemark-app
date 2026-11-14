@@ -822,14 +822,29 @@ fn the_language_is_detected_over_prose_without_placeholders() {
 
 /// The repository's own documents: real Markdown, written by hand, with
 /// every construct this product's users write — and every one of them
-/// must come back byte for byte, its chunk texts restorable.
+/// must come back byte for byte, its chunk texts restorable. Every `.md`
+/// under the repository but what it does not maintain, and the developer
+/// documentation in `dev/` where it is checked out (D832): CI reads the
+/// public ones only.
 #[test]
 fn every_markdown_document_in_this_repository_reassembles_exactly() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut stack = vec![root.join("docs"), root.join("CLAUDE.md")];
+    let not_ours = [
+        "target",
+        "vendor",
+        ".git",
+        ".claude",
+        "ssd-docs",
+        "node_modules",
+    ];
+    let mut stack = vec![root];
     let mut seen = 0;
     while let Some(path) = stack.pop() {
         if path.is_dir() {
+            let name = path.file_name().and_then(|name| name.to_str());
+            if name.is_some_and(|name| not_ours.contains(&name)) {
+                continue;
+            }
             for entry in std::fs::read_dir(&path).unwrap() {
                 stack.push(entry.unwrap().path());
             }

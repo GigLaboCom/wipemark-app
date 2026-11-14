@@ -32,7 +32,7 @@
 use std::ffi::OsStr;
 
 /// The variable that keeps native Wayland. A **format**: documented to
-/// the owner and in `docs/architecture/packaging.md`.
+/// the owner and in `dev/architecture/packaging.md`.
 pub const OPT_OUT: &str = "WIPEMARK_WAYLAND";
 
 /// What GPUI is allowed to connect to.

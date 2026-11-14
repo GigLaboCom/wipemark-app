@@ -1,6 +1,6 @@
 #!/bin/bash
 # Purpose: screenshots of the Compare window in both gutter layouts (E7-10, D461-D463), light and
-#   dark, for the host checklist of docs/plan/reports/E7-10-compare-mirrored-2026-10-09.md, items 1-2.
+#   dark, for the host checklist of dev/plan/reports/E7-10-compare-mirrored-2026-10-09.md, items 1-2.
 #   Asked by the coordinator, 2026-10-09, at the merge of e7/compare-mirrored into feat.
 # What it does, per (layout, theme):
 #   1. makes a scratch data directory (WIPEMARK_DATA_DIR) whose wipemark.db holds three settings rows:

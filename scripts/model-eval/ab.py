@@ -3,8 +3,8 @@
 
 What it is for
 --------------
-Step E12-R10 of the E12-R series (`docs/plan/E12-R10-model-evaluation.md`
-§2.1, F6, M6 and M7; Q-R7 in `docs/plan/E12-R-recon.md` §6), filed
+Step E12-R10 of the E12-R series (`dev/plan/E12-R10-model-evaluation.md`
+§2.1, F6, M6 and M7; Q-R7 in `dev/plan/E12-R-recon.md` §6), filed
 2026-10-08 by the coordinator from the owner's spec
 `wipemark-recon-spec-2026-10-08` (`07-model-evaluation.md`). Written
 2026-10-09, ahead of the run, at the owner's request that all code work be

@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R2 of the E12-R series (`docs/plan/E12-R2-corpora.md` §4.1),
+Step E12-R2 of the E12-R series (`dev/plan/E12-R2-corpora.md` §4.1),
 filed 2026-10-08 by the coordinator from the owner's spec
 `wipemark-recon-spec-2026-10-08` (`02-data-collection.md` §1; the owner's
 S2), the container part written 2026-10-09. The `gemini-midtone` set is

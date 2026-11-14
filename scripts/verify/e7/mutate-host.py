@@ -5,7 +5,7 @@ What it is for
 --------------
 Host verification of the E7 "windows clean" series (asked by the
 coordinator, 2026-10-05), and of its first follow-ups W1–W15 (asked by the
-coordinator, 2026-10-06). `docs/plan/reports/e7-windows-clean-mutate.py` is
+coordinator, 2026-10-06). `dev/plan/reports/e7-windows-clean-mutate.py` is
 the implementer's table of mutations. This is the verifier's: protections
 chosen from reading the code that the implementer's script does not cover —
 Layer A at its defaults, the picture scope, C2PA alone still marked, what is

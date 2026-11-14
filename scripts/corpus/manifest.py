@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R2 of the E12-R series (`docs/plan/E12-R2-corpora.md` §4–§5),
+Step E12-R2 of the E12-R series (`dev/plan/E12-R2-corpora.md` §4–§5),
 filed 2026-10-08 by the coordinator from the owner's spec
 `wipemark-recon-spec-2026-10-08` (`02-data-collection.md`,
 `08-grok-evaluation.md` §1; the owner's S2 and S5), the container part
@@ -22,7 +22,7 @@ visible mark, the owner, 2026-10-10), and with it the ring check over a
 catalogue row and `--on-fail move`, which only it used. The ring check now
 serves Grok's calibration captures instead (R11 §4.2), around the rectangle
 the stage-0 sidecar gives. `grok` reads the capture guide's folders (`web`,
-`x`, `api`, `video` — `docs/plan/E12-R-grok-capture-guide.md`) beside the
+`x`, `api`, `video` — `dev/plan/E12-R-grok-capture-guide.md`) beside the
 long names, takes a file's background group from its name when the sidecar
 does not give one, marks every by-hand cell nobody filled "to fill", and
 writes a sidecar template; `captures` writes Grok's `captures.toml`. A
@@ -145,7 +145,7 @@ Each command says what it wrote, one line per file that needs a person
 (refused, unverified, left out). The manifest is written only when the
 whole command succeeded. `grok` writes the stage-0 table
 (§4.3's artefact is that table, filed as
-`docs/plan/reports/E12-R2-grok-stage0-<date>.md`). Exit codes are the
+`dev/plan/reports/E12-R2-grok-stage0-<date>.md`). Exit codes are the
 repository's: **0** done, **1** a selftest failed, **2** usage or a refusal
 (a sha256 that differs from its row, a deflated ZIP, a manifest that is not
 valid), **3** attention — a ZIP member
@@ -178,7 +178,7 @@ EVERY = 5  # §4.1: every fifth file of a stratum is held out — 20 %
 PICTURES = (".png", ".jpg", ".jpeg", ".webp")
 CLIPS = (".mp4", ".mov", ".webm", ".mkv", ".m4v")
 GROK_SOURCES = ("grok.com", "grok-in-x", "xai-api", "grok-imagine-video")
-# The capture guide's folders (docs/plan/E12-R-grok-capture-guide.md): one short word per source, which is also
+# The capture guide's folders (dev/plan/E12-R-grok-capture-guide.md): one short word per source, which is also
 # the second half of the profile id a calibration drafts (`grok-web` …).
 SHORT = {"grok.com": "web", "grok-in-x": "x", "xai-api": "api", "grok-imagine-video": "video"}
 ALIASES = {v: k for k, v in SHORT.items()}
@@ -1162,7 +1162,7 @@ def cmd_grok(args):
         todo = [r for r in records if not r["in_sidecar"]]
         lines = ["# The stage-0 sidecar's by-hand fields, one [[file]] per capture no sidecar entry names yet.",
                  "# Written by scripts/corpus/manifest.py grok --template; fill what you see, by eye, and save it",
-                 "# as grok.toml beside the captures (docs/plan/E12-R-grok-capture-guide.md). An empty field is",
+                 "# as grok.toml beside the captures (dev/plan/E12-R-grok-capture-guide.md). An empty field is",
                  "# \"to fill\" in the table. mark: yes | no | unsure | varies; corner: bottom-right | bottom-left |",
                  "# top-right | top-left; margin and mark_size in pixels [x, y] / [w, h]; kind: wordmark | icon | other;",
                  "# shadow: none | shadow | outline | both; static (clips): yes | no.", ""]

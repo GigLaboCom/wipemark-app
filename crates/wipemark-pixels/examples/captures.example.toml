@@ -6,7 +6,7 @@
 # Per output size: 3 on black, 3 on white (5 each when the product gives JPEG),
 # 3 on mid-grey (#808080), 5 ordinary pictures with busy bottom corners, and,
 # when the product allows it, 5 pairs of one generation with and without the
-# mark (`clean`). See docs/sdd/visible-marks.md §4.6.
+# mark (`clean`). See dev/sdd/visible-marks.md §4.6.
 
 id = "acme-logo-v1"          # a format: lower-case ASCII, never renamed
 vendor = "acme"

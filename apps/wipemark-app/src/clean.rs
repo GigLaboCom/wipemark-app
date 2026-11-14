@@ -11,7 +11,7 @@
 //! # The policy is the CLI's, stated once
 //!
 //! `wipemark-cli clean` decides by the same libraries what a run came to,
-//! and its tables (`docs/architecture/cli.md`) are the behaviour this
+//! and its tables (`dev/architecture/cli.md`) are the behaviour this
 //! module matches. The CLI's policy lives inside a binary and cannot be
 //! imported, so [`outcome_of`] states it again as one pure function, and
 //! its tests walk the CLI's rows one by one:
@@ -54,7 +54,7 @@
 //! the folder included. [`sweep`] removes a directory once its period has
 //! passed, measured by the time in its own name.
 //!
-//! See `docs/plan/E7-windows-clean.md` and `docs/architecture/retention.md`.
+//! See `dev/plan/E7-windows-clean.md` and `dev/architecture/retention.md`.
 
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};

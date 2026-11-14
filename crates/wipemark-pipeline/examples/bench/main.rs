@@ -2,8 +2,8 @@
 //! a fixed en/ru/de corpus, measured attempt by attempt — and the
 //! selection policies compared on the same candidates.
 //!
-//! See `docs/architecture/prompt-bench.md` for the method, the metrics and
-//! how to rerun; `docs/plan/E4-5-the-prompt-bench.md` for why. A
+//! See `dev/architecture/prompt-bench.md` for the method, the metrics and
+//! how to rerun; `dev/plan/E4-5-the-prompt-bench.md` for why. A
 //! development tool: it prints to the terminal and writes its records to
 //! files it is told about, never through `tracing`.
 //!

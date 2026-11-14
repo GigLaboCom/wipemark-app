@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R10 of the E12-R series (`docs/plan/E12-R10-model-evaluation.md`
+Step E12-R10 of the E12-R series (`dev/plan/E12-R10-model-evaluation.md`
 §2.1 and §3.1), filed 2026-10-08 by the coordinator from the owner's spec
 `wipemark-recon-spec-2026-10-08` (`07-model-evaluation.md`; the owner's
 S10: FDnCNN conditionally after R*, LaMa for Gemini not evaluated, LaMa for
@@ -72,9 +72,9 @@ How to run it
 -------------
     python3 scripts/model-eval/trigger.py fdncnn --run reports/regress-<commit>-<date>/ [--run …] \
         [--classes recon-jpeg-444,recon-jpeg-420] [--ab ab/remainder/score.json] \
-        [--out docs/plan/reports/E12-R10-fdncnn-decision-<date>.md]
+        [--out dev/plan/reports/E12-R10-fdncnn-decision-<date>.md]
     python3 scripts/model-eval/trigger.py lama --holes r11-holes.json \
-        [--out docs/plan/reports/E12-R10-lama-decision-<date>.md]
+        [--out dev/plan/reports/E12-R10-lama-decision-<date>.md]
     python3 scripts/model-eval/trigger.py selftest
 
 What it needs

@@ -1,5 +1,5 @@
 //! Calibration: a vendor's mark recovered from captures — the maths of
-//! `docs/sdd/visible-marks.md` §4.6, on rasters someone else decoded. A
+//! `dev/sdd/visible-marks.md` §4.6, on rasters someone else decoded. A
 //! developer tool's engine (D162): it hands up numbers and a draft
 //! profile; `examples/calibrate.rs` reads the files and writes the row,
 //! the maps and the report a person commits.

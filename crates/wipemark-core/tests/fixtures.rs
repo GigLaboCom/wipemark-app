@@ -1,7 +1,7 @@
 //! `fixtures/text/` — every file's claim, through the public API.
 //!
-//! Two sets live there. The 22 of E1-3 (`docs/plan/E1-3-scrubber-and-nfkc.md`
-//! §4.7) and E1-4's two (`docs/plan/E1-4-homoglyphs.md` §4.9): one
+//! Two sets live there. The 22 of E1-3 (`dev/plan/E1-3-scrubber-and-nfkc.md`
+//! §4.7) and E1-4's two (`dev/plan/E1-4-homoglyphs.md` §4.9): one
 //! `<class id>.txt` per class the scrubber acts on, with the exact output
 //! and rows, and the `survive-*.txt` set of A §4.2, which must come out
 //! byte-identical. And E1-2's twelve `keep-*.txt`, whose hit

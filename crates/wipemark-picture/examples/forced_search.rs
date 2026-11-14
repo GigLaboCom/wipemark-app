@@ -2,7 +2,7 @@
 //! feature, a developer's tool (D162).
 //!
 //! **What it is for.** Step E12-R4 of the E12-R series
-//! (`docs/plan/E12-R4-corpus-analytics.md` §4.2, filed 2026-10-08 by the
+//! (`dev/plan/E12-R4-corpus-analytics.md` §4.2, filed 2026-10-08 by the
 //! coordinator from the owner's spec `wipemark-recon-spec-2026-10-08`,
 //! `04-corpus-analytics.md` §2; the owner's S7). D236 keeps every row's mark
 //! at the row's own rectangle and runs the search only when no row's mark

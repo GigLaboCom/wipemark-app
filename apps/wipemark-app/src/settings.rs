@@ -5876,7 +5876,7 @@ impl SettingsView {
                     // files have to be ours under *those* spellings or
                     // the button paints blank space and logs
                     // `asset not found` once a frame — see
-                    // docs/architecture/icons.md.
+                    // dev/architecture/icons.md.
                     .mask_toggle()
                     .disabled(!wanted),
             )
@@ -7852,6 +7852,16 @@ impl SettingsView {
                                         row.child(div().text_xs().text_color(muted).child(
                                             SharedString::from(t(
                                                 Message::SettingsModelsRecommended,
+                                            )),
+                                        ))
+                                    })
+                                    // Never beside the recommendation
+                                    // either: an experimental entry is
+                                    // never one (D830).
+                                    .when(card.experimental, |row| {
+                                        row.child(div().text_xs().text_color(muted).child(
+                                            SharedString::from(t(
+                                                Message::SettingsModelsExperimental,
                                             )),
                                         ))
                                     }),

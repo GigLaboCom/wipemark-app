@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bundle.sh — lay out Wipemark.app and its .dmg from a release build (P3).
 #
-# What it is for: docs/plan/v1-release.md P3, the macOS bundle, and the
+# What it is for: dev/plan/v1-release.md P3, the macOS bundle, and the
 # owner's acceptance of 0.1.0 on a Mac (A14; the owner, 2026-10-13: "build
 # the new version, we are accepting it on the Mac"). It is the macOS half of
 # scripts/release/linux/appdir.sh: the same two programs, llama.cpp's

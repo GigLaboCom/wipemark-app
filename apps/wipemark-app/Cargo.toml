@@ -57,7 +57,7 @@ base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 # The API key, and only the API key. Every other preference is a row in
 # wipemark.db; a credential goes to the operating system's own store.
-# See src/engine.rs and docs/architecture/engine-settings.md.
+# See src/engine.rs and dev/architecture/engine-settings.md.
 wipemark-secret.workspace = true
 # Whether a newer version exists, proved, and the swap where this copy may
 # replace itself (D780–D789, src/update.rs). `semver` for the versions it
@@ -100,7 +100,7 @@ tracing.workspace = true
 sysinfo.workspace = true
 # The rotating file, the stderr mirror and the panic hook. The app
 # does not build a subscriber itself — see `init_logging` in main.rs
-# and docs/architecture/logging.md.
+# and dev/architecture/logging.md.
 wipemark-log.workspace = true
 # Bakes assets/icons/*.svg into the binary. A packaged .app has no
 # assets/ directory beside the executable, so an AssetSource that

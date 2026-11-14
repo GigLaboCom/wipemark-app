@@ -2,7 +2,7 @@
 //!
 //! **What it is for.** The owner's question of 2026-10-11, dispatched by the
 //! coordinator as `recon/search-gain-resampled` (D530,
-//! `docs/plan/reports/E12-R-search-gain-2026-10-11.md`): D470 keeps the
+//! `dev/plan/reports/E12-R-search-gain-2026-10-11.md`): D470 keeps the
 //! search from proving a mark at the place of a row that refused it by gain,
 //! but a **resampled** mark sits at no row's place, and R5's bench marks
 //! drawn at `k = 0.93` are still proved there by the search (148 and 165 of

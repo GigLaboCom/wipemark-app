@@ -1,0 +1,33 @@
+# Gitleaks configuration
+# https://github.com/gitleaks/gitleaks
+#
+# Read by .githooks/pre-commit (the staged changes) and by CI's `secrets`
+# job (the whole history). Install the hook with scripts/install-hooks.sh.
+# When adding an allowlist entry: prefer a path over a regex, and never
+# allowlist a shape that a real credential could also match.
+
+title = "Wipemark gitleaks config"
+
+[extend]
+# Use the default gitleaks rules as a base
+useDefault = true
+
+[allowlist]
+  description = "Allow build output, upstream's submodule and Watchword key names"
+
+  paths = [
+    # cargo's build output: compiled metadata of third-party crates, never
+    # committed. Only `gitleaks dir` over a working tree reaches it.
+    '''(^|/)target/''',
+    # The gpui-kit submodule is upstream's code and is not in this
+    # repository's history; its website shows an `api_key = "…"` example.
+    '''^vendor/gpui-component/''',
+  ]
+
+  # A corpus manifest names the Watchword key its stored ZIP is under
+  # (scripts/corpus/README.md, manifest.py): a key's name, dated, public —
+  # the payload behind it is what is private. `generic-api-key` reads
+  # `key = "…"` as a credential.
+  regexes = [
+    '''^wipemark-corpus-[a-z0-9-]+-\d{4}-\d{2}-\d{2}$''',
+  ]

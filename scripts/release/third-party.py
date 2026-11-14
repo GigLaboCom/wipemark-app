@@ -4,7 +4,7 @@
 What it is for
 --------------
 The owner asked on 2026-10-12 for a Wipemark AppImage like MnemoVi's, with a
-third-party notices file shipped beside NOTICE (docs/plan/v1-release.md, P5;
+third-party notices file shipped beside NOTICE (dev/plan/v1-release.md, P5;
 D606). NOTICE covers the bundled assets and vendored source by hand; every
 crate compiled into the two binaries is in Cargo.lock, and this script is the
 road from the lock to a file a person can read. It needs no tool beyond cargo

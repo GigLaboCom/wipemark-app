@@ -589,7 +589,7 @@ fn the_benchs_gain_is_the_gain_a_row_measures() {
 /// proved it and restored it with `k = 1`. Since D470 (the owner,
 /// 2026-10-10) the search does not prove a mark where a row of its profile
 /// refused it by gain; the finding and its figures are in
-/// `docs/plan/reports/E12-R5-2026-10-09.md`.
+/// `dev/plan/reports/E12-R5-2026-10-09.md`.
 #[test]
 fn a_k_of_0_93_is_refused_by_a_k_of_1_profile() {
     let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));

@@ -13,7 +13,7 @@ description = "Whether a newer version exists, proved: the served manifest, the 
 # back a verdict rather than a sentence — the application words it, and
 # the CLI words it differently. Enforced by scripts/check-dep-direction.sh.
 #
-# Every package below is already in Cargo.lock (docs/sdd/self-update.md
+# Every package below is already in Cargo.lock (dev/sdd/self-update.md
 # §8.1): `ring` through rustls, `semver` and `base64` through the tree,
 # the rest workspace dependencies. The lock gains this crate and nothing
 # else.

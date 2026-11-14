@@ -3,7 +3,7 @@
 Every file here is compiled into `wipemark-pixels` by `build.rs` and
 named by a row of `manifests/marks.v1.json`, which pins it by sha256; a
 test re-hashes each one (`every_asset_matches_its_catalogue_hash`). The
-format is `.wma` — see `docs/architecture/visible-marks.md`.
+format is `.wma` — see `dev/architecture/visible-marks.md`.
 
 ## `gwt/` — Gemini's sparkle, from GeminiWatermarkTool
 

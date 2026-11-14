@@ -5,9 +5,9 @@
 # -----------------------------
 # The E12-R close-out (the coordinator's task
 # `wipemark-task-recon-closeout-grok-ready-2026-10-10`, 2026-10-10;
-# docs/plan/E12-R-closeout-grok-ready.md, K2; D528): after the owner's
+# dev/plan/E12-R-closeout-grok-ready.md, K2; D528): after the owner's
 # answer to the Gemini question ("prepare for Grok"), the day the owner drops
-# Grok captures into one folder (docs/plan/E12-R-grok-capture-guide.md),
+# Grok captures into one folder (dev/plan/E12-R-grok-capture-guide.md),
 # one command takes them through R2's stage 0 and R11's stages 1-3 to a
 # provisional profile, runs R12b's tools on it, and says what is missing.
 # It chains what R2, R11 and R12b built; it adds no measure of its own.
@@ -24,7 +24,7 @@
 #               by-hand fields from the sidecar (grok.toml beside the captures,
 #               or --sidecar) — every one nobody filled marked "to fill". Writes
 #               the manifest (corpus/grok/manifest.json) and the stage-0 table
-#               (docs/plan/reports/E12-R2-grok-stage0-<date>.md), and a sidecar
+#               (dev/plan/reports/E12-R2-grok-stage0-<date>.md), and a sidecar
 #               template for the files the sidecar does not name.
 #  2. ZIP     — manifest.py zip: the stored ZIP of the stills (and of the clips,
 #               if any) under wipemark-corpus-grok-<date> (D493), verified. The

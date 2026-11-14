@@ -12,7 +12,7 @@
 //!   [`Unavailable::Redirected`] naming the status and the *origin* the
 //!   server pointed at — never its path or query. A client that followed
 //!   would carry the `Authorization` header to a host nobody validated
-//!   (`docs/sdd/layer-b-rewrite-reference.md` §2).
+//!   (`dev/sdd/layer-b-rewrite-reference.md` §2).
 //! * **Retries only before the first byte of an answer.** A connection that
 //!   could not be made, a 429 and a 502/503/504 are tried again, at most
 //!   twice, waiting what `Retry-After` asks up to ten seconds. Nothing is

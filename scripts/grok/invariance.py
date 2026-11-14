@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R11 of the E12-R series (`docs/plan/E12-R11-grok-map.md` §4.1,
+Step E12-R11 of the E12-R series (`dev/plan/E12-R11-grok-map.md` §4.1,
 "Statistics"), filed 2026-10-08 by the coordinator from the owner's spec
 `wipemark-recon-spec-2026-10-08` (`08-grok-evaluation.md` §2); this tool
 is the container part, written 2026-10-09 before any capture exists. For

@@ -252,7 +252,7 @@ Wipemark does not look for those, and it does not remove them.
 | `clean <file>` | writes `name.cleaned.ext` beside the file; `-o <path>` writes elsewhere, `-o -` to standard output, `--in-place` replaces the file after setting the original aside |
 | `audit <folder>` | inspects every text file and picture under a folder, hidden entries skipped (`--json`, or `--sarif` for SARIF 2.1.0) |
 | `rewrite <file>` | writes `name.rewritten.ext`; with the application running, the application does the rewrite and the CLI says so |
-| `models list \| pull \| verify \| rm \| add \| forget` | the model catalogue and the models you added, without the window |
+| `models list \| pull \| verify \| rm \| add \| forget \| inspect` | the model catalogue and the models you added, without the window; `inspect` looks at a model on Hugging Face before anything is downloaded |
 | `update --check` | says whether a newer, verified version exists; installing is the application's job |
 
 | exit | meaning |
@@ -263,8 +263,7 @@ Wipemark does not look for those, and it does not remove them.
 | `3` | partial: something could not be read or examined, a mark stayed, or only some paragraphs were rewritten. Inconclusive is not clean, so `3` beats `1`. |
 
 The command line refuses to write over an existing result; `-o` names the
-target explicitly. Every command's codes are in
-[docs/architecture/cli.md](docs/architecture/cli.md).
+target explicitly.
 
 ### The MCP server
 
@@ -385,7 +384,11 @@ catalogue records, and resumes if it is interrupted.
 
 You can also **add a GGUF model of your own** on the Models page or with
 `wipemark-cli models add <file>`. Wipemark never deletes a model file it
-did not download.
+did not download. To see what a model on Hugging Face is before you fetch
+it — its files and checksums, its architecture, whether this build can
+talk to it and whether it fits — run
+`wipemark-cli models inspect https://huggingface.co/<owner>/<repo>`; it
+reads the front of one file and downloads nothing.
 
 ## Quick start
 
@@ -451,9 +454,6 @@ through an endpoint needs the application.
 - A model you no longer use stays on disk until you remove it on the Models
   page. There is no download mirror.
 
-[docs/plan/v1-release.md](docs/plan/v1-release.md) §4 lists what the next
-version takes up.
-
 ## Development
 
 Rust, at the toolchain `rust-toolchain.toml` pins, and GPUI, with no web
@@ -500,16 +500,7 @@ scripts/check-gpui-pin.sh
 scripts/check-zune-pin.sh
 ```
 
-Check out [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute, and
-read next:
-
-- [docs/development.md](docs/development.md): building, the run flags and
-  environment variables, the gates and CI, release builds.
-- [docs/architecture/map.md](docs/architecture/map.md): what every crate
-  and module owns.
-- [docs/architecture/rules.md](docs/architecture/rules.md): the rules the
-  code keeps.
-- [docs/README.md](docs/README.md): every architecture document.
+Check out [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute.
 
 ## Licence
 

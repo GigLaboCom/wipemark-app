@@ -2,7 +2,7 @@
 //!
 //! Ported from `heretic-lazy-shot`'s `AppLogger`, with the same two
 //! limits and the same refusal to ever fail an event. The differences
-//! are deliberate and listed in `docs/architecture/logging.md`.
+//! are deliberate and listed in `dev/architecture/logging.md`.
 //!
 //! # Unbuffered on purpose
 //!
@@ -16,7 +16,7 @@
 //! the "nothing blocks the GPUI thread" rule knowingly: a background
 //! writer would keep the thread free and lose its queue on `abort()`,
 //! which is the crash this file exists for. So log per *operation*, not
-//! per frame. See `docs/architecture/logging.md`.
+//! per frame. See `dev/architecture/logging.md`.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};

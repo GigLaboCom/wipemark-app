@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # mcp-live.sh — acceptance step A10 against a running application's MCP server.
 #
-# What it is for: docs/plan/v1-release.md §3, A10 ("inspect, clean, clean_image and
+# What it is for: dev/plan/v1-release.md §3, A10 ("inspect, clean, clean_image and
 # rewrite answer, and each is a journal row"), run against the application the owner
 # is accepting, over its real HTTP port — the probe the coordinator ran by hand on
 # Linux on 2026-10-12, kept as a script.

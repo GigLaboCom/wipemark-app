@@ -148,7 +148,7 @@ Next:
   cargo build -p wipemark-app     # the variants above now exist
   cargo test -p wipemark-app      # asset binding, currentColor, ids
 
-Then give each one a row in docs/architecture/icons.md naming the
+Then give each one a row in dev/architecture/icons.md naming the
 surface that renders it, and update the count there and in
 assets/icons/README.md. An icon nothing renders still ships in the
 binary and still has to be licence-audited.

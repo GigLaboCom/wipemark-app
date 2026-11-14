@@ -136,7 +136,7 @@ pub const MCP_PORT_KEY: &str = "mcp.port";
 /// where the choice is made, but deliberately **not** part of a
 /// profile: a profile names an endpoint, and whether an endpoint is
 /// asked at all is not the endpoint's business. See
-/// `docs/architecture/who-rewrites.md`.
+/// `dev/architecture/who-rewrites.md`.
 pub const ENGINE_SERVES_KEY: &str = "engine.serves";
 
 pub const ENGINE_PROVIDER_KEY: &str = "engine.provider";

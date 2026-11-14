@@ -3,7 +3,7 @@
 
 What it is for
 --------------
-Step E12-R3 of the E12-R series (`docs/plan/E12-R3-jpeg-planes.md`, filed by
+Step E12-R3 of the E12-R series (`dev/plan/E12-R3-jpeg-planes.md`, filed by
 the coordinator on 2026-10-08 from the owner's spec
 `wipemark-recon-spec-2026-10-08`, `03-jpeg-planes-decoder.md`) hands the
 restoration what a JPEG stored: Y, Cb and Cr at their own resolution and the

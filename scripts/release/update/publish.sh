@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # publish.sh — put one signed artifact on the release service (D780, D783).
 #
-# What it is for: docs/sdd/self-update.md §2.5 step 4–5. Wipemark is a
+# What it is for: dev/sdd/self-update.md §2.5 step 4–5. Wipemark is a
 # `direct` app of the giglabo release service (heretic-releases-api): CI
 # pushes each artifact itself, and the service assembles the manifest the
 # application reads at https://releases.giglabo.com/downloads/wipemark on

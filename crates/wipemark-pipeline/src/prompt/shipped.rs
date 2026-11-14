@@ -14,7 +14,7 @@
 //! sentence, the two intensity clauses and the English fallback clause
 //! belong to the assembler: they are what a variable expands to, in the
 //! template's own language, and v1 does not offer them for editing
-//! (`docs/plan/E4-2-the-prompts.md` §4.2).
+//! (`dev/plan/E4-2-the-prompts.md` §4.2).
 //!
 //! A shipped text is its file with trailing whitespace trimmed.
 

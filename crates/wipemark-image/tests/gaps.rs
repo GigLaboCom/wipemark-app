@@ -1,9 +1,9 @@
 //! The protections the host verification of E11-1 found unguarded
-//! (`docs/plan/E11-3-image-test-gaps.md`): an unknown critical PNG
+//! (`dev/plan/E11-3-image-test-gaps.md`): an unknown critical PNG
 //! chunk, a C2PA manifest across several APP11 segments, the MP Index
 //! after a removal before it, and the orientation a removed EXIF block
 //! carried. Each test goes red with its protection deleted
-//! (`docs/plan/reports/E11-3-mutate.py`).
+//! (`dev/plan/reports/E11-3-mutate.py`).
 
 mod support;
 

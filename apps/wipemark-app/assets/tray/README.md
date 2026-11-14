@@ -29,7 +29,7 @@ it, as above. Linux has no template images — a StatusNotifier host draws
 the pixels it is handed, and the panel's colour cannot be known from the
 application — so `tray::panel_image` derives the Linux icon from this
 same template at run time: the broom white, over a dark outline drawn
-around it (D342, `docs/architecture/tray.md`). The rest of the set in
+around it (D342, `dev/architecture/tray.md`). The rest of the set in
 `icons/tray/` — 16, 32 and 64 px, black and white — is read by nothing;
 the white files in particular are not picked by theme anywhere.
 `include_bytes!` is what puts a file in the binary, and one file is what

@@ -6,7 +6,7 @@ What it is for
 Written by the host verifier of the images series' third round (2026-10-05,
 `images/series-v3` at **`1a22a54`**; findings: Watchword FILE
 `wipemark-task-images-followups-4-2026-10-05`). Besides running
-`docs/plan/reports/images-followups-mutate.py` (63 of 63 red), the verifier
+`dev/plan/reports/images-followups-mutate.py` (63 of 63 red), the verifier
 broke what it read in the code itself and asked whether a test noticed:
 `CHROMA_LEVELS` 6.0 and 7.5, the luma weights R<->B, Cb's coefficients
 R<->B, chroma as |dCr| alone, "searched" never said, the German residual

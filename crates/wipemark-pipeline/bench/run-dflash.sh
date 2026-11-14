@@ -4,7 +4,7 @@
 # the speed table that puts the two side by side (E2-dflash2, F4, D486).
 #
 # What it is for
-#   The coordinator's task docs/plan/E2-dflash2.md (Watchword
+#   The coordinator's task dev/plan/E2-dflash2.md (Watchword
 #   `wipemark-task-dflash2-speculative-2026-10-10`, written 2026-10-10 for the
 #   owner) adds DFlash2 speculative decoding to the local engine: a 1.1 GB
 #   draft (z-lab/Qwen3.8-27B-DFlash2-GGUF, Q4_K_M — the catalogue's

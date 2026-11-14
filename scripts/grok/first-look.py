@@ -5,7 +5,7 @@ What it is for, and who asked
 -----------------------------
 On 2026-10-11 the owner dropped the first real Grok outputs into one folder
 (three JPEGs, then two more the same morning) and said work on Grok can
-start from them. The capture guide (`docs/plan/E12-R-grok-capture-guide.md`)
+start from them. The capture guide (`dev/plan/E12-R-grok-capture-guide.md`)
 asks for 50+ captures on plain backgrounds; these are what exists. The
 coordinator's task `wipemark-task-recon-grok-first-look-2026-10-11` (F1, F2)
 asked for one committed script that gets out of them what they honestly

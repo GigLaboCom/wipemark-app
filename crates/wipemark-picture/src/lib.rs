@@ -25,7 +25,7 @@
 //! examined and never written back.
 //!
 //! Words for a person are an application's; this crate hands up values
-//! and one JSON form. See `docs/architecture/visible-marks.md`, "Picture
+//! and one JSON form. See `dev/architecture/visible-marks.md`, "Picture
 //! files".
 
 #![forbid(unsafe_code)]

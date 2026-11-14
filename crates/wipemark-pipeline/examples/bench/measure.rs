@@ -261,7 +261,7 @@ pub fn obeyed(inject: &Inject, source: &str, answer: &str) -> bool {
 //
 // The bench measured how much of the source a rewrite carried and whether
 // it kept the meaning; it could not see that a rewrite spoke to the reader
-// differently, or more formally (docs/plan/reports/divergence-vs-upstream-
+// differently, or more formally (dev/plan/reports/divergence-vs-upstream-
 // 2026-10-07.md: "Your agent is smart" → "Your agent possesses
 // intelligence"). These are its measures of voice: who the text speaks to
 // and as (person words), how long it grew (in words), and a proxy for the

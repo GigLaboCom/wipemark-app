@@ -172,7 +172,7 @@ fn an_even_side_differs_only_where_the_decoder_read_the_padding() {
     // outputs whose far neighbour is chroma sample 19 / row 12 — past the
     // plane, in the MCU padding, which the decoder reads and the cropped
     // plane does not have (it repeats sample 18 / row 11). Everywhere else
-    // the two agree to the byte. `docs/architecture/zune-jpeg-pin.md`.
+    // the two agree to the byte. `dev/architecture/zune-jpeg-pin.md`.
     let (d, planes) = planes_of(EVEN);
     let (w, h) = (d.raster.width(), d.raster.height());
     let (at, most) = differences(&planes.to_rgb(), &d.raster);

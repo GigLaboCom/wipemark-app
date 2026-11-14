@@ -6,7 +6,7 @@
 # What it is for
 #   Host verification of the E7 "windows clean" series (asked by the
 #   coordinator, 2026-10-05; the owner: "what can be checked by automation,
-#   check by automation"). `docs/plan/reports/E7-windows-clean-live-check.md`
+#   check by automation"). `dev/plan/reports/E7-windows-clean-live-check.md`
 #   has fourteen cases; the ones whose outcome is a file on disk can be run
 #   without touching the window. This runs them: cases 1, 2, 3, 4, 5, 6, 8,
 #   9 (both runs) and the first half of 10. Case 10 changed with D635
@@ -70,7 +70,7 @@ WAIT=${WAIT:-60}
 # APP_DBUS=$DBUS_SESSION_BUS_ADDRESS, the real bus — to check it holds.
 # Since the GPUI bump (2026-10-07) GPUI is gpui-pre 0.3.8 from crates.io,
 # no fork: zed #61789 defers the appearance callback, and the real bus is
-# safe there too (docs/architecture/gpui-pin.md §2).
+# safe there too (dev/architecture/gpui-pin.md §2).
 APP_DBUS=${APP_DBUS:-unix:path=/nonexistent-wipemark-verify}
 W=$WORK/files
 mkdir -p "$W"

@@ -86,12 +86,12 @@ files exactly as downloaded (names are X's media ids): progressive JPEG,
 4:2:0, an `APP0` and nothing else, every one with the same quantisation
 tables — libjpeg's at quality 95, so X's re-encode decodes like Pillow's
 `quality=95, subsampling=2` (checked: `scripts/grok/gwt-way.py`'s report,
-`docs/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md`). The owner asked on
+`dev/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md`). The owner asked on
 2026-10-11 that pictures may be committed as examples where a script needs
 them; until then (D493, the first look) they stayed out of git. The mark is
 the slashed circle and "Grok" bottom-right, width 0.0832 × the picture's,
 dark (a black logo) on a light corner and light (a white one) on a dark
-corner (`docs/plan/reports/E12-R11-grok-first-look-2026-10-11.md`). `wipemark-image`'s
+corner (`dev/plan/reports/E12-R11-grok-first-look-2026-10-11.md`). `wipemark-image`'s
 `blocks_tile_the_file` walks them (every byte in one block), as it walks every
 folder here; `scripts/grok/first-look.py` and `gwt-way.py` read them.
 

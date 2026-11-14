@@ -17,7 +17,7 @@
 #      read in the next round; anything else stops the build, named;
 #   3. repeats until a round copies nothing;
 #   4. prints what was carried and which HOST sonames the AppDir relies on —
-#      the list docs/architecture/packaging.md states as the floor.
+#      the list dev/architecture/packaging.md states as the floor.
 #
 # How to run:   scripts/release/linux/bundle-libs.sh <AppDir>
 #               (inside the builder image, after appdir.sh)
