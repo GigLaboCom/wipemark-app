@@ -130,6 +130,9 @@ pub(crate) struct Clip {
     marks: Vec<(String, usize)>,
     /// Where the pointer is, and whether its button is down.
     pointer: Option<(Point<Pixels>, bool)>,
+    /// Whether files dragged from elsewhere are over the window
+    /// ([`Clip::drag`]).
+    carried: bool,
     track: Vec<(usize, Point<Pixels>, bool)>,
     events: Vec<(usize, &'static str, Point<Pixels>)>,
     /// Which named parts to follow, by the start of their names.
@@ -170,6 +173,7 @@ impl Clip {
             frame: 0,
             marks: Vec::new(),
             pointer: None,
+            carried: false,
             track: Vec::new(),
             events: Vec::new(),
             follow: follow.iter().map(|prefix| (*prefix).to_owned()).collect(),
@@ -319,6 +323,60 @@ impl Clip {
         );
         self.pointer = Some((at, false));
         self.events.push((self.frame, "up", at));
+    }
+
+    /// The pointer carries files dragged from elsewhere to `at`, its
+    /// button held, as a platform tells a window: nothing while `at` is
+    /// outside the window (the track still has it), then
+    /// `FileDropEvent::Entered` with `paths` on coming in, `Pending` at
+    /// each move inside, and `Exited` on going out again.
+    pub(crate) fn drag(
+        &mut self,
+        cx: &mut HeadlessAppContext,
+        at: Point<Pixels>,
+        paths: &[PathBuf],
+    ) {
+        let inside =
+            at.x >= px(0.0) && at.y >= px(0.0) && at.x < self.css.width && at.y < self.css.height;
+        match (self.carried, inside) {
+            (false, true) => {
+                self.send(
+                    cx,
+                    gpui::FileDropEvent::Entered {
+                        position: at,
+                        paths: gpui::ExternalPaths(paths.iter().cloned().collect()),
+                    }
+                    .to_platform_input(),
+                );
+                self.events.push((self.frame, "drag-enter", at));
+            }
+            (true, true) => self.send(
+                cx,
+                gpui::FileDropEvent::Pending { position: at }.to_platform_input(),
+            ),
+            (true, false) => {
+                self.send(cx, gpui::FileDropEvent::Exited.to_platform_input());
+                self.events.push((self.frame, "drag-exit", at));
+            }
+            (false, false) => {}
+        }
+        self.carried = inside;
+        self.pointer = Some((at, true));
+    }
+
+    /// The files carried are let go where the pointer is:
+    /// `FileDropEvent::Submit`, then `Ended`, the platform's drag over.
+    pub(crate) fn let_go(&mut self, cx: &mut HeadlessAppContext) {
+        let (at, _) = self.pointer.expect("a pointer carrying files");
+        assert!(self.carried, "files let go outside the window");
+        self.send(
+            cx,
+            gpui::FileDropEvent::Submit { position: at }.to_platform_input(),
+        );
+        self.send(cx, gpui::FileDropEvent::Ended.to_platform_input());
+        self.carried = false;
+        self.pointer = Some((at, false));
+        self.events.push((self.frame, "drop", at));
     }
 
     /// The wheel turns over `at` by `down` points (positive scrolls the
