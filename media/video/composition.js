@@ -3,8 +3,10 @@
 // composition.html?cut=<main|loop>&counts=<clip:frames,...>, calls
 // WM.ready() once, then WM.seek(t) for every frame and takes a screenshot.
 //
-// Every word a viewer reads is in this file, and each must be true of
-// Wipemark 0.1.0 (README.md and site/index.html are the reference). The
+// Every word a viewer reads is in this file; the pictures and what is said
+// of them are of Wipemark 0.1.0 (README.md and site/index.html are the
+// reference), while the end card names no version and lists the platforms
+// as of 2026-11-15, when the owner confirmed the Windows build. The
 // pictures are only Wipemark's own windows (media/out/clips/ and
 // media/out/screenshots/, copied into the work directory by render.sh) and
 // shapes drawn here. `WM.cues()` hands the captions to render.mjs, which
@@ -680,7 +682,7 @@
       const s = scene(T, T + 4.4, { fin: 0.45, fout: 0.45 });
       const box = $("div", "points", s.el);
       const lines = [
-        [T + 0.5, "Runs on your Mac or your Linux PC."],
+        [T + 0.5, "Runs on your Mac, your Linux PC or your Windows PC."],
         [T + 1.05, "Your files stay here unless you choose an endpoint."],
         [T + 1.6, "No account. No telemetry."],
       ];
@@ -712,7 +714,7 @@
       const T = 67.7;
       const s = scene(T, T + 4.3, { fin: 0.55, fout: 0 });
       const b = brandBlock(s.el, 250, 184, 100);
-      const meta = $("div", "end-meta", s.el, 'Version 0.1.0<span class="dot"></span>macOS (Apple Silicon)<span class="dot"></span>Linux (x86_64)');
+      const meta = $("div", "end-meta", s.el, 'macOS (Apple Silicon)<span class="dot"></span>Linux (x86_64)<span class="dot"></span>Windows (x86_64)');
       meta.style.top = "592px";
       const url = $("div", "end-url", s.el, "github.com/GigLaboCom/wipemark-app");
       url.style.top = "666px";
@@ -732,7 +734,7 @@
           el.style.transform = (el === b.icon ? `scale(${lerp(0.9, 1, a).toFixed(4)}) ` : "") + `translateY(${px(lerp(14, 0, a))})`;
         }
       };
-      said(T + 0.15, T + 4.3, "Wipemark. Version 0.1.0 · macOS (Apple Silicon) · Linux (x86_64)");
+      said(T + 0.15, T + 4.3, "Wipemark. macOS (Apple Silicon) · Linux (x86_64) · Windows (x86_64)");
       said(T + 0.6, T + 4.3, "github.com/GigLaboCom/wipemark-app");
       said(T + 0.8, T + 4.3, "Free to use · FSL-1.1-ALv2");
       return T + 4.3;
