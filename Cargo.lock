@@ -9650,6 +9650,7 @@ dependencies = [
  "gpui-base",
  "gpui-component",
  "gpui-pre",
+ "gpui-pre-apple",
  "gpui-pre-platform",
  "gtk",
  "image",

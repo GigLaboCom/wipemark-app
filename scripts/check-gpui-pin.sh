@@ -27,7 +27,13 @@
 #      version, and nothing — there or in any [patch] table — is taken
 #      from a zed git repository. The one `[patch]` entry on a snapshot
 #      crate allowed is the carried one, `[patch.crates-io] gpui-pre-linux
-#      = { path = "vendor/gpui-pre-linux" }`.
+#      = { path = "vendor/gpui-pre-linux" }`. The snapshot crates named
+#      there are `gpui-pre` and `gpui-pre-platform`, and `gpui-pre-apple`,
+#      whose text system the app's headless frames build on macOS off the
+#      main thread (apps/wipemark-app/src/footage.rs); any other is a
+#      problem. Every workspace member's manifest takes a `gpui-pre*`
+#      package through `workspace = true` only, so each requirement is one
+#      of those exact pins.
 #   2. Reads vendor/gpui-component/Cargo.toml the same way and requires
 #      the same version (its `gpui-pre-reqwest` is a hand-published fork
 #      with its own version line and is left out, as gpui-kit's own
@@ -108,6 +114,11 @@ LOCK = os.environ["LOCKFILE"]
 OWN_LINE = {"gpui-pre-reqwest"}
 # The one snapshot crate carried in this repository, and where (D620–D623).
 CARRIED = {"gpui-pre-linux": "vendor/gpui-pre-linux"}
+# The snapshot crates this workspace names itself: GPUI and its platform,
+# and gpui-pre-apple, whose `AppleTextSystem` the headless frames build on
+# macOS, where `MacPlatform` refuses any thread but the main one (footage.rs).
+# Every other snapshot crate comes in through these, at their version.
+DIRECT = {"gpui-pre", "gpui-pre-platform", "gpui-pre-apple"}
 EXACT = re.compile(r"^=\d+\.\d+\.\d+$")
 
 problems = []
@@ -146,6 +157,31 @@ root_manifest, ours = snapshot_requirements(ROOT)
 for key, spec in root_manifest.get("workspace", {}).get("dependencies", {}).items():
     if isinstance(spec, dict) and re.search(r"github\.com/[^/]+/zed(\.git)?$", spec.get("git", "")):
         problems.append(f"{ROOT}: {key} is taken from a zed git repository ({spec['git']})")
+for package in sorted(set(ours) - DIRECT):
+    problems.append(
+        f"{ROOT}: {package} is named in [workspace.dependencies]; this workspace names "
+        f"{', '.join(sorted(DIRECT))} and takes the rest through them"
+    )
+
+# A member names a snapshot crate only through the workspace's exact pins.
+TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
+for member in root_manifest.get("workspace", {}).get("members", []):
+    path = os.path.join(os.path.dirname(ROOT), member, "Cargo.toml")
+    with open(path, "rb") as f:
+        manifest = tomllib.load(f)
+    tables = [manifest.get(table, {}) for table in TABLES]
+    for target in manifest.get("target", {}).values():
+        tables += [target.get(table, {}) for table in TABLES]
+    for deps in tables:
+        for key, spec in deps.items():
+            package = spec.get("package", key) if isinstance(spec, dict) else key
+            direct = not (isinstance(spec, dict) and spec.get("workspace") is True)
+            if package.startswith("gpui-pre") and direct:
+                problems.append(
+                    f"{path}: {key} names {package} itself; take it through "
+                    "[workspace.dependencies] (`workspace = true`)"
+                )
+
 _, theirs = snapshot_requirements(COMPONENT)
 if not ours:
     problems.append(f"{ROOT}: no gpui-pre requirement at all")

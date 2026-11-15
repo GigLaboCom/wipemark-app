@@ -49,6 +49,10 @@ mod drop;
 mod duty;
 mod engine;
 mod engine_host;
+// The windows drawn as pictures with no display, for the screenshot and
+// footage tests (D840).
+#[cfg(test)]
+mod footage;
 // GNOME's own custom keyboard shortcuts, as the system-wide shortcut's
 // registrar on GNOME (D641).
 mod gnome;
