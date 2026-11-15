@@ -1234,6 +1234,101 @@ mod tests {
         }
     }
 
+    /// `fixtures/demo/reply.txt`, the text feature video's demo text, as the
+    /// video shows it: what `inspect` would do and `clean` does, at which
+    /// bytes, the row's verdict and the count it says, and the Report's
+    /// lines — each removed character on the verifiable shelf, each kept
+    /// one on the best-effort shelf with its own reason under it.
+    #[test]
+    fn the_demo_reply_is_said_as_the_video_shows_it() {
+        use wipemark_core::{Options, UnicodeFinding};
+        use Confidence::{Confirmed, Informational, LikelyFalsePositive, Probable};
+        use UnicodeClass::{ExoticSpace, Homoglyph, SoftHyphen, ZeroWidth, ZeroWidthJoiner};
+
+        let bytes = std::fs::read(format!(
+            "{}/../../fixtures/demo/reply.txt",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect("fixture");
+        let text = std::str::from_utf8(&bytes).expect("UTF-8");
+        let row = |codepoint, class, confidence, at: usize| UnicodeFinding {
+            codepoint,
+            class,
+            count: 1,
+            positions: vec![at],
+            confidence,
+        };
+        // By class, in `UnicodeClass::ALL`'s order, then by code point.
+        let removed = vec![
+            row('\u{200B}', ZeroWidth, Confirmed, 6),
+            row('\u{2060}', ZeroWidth, Confirmed, 139),
+            row('\u{AD}', SoftHyphen, Informational, 73),
+        ];
+        let kept = vec![
+            row('\u{200D}', ZeroWidthJoiner, LikelyFalsePositive, 84),
+            row('\u{A0}', ExoticSpace, Informational, 44),
+            row('\u{430}', Homoglyph, Probable, 112),
+        ];
+        let looked = wipemark_core::inspect(text, &Options::default());
+        assert_eq!(looked.findings, removed, "inspect: what would go");
+        assert_eq!(looked.kept, kept, "inspect: what would stay");
+        let done = wipemark_core::clean(text, &Options::default());
+        assert_eq!(done.report.findings, removed, "clean: what went");
+        assert_eq!(done.report.kept, kept, "clean: what stayed");
+        assert_eq!(
+            done.text,
+            text.replace(['\u{200B}', '\u{AD}', '\u{2060}'], ""),
+            "clean: anything but the three moved"
+        );
+
+        let scratch = Scratch::new("demo-reply");
+        let (arrival, outcome) = cleaned(&scratch, "reply.txt", &bytes);
+        assert_eq!(outcome.verdict.id(), "cleaned");
+        let localizer = english();
+        let say = |message: Message, args: &FluentArgs| localizer.format_args(message, args);
+        let sheet = sheet(&say, &arrival.intake, &outcome);
+        assert_eq!(
+            sheet.happened[0].text,
+            "3 characters were removed or replaced."
+        );
+        let lines = |shelf: &[super::Line]| -> Vec<(usize, String)> {
+            shelf.iter().map(|l| (l.depth, l.text.clone())).collect()
+        };
+        let top = |text: &str| (0, text.to_owned());
+        let under = |message: Message| (1, say(message, &FluentArgs::new()));
+        assert_eq!(
+            lines(&sheet.verifiable),
+            [
+                top("U+200B ZERO WIDTH SPACE · zero-width character · confirmed · once"),
+                top("U+2060 WORD JOINER · zero-width character · confirmed · once"),
+                top("U+00AD SOFT HYPHEN · soft hyphen · for information · once"),
+                top(&format!(
+                    "Checked against Unicode {}.",
+                    done.report.unicode_version
+                )),
+            ]
+        );
+        assert_eq!(
+            lines(&sheet.best_effort),
+            [
+                top("U+200D ZERO WIDTH JOINER · zero-width joiner · likely not a mark · once"),
+                under(Message::WindowReportKeptInPlace),
+                top("U+00A0 NO-BREAK SPACE · unusual space · for information · once"),
+                under(Message::WindowReportKeptSpace),
+                top(
+                    "U+0430 CYRILLIC SMALL LETTER A · letter from another script · probable · once"
+                ),
+                under(Message::WindowReportKeptHomoglyph),
+            ]
+        );
+        assert_eq!(
+            sheet.not_established.len(),
+            3,
+            "{:?}",
+            sheet.not_established
+        );
+    }
+
     /// The Markdown copy in every language: no isolate, nothing Layer A
     /// would remove, all five titles — over every ending.
     #[test]
