@@ -81,7 +81,8 @@ paste it.
 2. Press *Clean*. The result is written beside the file as
    `name.cleaned.ext`; a pasted text's result stays in its row.
 3. Open *Report…* from the row's menu to see every character that was
-   removed, where it was, and what was kept and why.
+   removed, how many times, and what was kept and why. *Copy JSON* there
+   adds where each one was, as byte offsets into the text read as UTF-8.
 
 <img alt="The Report window: what happened, verifiable, best-effort and not established" src="docs/screenshots/report.png" width="640">
 

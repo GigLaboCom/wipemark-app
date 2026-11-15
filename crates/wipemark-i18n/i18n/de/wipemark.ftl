@@ -1262,6 +1262,7 @@ window-report-normalized = { $count ->
     }
 window-report-kept-homoglyph = Bei den Standardeinstellungen behalten: Ein Buchstabe aus einer anderen Schrift wird nur von einer aggressiven Bereinigung ersetzt, und ein Fenster führt keine aus.
 window-report-kept-in-place = Behalten, wo es eine Aufgabe hat: in einem Emoji oder einer Schrift, die es braucht.
+window-report-kept-space = Als Typografie behalten: Dokumente verwenden ein solches Leerzeichen mit Absicht, daher wird es zur Information gemeldet und bleibt, wie es ist.
 window-report-picture-checked = Das Ergebnis wurde erneut gelesen: Es enthält keine Metadaten zur KI-Herkunft mehr.
 window-report-picture-still = Erneut gelesen, trug das Ergebnis noch Metadaten zur KI-Herkunft.
 window-report-shelf-empty = Für diese Bereinigung steht hier nichts.
