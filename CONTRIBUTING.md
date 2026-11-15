@@ -125,7 +125,7 @@ the same comment density, the same naming, the same idiom.
 
 ### System dependencies
 
-The toolchain is pinned in `rust-toolchain.toml` (stable 1.100.0, with
+The toolchain is pinned in `rust-toolchain.toml` (stable 1.98.0, with
 clippy and rustfmt). The formatting gate needs a nightly rustfmt once:
 
 ```sh
