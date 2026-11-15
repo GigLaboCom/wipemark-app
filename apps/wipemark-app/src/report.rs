@@ -53,6 +53,7 @@ use wipemark_pixels::{
 
 use crate::clean::{Outcome, Report};
 use crate::dialog::{self, Answer, Dismiss, Next, Previous};
+use crate::spot::spot;
 use crate::wording::{self, Say};
 
 /// One line of a shelf, and how far it is indented under the one before.
@@ -82,6 +83,16 @@ pub struct Sheet {
     pub best_effort: Vec<Line>,
     pub not_established: Vec<Line>,
 }
+
+/// The sections' names, in [`Sheet::sections`]' order: what the footage
+/// tests call each one's rectangles (`crate::spot`).
+pub const SECTIONS: [&str; 5] = [
+    "arrived",
+    "happened",
+    "verifiable",
+    "best-effort",
+    "not-established",
+];
 
 impl Sheet {
     /// The sections, titled, in the order they are shown.
@@ -851,24 +862,33 @@ impl Render for ReportView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let copied = SharedString::from(wording::window(Message::WindowReportCopied, &none()));
-        let sections = self.sheet.sections().map(|(title, lines)| {
-            v_flex()
-                .gap_1()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_semibold()
-                        .text_color(theme.foreground)
-                        .child(SharedString::from(wording::window(title, &none()))),
-                )
-                .children(lines.iter().map(|line| {
-                    div()
-                        .pl(px(12.0 * line.depth as f32))
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(SharedString::from(line.text.clone()))
-                }))
-        });
+        let sections =
+            self.sheet
+                .sections()
+                .into_iter()
+                .zip(SECTIONS)
+                .map(|((title, lines), section)| {
+                    v_flex()
+                        .gap_1()
+                        .child(spot(
+                            || format!("report-heading-{section}"),
+                            div()
+                                .text_xs()
+                                .font_semibold()
+                                .text_color(theme.foreground)
+                                .child(SharedString::from(wording::window(title, &none()))),
+                        ))
+                        .children(lines.iter().enumerate().map(|(at, line)| {
+                            spot(
+                                move || format!("report-line-{section}-{at}"),
+                                div()
+                                    .pl(px(12.0 * line.depth as f32))
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child(SharedString::from(line.text.clone())),
+                            )
+                        }))
+                });
 
         dialog::backdrop(cx)
             .id("report-backdrop")
@@ -892,7 +912,8 @@ impl Render for ReportView {
                 cx.stop_propagation();
                 view.close(cx);
             }))
-            .child(
+            .child(spot(
+                || "report-panel".to_owned(),
                 v_flex()
                     .id("report-panel")
                     .track_focus(&self.focus)
@@ -909,13 +930,18 @@ impl Render for ReportView {
                     .text_color(theme.popover_foreground)
                     .shadow_lg()
                     .on_click(|_: &ClickEvent, _, cx| cx.stop_propagation())
-                    .child(div().text_sm().font_semibold().child(SharedString::from(
-                        wording::window(
-                            Message::WindowReportTitle,
-                            &args!("name" => self.sheet.title.clone()),
-                        ),
-                    )))
-                    .child(
+                    .child(spot(
+                        || "report-title".to_owned(),
+                        div()
+                            .text_sm()
+                            .font_semibold()
+                            .child(SharedString::from(wording::window(
+                                Message::WindowReportTitle,
+                                &args!("name" => self.sheet.title.clone()),
+                            ))),
+                    ))
+                    .child(spot(
+                        || "report-body".to_owned(),
                         v_flex()
                             .id("report-body")
                             .flex_1()
@@ -923,8 +949,9 @@ impl Render for ReportView {
                             .overflow_y_scroll()
                             .gap_3()
                             .children(sections),
-                    )
-                    .child(
+                    ))
+                    .child(spot(
+                        || "report-buttons".to_owned(),
                         h_flex()
                             .w_full()
                             .gap_2()
@@ -974,10 +1001,13 @@ impl Render for ReportView {
                                     )))
                                     .on_click(cx.listener(|view, _, _, cx| view.close(cx))),
                             ),
-                    ),
-            )
+                    )),
+            ))
     }
 }
+
+#[cfg(test)]
+mod footage_tests;
 
 #[cfg(test)]
 mod tests {
