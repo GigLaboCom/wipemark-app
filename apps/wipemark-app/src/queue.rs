@@ -1186,8 +1186,9 @@ pub fn arrived_label(at: DateTime<Local>, now: DateTime<Local>) -> String {
 
 /// The local time now — when a row arrives, and what Arrived is said
 /// against. A footage test holds it still (`footage_tests::hold_clock`),
-/// so a frame reads the same time on every run.
-fn local_now() -> DateTime<Local> {
+/// so a frame reads the same time on every run. Compare's *Saved hh:mm*
+/// reads it too.
+pub(crate) fn local_now() -> DateTime<Local> {
     #[cfg(test)]
     if let Some(held) = footage_tests::HELD_CLOCK.with(std::cell::Cell::get) {
         return held;

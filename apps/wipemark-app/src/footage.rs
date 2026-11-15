@@ -99,6 +99,26 @@ pub(crate) fn curve_move(t: f32) -> f32 {
     bezier(0.0, 1.0, (low + high) / 2.0)
 }
 
+/// Any of the video's curves, CSS's `cubic-bezier(x1, y1, x2, y2)`: where
+/// a move is at `t` of its way, both from 0 to 1.
+pub(crate) fn curve([x1, y1, x2, y2]: [f32; 4], t: f32) -> f32 {
+    let bezier = |a: f32, b: f32, s: f32| {
+        let r = 1.0 - s;
+        3.0 * r * r * s * a + 3.0 * r * s * s * b + s * s * s
+    };
+    let t = t.clamp(0.0, 1.0);
+    let (mut low, mut high) = (0.0f32, 1.0f32);
+    for _ in 0..40 {
+        let middle = (low + high) / 2.0;
+        if bezier(x1, x2, middle) < t {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    bezier(y1, y2, (low + high) / 2.0)
+}
+
 /// Frames a second, of the video and of the test's clock.
 pub(crate) const FPS: u32 = 30;
 
@@ -140,6 +160,9 @@ pub(crate) struct Clip {
     /// The regions the clip names, as the part they are and the frame they
     /// are read at.
     named: Vec<(String, String, usize)>,
+    /// Regions read off a view's own state rather than a part's prepaint —
+    /// an editor's row, a word's bounds — by name.
+    measured: Vec<(String, Bounds<Pixels>)>,
     extra: Map<String, Value>,
     started: Instant,
 }
@@ -175,6 +198,7 @@ impl Clip {
             follow: follow.iter().map(|prefix| (*prefix).to_owned()).collect(),
             moves: BTreeMap::new(),
             named: Vec::new(),
+            measured: Vec::new(),
             extra: Map::new(),
             started: Instant::now(),
         }
@@ -257,6 +281,12 @@ impl Clip {
     pub(crate) fn region(&mut self, name: &str, spot: &str, frame: usize) {
         self.spot_at(spot, frame);
         self.named.push((name.to_owned(), spot.to_owned(), frame));
+    }
+
+    /// Names a region the view itself says where it is — `bounds` in window
+    /// points, as the editor's own geometry gives them.
+    pub(crate) fn measure(&mut self, name: &str, bounds: Bounds<Pixels>) {
+        self.measured.push((name.to_owned(), bounds));
     }
 
     /// Adds a field of the clip's own to `clip.json`.
@@ -358,8 +388,12 @@ impl Clip {
         let mut regions = Map::new();
         let mut frame_regions = Map::new();
         let mut outside = Vec::new();
-        for (name, spot, frame) in &self.named {
-            let bounds = self.spot_at(spot, *frame);
+        let named = self
+            .named
+            .iter()
+            .map(|(name, spot, frame)| (name, self.spot_at(spot, *frame)));
+        let measured = self.measured.iter().map(|(name, bounds)| (name, *bounds));
+        for (name, bounds) in named.chain(measured) {
             frame_regions.insert(name.clone(), rect(bounds, scale));
             // The kit refuses a region outside the page; such a one is in
             // frame_regions alone.

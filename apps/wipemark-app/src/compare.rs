@@ -223,6 +223,7 @@ use crate::icon::{Icon, IconName};
 use crate::result::{self, Offer, ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
 use crate::settings::Preferences;
+use crate::spot::spot;
 use crate::title::{self, Title};
 use crate::{clean, dialog, drop, journal, placement, wording};
 
@@ -2370,7 +2371,10 @@ impl CompareView {
             .size_full()
             .border_r_1()
             .border_color(theme.border)
-            .child(Self::caption(Message::CompareOriginal, cx))
+            .child(spot(
+                || "compare-original-caption".to_owned(),
+                Self::caption(Message::CompareOriginal, cx),
+            ))
             // A blank strip the height of the result's toolbar. The two
             // sides are read across, line against line, and without it
             // every line on the left sits a toolbar higher than its
@@ -2383,16 +2387,23 @@ impl CompareView {
                     .border_b_1()
                     .border_color(theme.border),
             )
-            .child(
+            .child(spot(
+                || "compare-original-editor".to_owned(),
                 div()
                     .flex_1()
                     .min_h(px(0.0))
                     .child(result::pane(&self.original, cx).readonly(true)),
-            );
+            ));
         let right = v_flex()
             .size_full()
-            .child(Self::caption(Message::CompareResult, cx))
-            .child(div().flex_1().min_h(px(0.0)).child(self.result.clone()));
+            .child(spot(
+                || "compare-result-caption".to_owned(),
+                Self::caption(Message::CompareResult, cx),
+            ))
+            .child(spot(
+                || "compare-result-editor".to_owned(),
+                div().flex_1().min_h(px(0.0)).child(self.result.clone()),
+            ));
 
         // Laid out before both editors and painted after them: how long the
         // two panes took, a trace line with no text in it — what a window
@@ -2445,8 +2456,8 @@ impl CompareView {
             .child(before)
             .child(
                 h_resizable("compare-split")
-                    .child(resizable_panel().child(left))
-                    .child(resizable_panel().child(right)),
+                    .child(resizable_panel().child(spot(|| "compare-original".to_owned(), left)))
+                    .child(resizable_panel().child(spot(|| "compare-result".to_owned(), right))),
             )
             .child(after)
             .into_any_element()
@@ -2819,7 +2830,8 @@ impl CompareView {
         saving.seen = seen;
         saving.saved = text;
         saving.written = true;
-        saving.saved_at = Some(chrono::Local::now());
+        // The queue's clock, which a footage test holds still.
+        saving.saved_at = Some(crate::queue::local_now());
         saving.not_saved = None;
         saving.dirty = dirty;
     }
@@ -3634,7 +3646,8 @@ impl Render for CompareView {
             // The banner: what the result is, and that nothing here is
             // saved or written — and the one control that is the
             // window's rather than the editor's.
-            .child(
+            .child(spot(
+                || "compare-banner".to_owned(),
                 h_flex()
                     .w_full()
                     .flex_shrink_0()
@@ -3659,13 +3672,19 @@ impl Render for CompareView {
                             .debug_selector(|| BANNER_TEXT.into())
                             .text_xs()
                             .text_color(muted)
-                            .children(banner.into_iter().map(SharedString::from)),
+                            .children(banner.into_iter().enumerate().map(|(at, line)| {
+                                spot(
+                                    move || format!("compare-banner-line-{at}"),
+                                    div().child(SharedString::from(line)),
+                                )
+                            })),
                     )
                     // The controls keep their width: gpui-component's
                     // button is never narrower than its label, and the
                     // explanation, which starts from nothing (`flex_1`),
                     // is what gives (D748).
-                    .child(
+                    .child(spot(
+                        || "compare-reset".to_owned(),
                         Button::new("compare-reset")
                             .debug_selector(|| BANNER_RESET.into())
                             .small()
@@ -3687,8 +3706,9 @@ impl Render for CompareView {
                             .on_click(cx.listener(|view, _: &ClickEvent, window, cx| {
                                 view.reset(window, cx);
                             })),
-                    )
-                    .child(
+                    ))
+                    .child(spot(
+                        || "compare-help".to_owned(),
                         Popover::new("compare-help")
                             .anchor(Anchor::TopRight)
                             .trigger(
@@ -3700,10 +3720,11 @@ impl Render for CompareView {
                                     .tip(SharedString::from(t(Message::CompareHelp))),
                             )
                             .content(move |_, _, cx| help(comparison, cx)),
-                    ),
-            )
+                    )),
+            ))
             .child(self.body(cx))
-            .child(
+            .child(spot(
+                || "compare-footer".to_owned(),
                 h_flex()
                     .w_full()
                     .flex_shrink_0()
@@ -3716,23 +3737,29 @@ impl Render for CompareView {
                     .text_xs()
                     .text_color(muted)
                     .child(Icon::new(IconName::CodeCompare).small().color(muted))
-                    .child(div().flex_none().debug_selector(|| SUMMARY.into()).child(
-                        SharedString::from(if ready { self.summary() } else { String::new() }),
+                    .child(spot(
+                        || "compare-summary".to_owned(),
+                        div().flex_none().debug_selector(|| SUMMARY.into()).child(
+                            SharedString::from(if ready { self.summary() } else { String::new() }),
+                        ),
                     ))
                     // Under the result: whether it is saved (S4).
                     .child(div().flex_1())
                     .children(status.map(|status| {
-                        div()
-                            // Why a save failed is a whole sentence: it
-                            // wraps rather than run off the window's edge,
-                            // and the count beside it keeps its words
-                            // (D749).
-                            .min_w_0()
-                            .debug_selector(|| STATUS.into())
-                            .when(failed, |line| line.text_color(theme.warning))
-                            .child(SharedString::from(status))
+                        spot(
+                            || "compare-status".to_owned(),
+                            div()
+                                // Why a save failed is a whole sentence: it
+                                // wraps rather than run off the window's
+                                // edge, and the count beside it keeps its
+                                // words (D749).
+                                .min_w_0()
+                                .debug_selector(|| STATUS.into())
+                                .when(failed, |line| line.text_color(theme.warning))
+                                .child(SharedString::from(status)),
+                        )
                     })),
-            )
+            ))
             .children(self.saving.question.as_ref().map(|(question, _)| {
                 deferred(question.clone()).with_priority(dialog::MODAL_PRIORITY)
             }));
@@ -3746,6 +3773,9 @@ impl Render for CompareView {
         crate::chrome::framed(content, || Title::Compare { name }.text(), window)
     }
 }
+
+#[cfg(test)]
+mod footage_tests;
 
 #[cfg(test)]
 mod tests {
