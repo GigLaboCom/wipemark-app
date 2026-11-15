@@ -28,6 +28,10 @@ fixtures/image/jpeg-planes/*.jpg    binary
 # characters at fixed byte offsets, which a normalised file would move.
 fixtures/demo/**                    -text
 
+# The rewrite video's pair: a zero-width space and a soft hyphen in the
+# original, and every byte of both counted by its claim.
+fixtures/compare/team-update/**     -text
+
 # The carried gpui-pre-linux is the published crate byte for byte plus its
 # patch: scripts/check-gpui-pin.sh compares the bytes, so no checkout may
 # normalise a line ending in either (D621).

@@ -4535,6 +4535,98 @@ mod tests {
         );
     }
 
+    /// The rewrite video's pair (`fixtures/compare/team-update/`): the
+    /// demo's team update as `media/screenshots/make-demo.sh` writes it,
+    /// and Gemma 4 12B's rewrite of it from October, transcribed from the
+    /// README's still. What the window counted then is the claim: every
+    /// paragraph one changed line, paired with the original's line for line
+    /// and marked by word, the heading and the blank lines the same, and the
+    /// footer "7 lines added, 7 lines removed". A paragraph split or joined
+    /// in the transcription, a lost blank line or a changed heading goes
+    /// red here; the words themselves are checked against the still.
+    #[gpui::test]
+    fn the_team_update_rewrite_is_what_the_october_window_counted(cx: &mut TestAppContext) {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/compare/team-update");
+        let original = std::fs::read_to_string(fixture.join("original.md")).expect("original");
+        let rewritten = std::fs::read_to_string(fixture.join("rewritten.md")).expect("rewrite");
+        // make-demo.sh's bytes: a zero-width space ends the first paragraph
+        // and a soft hyphen is inside "understand".
+        assert_eq!(original.len(), 1348);
+        let hidden: Vec<(usize, char)> = original
+            .char_indices()
+            .filter(|(_, c)| !c.is_ascii())
+            .collect();
+        assert_eq!(hidden, [(245, '\u{200B}'), (1132, '\u{AD}')]);
+        assert!(
+            rewritten.is_ascii(),
+            "the rewrite carries a hidden character"
+        );
+        assert_eq!(original.lines().count(), 15);
+        assert_eq!(rewritten.lines().count(), 15);
+        assert!(original.ends_with(".\n") && rewritten.ends_with(".\n"));
+
+        let diff = Diff::of(&original, &rewritten);
+        let paragraphs: Vec<usize> = (1..=7).map(|n| 2 * n).collect();
+        let hunks: Vec<(Range<usize>, Range<usize>)> = diff
+            .hunks()
+            .iter()
+            .map(|hunk| (hunk.removed.clone(), hunk.added.clone()))
+            .collect();
+        assert_eq!(
+            hunks,
+            paragraphs
+                .iter()
+                .map(|&row| (row..row + 1, row..row + 1))
+                .collect::<Vec<_>>(),
+            "not seven paragraphs, each one line against one"
+        );
+        let level: Vec<(usize, usize)> = paragraphs.iter().map(|&row| (row, row)).collect();
+        assert_eq!(
+            diff.pairs(),
+            level,
+            "a paragraph is not paired with its own"
+        );
+        assert_eq!(diff.alike(), level, "a paragraph is not marked by word");
+        assert_eq!((diff.added(), diff.removed()), (7, 7));
+        let english = wipemark_i18n::Localizer::for_languages(
+            &["en-US".parse().expect("a tag")],
+            wipemark_i18n::Rendering::PlainText,
+        );
+        assert_eq!(
+            english.format_args(
+                Message::CompareChanged,
+                &args!("added" => diff.added(), "removed" => diff.removed())
+            ),
+            "7 lines added, 7 lines removed"
+        );
+
+        // The window, opened on the two files as a row's Compare opens a
+        // rewrite, counts the same.
+        let scratch = Scratch::new("team-update");
+        let handed = scratch.file("team-update.md", original.as_bytes());
+        let delivered = scratch.file("team-update.rewritten.md", rewritten.as_bytes());
+        let subject = Subject {
+            intake: Some(wipemark_intake::of(&Handed::Path(handed.clone()))),
+            handed: Handed::Path(handed),
+            made: Made::Rewritten {
+                from: RewriteFrom::File(delivered),
+                kept: None,
+            },
+        };
+        let (view, cx) = window_on(cx, subject, Comparison::default());
+        settle(cx);
+        assert_eq!(panes_of(&view, cx), (original, rewritten));
+        let summary = cx.update(|_, cx| view.read(cx).summary());
+        assert_eq!(
+            summary,
+            t_args(
+                Message::CompareChanged,
+                &args!("added" => 7, "removed" => 7)
+            )
+        );
+    }
+
     /// Compare refuses what the queue's Clean refuses, in the sentence the
     /// queue's row shows for the same file (D282): a file that is not
     /// valid UTF-8 past its head, and one in an eight-bit encoding intake
