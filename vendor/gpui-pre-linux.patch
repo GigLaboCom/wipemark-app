@@ -1,5 +1,5 @@
 diff --git a/src/linux/platform.rs b/src/linux/platform.rs
-index 44aa658..1d22515 100644
+index b24300b..fe5fda9 100644
 --- a/src/linux/platform.rs
 +++ b/src/linux/platform.rs
 @@ -1,3 +1,4 @@
@@ -7,7 +7,7 @@ index 44aa658..1d22515 100644
  use std::{
      cell::RefCell,
      env,
-@@ -1288,6 +1289,202 @@ pub(super) fn read_fd_with_timeout(
+@@ -1357,6 +1358,202 @@ pub(super) fn read_fd_with_timeout(
      }
  }
  
@@ -210,7 +210,7 @@ index 44aa658..1d22515 100644
  #[cfg(any(feature = "wayland", feature = "x11"))]
  pub(super) const DEFAULT_CURSOR_ICON_NAME: &str = "left_ptr";
  
-@@ -1815,6 +2012,95 @@ mod tests {
+@@ -1921,6 +2118,95 @@ mod tests {
          }
      }
  
@@ -307,7 +307,7 @@ index 44aa658..1d22515 100644
      mod read_fd_with_timeout {
          use super::super::{PIPE_READ_TIMEOUT, read_fd_with_timeout};
 diff --git a/src/linux/wayland/client.rs b/src/linux/wayland/client.rs
-index bc73fc3..e2ff95b 100644
+index 625b1d5..58f7ada 100644
 --- a/src/linux/wayland/client.rs
 +++ b/src/linux/wayland/client.rs
 @@ -1,3 +1,4 @@
@@ -323,7 +323,7 @@ index bc73fc3..e2ff95b 100644
  use wayland_backend::client::ObjectId;
  use wayland_backend::protocol::WEnum;
  use wayland_client::event_created_child;
-@@ -85,10 +85,11 @@ use super::{
+@@ -88,10 +88,11 @@ use super::{
  };
  
  use crate::linux::{
@@ -339,7 +339,7 @@ index bc73fc3..e2ff95b 100644
      wayland::{
          clipboard::{Clipboard, DataOffer, FILE_LIST_MIME_TYPE, TEXT_MIME_TYPES},
          cursor::Cursor,
-@@ -414,10 +415,16 @@ struct DragState<DataOffer = wl_data_offer::WlDataOffer, Window = WaylandWindowS
+@@ -426,10 +427,16 @@ struct DragState<DataOffer = wl_data_offer::WlDataOffer, Window = WaylandWindowS
      window: Option<Window>,
      position: Point<Pixels>,
      uri_read_generation: u64,
@@ -356,7 +356,7 @@ index bc73fc3..e2ff95b 100644
          self.invalidate_uri_read();
          self.uri_read_generation
      }
-@@ -452,7 +459,12 @@ where
+@@ -464,7 +471,12 @@ where
      Window: Clone,
  {
      fn handle_leave(&mut self) -> Option<(Window, PlatformInput)> {
@@ -369,7 +369,7 @@ index bc73fc3..e2ff95b 100644
          let window = self.window.clone()?;
          let data_offer = self.data_offer.clone()?;
          data_offer.destroy();
-@@ -462,9 +474,18 @@ where
+@@ -474,9 +486,18 @@ where
      }
  
      fn handle_drop(&mut self) -> Option<(Window, PlatformInput)> {
@@ -388,7 +388,7 @@ index bc73fc3..e2ff95b 100644
          data_offer.finish();
          data_offer.destroy();
          self.data_offer = None;
-@@ -498,6 +519,32 @@ where
+@@ -510,6 +531,32 @@ where
              PlatformInput::FileDrop(FileDropEvent::Entered { position, paths }),
          ))
      }
@@ -421,7 +421,7 @@ index bc73fc3..e2ff95b 100644
  }
  
  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-@@ -1048,6 +1095,8 @@ impl WaylandConnection {
+@@ -1095,6 +1142,8 @@ impl WaylandConnection {
                  window: None,
                  position: Point::default(),
                  uri_read_generation: 0,
@@ -430,7 +430,7 @@ index bc73fc3..e2ff95b 100644
              },
              external_drag: None,
              click: ClickState {
-@@ -1415,6 +1464,10 @@ impl WaylandConnection {
+@@ -1468,6 +1517,10 @@ impl WaylandConnection {
              return;
          };
          if state.mouse_focused_window.is_some() || state.keyboard_focused_window.is_some() {
@@ -441,7 +441,7 @@ index bc73fc3..e2ff95b 100644
              state.clipboard.set(item);
              let Some(serial) = state.serial_tracker.selection_serial() else {
                  log::warn!(
-@@ -1424,8 +1477,13 @@ impl WaylandConnection {
+@@ -1477,8 +1530,13 @@ impl WaylandConnection {
              };
              let data_source = data_device_manager
                  .create_data_source(&state.globals.qh, DataSourceKind::Clipboard);
@@ -457,7 +457,7 @@ index bc73fc3..e2ff95b 100644
              }
              data_source.offer(state.clipboard.self_mime());
              data_device.set_selection(Some(&data_source), serial.as_raw());
-@@ -2813,22 +2871,43 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+@@ -2921,22 +2979,43 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                          return;
                      };
                      let uri_read_generation = state.drag.begin_uri_read();
@@ -507,7 +507,7 @@ index bc73fc3..e2ff95b 100644
  
                      let this = this.clone();
                      state
-@@ -2837,59 +2916,61 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+@@ -2945,59 +3024,61 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                          .foreground_executor
                          .clone()
                          .spawn(async move {
@@ -589,7 +589,7 @@ index bc73fc3..e2ff95b 100644
  
                  let input = PlatformInput::FileDrop(FileDropEvent::Pending { position });
                  drop(state);
-@@ -3108,6 +3189,8 @@ impl Dispatch<XdgDialogV1, ()> for WaylandClientStatePtr {
+@@ -3216,6 +3297,8 @@ impl Dispatch<XdgDialogV1, ()> for WaylandClientStatePtr {
  mod tests {
      use std::cell::Cell;
  
@@ -598,7 +598,7 @@ index bc73fc3..e2ff95b 100644
      use super::*;
  
      #[test]
-@@ -3188,6 +3271,8 @@ mod tests {
+@@ -3296,6 +3379,8 @@ mod tests {
              window: None,
              position: Point::default(),
              uri_read_generation: 0,
@@ -607,7 +607,7 @@ index bc73fc3..e2ff95b 100644
          }
      }
  
-@@ -3234,28 +3319,198 @@ mod tests {
+@@ -3342,28 +3427,198 @@ mod tests {
          assert!(drag.window.is_none());
      }
  
@@ -844,7 +844,7 @@ index 86dc7da..5cba249 100644
          }
      }
 diff --git a/src/linux/x11/client.rs b/src/linux/x11/client.rs
-index 601eb93..edb607d 100644
+index e21f019..b63ec2e 100644
 --- a/src/linux/x11/client.rs
 +++ b/src/linux/x11/client.rs
 @@ -1,3 +1,4 @@
@@ -1388,7 +1388,7 @@ index 601eb93..edb607d 100644
                  }
              }
              Event::ConfigureNotify(event) => {
-@@ -1838,13 +2195,19 @@ impl X11Client {
+@@ -1840,13 +2197,19 @@ impl X11Client {
  
      pub(crate) fn write_to_clipboard(&self, item: gpui::ClipboardItem) {
          let mut state = self.0.borrow_mut();
@@ -1412,7 +1412,7 @@ index 601eb93..edb607d 100644
              .context("X11: Failed to write to clipboard (clipboard)")
              .log_with_level(log::Level::Debug);
          state.clipboard_item.replace(item);
-@@ -2369,20 +2732,31 @@ fn check_gtk_frame_extents_supported(
+@@ -2371,20 +2734,31 @@ fn check_gtk_frame_extents_supported(
      supported_atom_ids.contains(&atoms._GTK_FRAME_EXTENTS)
  }
  
@@ -1453,7 +1453,7 @@ index 601eb93..edb607d 100644
      if let Some(reply) = get_reply(
          || "Failed to get XDnD supported atoms",
          xcb_connection.get_property(
-@@ -2397,13 +2771,9 @@ fn xdnd_get_supported_atom(
+@@ -2399,13 +2773,9 @@ fn xdnd_get_supported_atom(
      .log_with_level(Level::Warn)
          && let Some(atoms) = reply.value32()
      {
@@ -1469,7 +1469,7 @@ index 601eb93..edb607d 100644
  }
  
  fn xdnd_send_finished(
-@@ -2411,12 +2781,18 @@ fn xdnd_send_finished(
+@@ -2413,12 +2783,18 @@ fn xdnd_send_finished(
      atoms: &XcbAtoms,
      source: xproto::Window,
      target: xproto::Window,
@@ -1489,7 +1489,7 @@ index 601eb93..edb607d 100644
          sequence: 0,
          response_type: xproto::CLIENT_MESSAGE_EVENT,
      };
-@@ -3209,4 +3585,185 @@ mod tests {
+@@ -3212,4 +3588,185 @@ mod tests {
          // Assert pressing space while on the Czech layout still types a space.
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }

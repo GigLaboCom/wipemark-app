@@ -773,12 +773,12 @@ pub enum Storage {
 /// `gpui_component::init` — a binding registered twice fires twice.
 pub fn init(cx: &mut App) {
     cx.bind_keys([
-        KeyBinding::new("secondary-,", OpenSettings, None),
+        crate::keys::binding("secondary-,", OpenSettings, None, cx),
         // Both scoped to this window's context. Unscoped, either would
         // close the main window from anywhere — which on this
         // application means hiding it, a surprising thing for ⌘W to do
         // and a hostile thing for Escape.
-        KeyBinding::new("secondary-w", CloseSettings, Some(CONTEXT)),
+        crate::keys::binding("secondary-w", CloseSettings, Some(CONTEXT), cx),
         // Escape is also the dropdown's own key, and the dropdown's
         // context is the deeper one: with the list open it closes the
         // list and stops there, and only propagates when there is

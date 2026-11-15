@@ -218,25 +218,33 @@ pub(crate) fn decode(bytes: &[u8], encoding: Option<Encoding>) -> String {
         Encoding::Utf8 => String::from_utf8_lossy(bytes).into_owned(),
         Encoding::Utf16Le => char::decode_utf16(
             bytes
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u16::from_le_bytes([pair[0], pair[1]])),
         )
         .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
         .collect(),
         Encoding::Utf16Be => char::decode_utf16(
             bytes
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u16::from_be_bytes([pair[0], pair[1]])),
         )
         .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
         .collect(),
         Encoding::Utf32Le => bytes
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|quad| u32::from_le_bytes([quad[0], quad[1], quad[2], quad[3]]))
             .map(|unit| char::from_u32(unit).unwrap_or(char::REPLACEMENT_CHARACTER))
             .collect(),
         Encoding::Utf32Be => bytes
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|quad| u32::from_be_bytes([quad[0], quad[1], quad[2], quad[3]]))
             .map(|unit| char::from_u32(unit).unwrap_or(char::REPLACEMENT_CHARACTER))
             .collect(),

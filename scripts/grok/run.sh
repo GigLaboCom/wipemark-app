@@ -65,7 +65,7 @@
 #
 # What it needs
 # -------------
-# Rust 1.95.0 (rust-toolchain.toml) unless --no-build finds the binaries;
+# Rust 1.100.0 (rust-toolchain.toml) unless --no-build finds the binaries;
 # Python 3.11+ with numpy and Pillow 12.3.0 (encode.py refuses another
 # Pillow); for clips, ffprobe (optional: without it the facts say "not
 # available"). The captures are the owner's and never enter git (D493).

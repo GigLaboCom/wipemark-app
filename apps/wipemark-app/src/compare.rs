@@ -192,9 +192,8 @@ use std::time::Duration;
 use gpui::prelude::*;
 use gpui::{
     actions, canvas, deferred, div, px, size, Anchor, AnyElement, AnyWindowHandle, App, Bounds,
-    ClickEvent, Context, Entity, FocusHandle, Focusable, Global, Hsla, KeyBinding, Pixels, Rgba,
-    SharedString, Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
-    WindowOptions,
+    ClickEvent, Context, Entity, FocusHandle, Focusable, Global, Hsla, Pixels, Rgba, SharedString,
+    Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{
@@ -446,8 +445,8 @@ impl Global for Opened {}
 /// `gpui_component::init`.
 pub fn init(cx: &mut App) {
     cx.bind_keys([
-        KeyBinding::new("secondary-w", CloseCompare, Some(CONTEXT)),
-        KeyBinding::new("secondary-s", SaveCompare, Some(CONTEXT)),
+        crate::keys::binding("secondary-w", CloseCompare, Some(CONTEXT), cx),
+        crate::keys::binding("secondary-s", SaveCompare, Some(CONTEXT), cx),
     ]);
 }
 
@@ -5196,7 +5195,7 @@ mod tests {
             let editor = view.read(cx).editor(side, cx);
             editor.read(cx).input_bounds().center()
         });
-        cx.simulate_event(gpui::ScrollWheelEvent {
+        cx.simulate_event(gpui::ScrollEvent {
             position: over,
             delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(pixels))),
             ..Default::default()
@@ -5348,7 +5347,7 @@ mod tests {
                     gpui::MouseButton::Left,
                     gpui::Modifiers::default(),
                 ),
-                Some(over) => cx.simulate_event(gpui::ScrollWheelEvent {
+                Some(over) => cx.simulate_event(gpui::ScrollEvent {
                     position: over,
                     delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-1.5 * height))),
                     ..Default::default()
@@ -6235,7 +6234,7 @@ mod tests {
         };
         let (right, left) = (over(Side::Result, cx), over(Side::Original, cx));
         let turn = |at: gpui::Point<Pixels>, pixels: f32| {
-            gpui::ScrollWheelEvent {
+            gpui::ScrollEvent {
                 position: at,
                 delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(pixels))),
                 ..Default::default()

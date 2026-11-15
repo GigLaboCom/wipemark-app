@@ -377,7 +377,7 @@ struct Tile {
 impl Tile {
     fn mean(&self) -> [u8; 3] {
         let mut sum = [0u64; 3];
-        for p in self.rgb.chunks_exact(3) {
+        for p in self.rgb.as_chunks::<3>().0.iter() {
             for c in 0..3 {
                 sum[c] += u64::from(p[c]);
             }

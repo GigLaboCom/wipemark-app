@@ -763,9 +763,18 @@ fn argb_of(png: &[u8]) -> Option<Vec<u32>> {
         return None;
     }
     let mut cardinals = vec![frame.width, frame.height];
-    cardinals.extend(buffer[..frame.buffer_size()].chunks_exact(4).map(|p| {
-        u32::from(p[3]) << 24 | u32::from(p[0]) << 16 | u32::from(p[1]) << 8 | u32::from(p[2])
-    }));
+    cardinals.extend(
+        buffer[..frame.buffer_size()]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| {
+                u32::from(p[3]) << 24
+                    | u32::from(p[0]) << 16
+                    | u32::from(p[1]) << 8
+                    | u32::from(p[2])
+            }),
+    );
     Some(cardinals)
 }
 
@@ -838,7 +847,9 @@ fn supports(conn: &RustConnection, atoms: &Atoms, root: u32, wanted: u32) -> boo
 
 fn rects(values: &[u32]) -> Vec<Rect> {
     values
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|rect| {
             Rect::new(
                 rect[0] as i32,

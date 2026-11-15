@@ -19,10 +19,33 @@
 //! This is also why nothing else in the application imports `Kbd`: one
 //! module knows how a key is written, and it is this one.
 
+use std::rc::Rc;
+
 use gpui::prelude::*;
-use gpui::{div, relative, App, Half as _, Keystroke, Modifiers, SharedString, Window};
+use gpui::{
+    div, relative, Action, App, Half as _, KeyBinding, KeyBindingContextPredicate, Keystroke,
+    Modifiers, SharedString, Window,
+};
 use gpui_component::kbd::Kbd;
 use gpui_component::ActiveTheme;
+
+/// A key binding whose keys may say `secondary-` — ⌘ on macOS, Ctrl
+/// everywhere else — resolved for the platform `cx` runs on.
+///
+/// Since gpui-pre 0.3.12 `KeyBinding::new` parses its keys with no
+/// platform, and a `secondary-` there is a panic; `KeyBinding::load` is
+/// the way that asks the platform. Panics on keys or a context that do not
+/// parse, as `KeyBinding::new` does.
+pub fn binding(keys: &str, action: impl Action, context: Option<&str>, cx: &App) -> KeyBinding {
+    let context = context.map(|context| {
+        Rc::new(
+            KeyBindingContextPredicate::parse(context)
+                .unwrap_or_else(|error| panic!("{context}: {error}")),
+        )
+    });
+    KeyBinding::load(keys, Box::new(action), context, false, None, cx)
+        .unwrap_or_else(|error| panic!("{keys}: {error}"))
+}
 
 /// What goes between the keys of a chord when nobody asks for anything.
 ///
@@ -129,7 +152,7 @@ impl RenderOnce for Keys {
 mod tests {
     use super::*;
 
-    fn stroke(text: &str) -> Keystroke {
+    fn stroke(text: &'static str) -> Keystroke {
         Keystroke::parse(text).unwrap_or_else(|error| panic!("{text}: {error}"))
     }
 
@@ -207,5 +230,25 @@ mod tests {
                 "{stroke:?} lost or gained a key"
             );
         }
+    }
+
+    /// `secondary-` is the platform's command key: ⌘ on macOS, Ctrl
+    /// elsewhere. Since gpui-pre 0.3.12 `KeyBinding::new` panics on it, so
+    /// every binding that says it goes through `binding` — Settings' and
+    /// Compare's among them, which `main` binds before the first window.
+    #[gpui::test]
+    fn secondary_is_the_platforms_command_key(cx: &gpui::TestAppContext) {
+        cx.update(|cx| {
+            crate::settings::init(cx);
+            crate::compare::init(cx);
+            let bound = binding("secondary-w", gpui::NoAction, None, cx);
+            let (mine, other) = if cfg!(target_os = "macos") {
+                ("cmd-w", "ctrl-w")
+            } else {
+                ("ctrl-w", "cmd-w")
+            };
+            assert_eq!(bound.match_keystrokes(&[stroke(mine)]), Some(false));
+            assert_eq!(bound.match_keystrokes(&[stroke(other)]), None);
+        });
     }
 }

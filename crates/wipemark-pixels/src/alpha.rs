@@ -109,7 +109,9 @@ impl AlphaMap {
                 .map(|&s| f32::from(s) / f32::from(u8::MAX))
                 .collect()
         } else {
-            body.chunks_exact(2)
+            body.as_chunks::<2>()
+                .0
+                .iter()
                 .map(|s| f32::from(u16::from_le_bytes([s[0], s[1]])) / f32::from(u16::MAX))
                 .collect()
         };

@@ -1193,8 +1193,12 @@ mod tests {
         Hotkey::parse(text).unwrap_or_else(|| panic!("{text} should parse"))
     }
 
+    // Built texts, so not `parse`, which takes a `&'static str` since
+    // gpui-pre 0.3.12; none says `secondary-`, the one part the platform
+    // decides.
     fn keystroke(text: &str) -> Keystroke {
-        Keystroke::parse(text).unwrap_or_else(|error| panic!("{text}: {error}"))
+        Keystroke::parse_with_os(text, gpui::OperatingSystem::Unknown)
+            .unwrap_or_else(|error| panic!("{text}: {error}"))
     }
 
     /// The modifier a keystroke needs is the platform's own: ⌘ on

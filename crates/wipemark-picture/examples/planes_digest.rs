@@ -83,8 +83,10 @@ fn against(rgb: &Raster, raster: &Raster) -> String {
     let (mut differ, mut inside, mut most) = (0, 0, 0);
     for (i, (a, b)) in rgb
         .samples()
-        .chunks_exact(3)
-        .zip(raster.samples().chunks_exact(3))
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(raster.samples().as_chunks::<3>().0.iter())
         .enumerate()
     {
         let d = a.iter().zip(b).map(|(&x, &y)| x.abs_diff(y)).max().unwrap();

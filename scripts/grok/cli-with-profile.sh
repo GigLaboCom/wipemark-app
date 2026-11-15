@@ -41,7 +41,7 @@
 #
 # What it needs
 # -------------
-# git, Python 3 (the JSON merge), and Rust 1.95.0 (rust-toolchain.toml) with
+# git, Python 3 (the JSON merge), and Rust 1.100.0 (rust-toolchain.toml) with
 # the dependencies fetched or cached (--offline uses the cache only).
 #
 # What its output means
