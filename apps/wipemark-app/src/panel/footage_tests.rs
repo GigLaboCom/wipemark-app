@@ -12,7 +12,8 @@
 //!     --bin wipemark -- --ignored panel::footage_tests::picture_video_panel \
 //!     --exact --nocapture --test-threads=1
 //!
-//! It writes `<dir>/panel-dark/` or `<dir>/panel-light/`: frames and a
+//! It writes `<dir>/panel-pictures/` (dark, the storyboard's clip) or
+//! `<dir>/panel-pictures-light/`: frames and a
 //! `clip.json` (`crate::footage::Clip`), with the pointer's track — outside
 //! the window too, where the drag starts — and where the composition draws
 //! the two dragged pictures, which GPUI does not draw (`ExternalPaths`
@@ -182,7 +183,11 @@ fn picture_video_panel() {
 
     let mut clip = Clip::new(
         &out,
-        &format!("panel-{theme_name}"),
+        if dark {
+            "panel-pictures"
+        } else {
+            "panel-pictures-light"
+        },
         window,
         panel_size(),
         &["panel-", "drop-overlay"],

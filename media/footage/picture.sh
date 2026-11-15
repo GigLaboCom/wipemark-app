@@ -22,7 +22,7 @@
 #          measured 96-pixel map, read by the product's own reader, written
 #          to $OUT/mark/ as PNGs and a JSON;
 #   panel  runs the ignored test panel::footage_tests::picture_video_panel of the
-#          application, dark, into $OUT/panel-dark: frames/0000.png on
+#          application, dark, into $OUT/panel-pictures: frames/0000.png on
 #          (1120x692, 30 a second) and a clip.json in the headless video
 #          kit's format; the two files are dropped from $DEMO/panel, and
 #          the results the panel's clean writes there are copied to
