@@ -140,6 +140,9 @@ pub(crate) struct Clip {
     /// The regions the clip names, as the part they are and the frame they
     /// are read at.
     named: Vec<(String, String, usize)>,
+    /// Regions found another way than a spot — a tab's hitbox, felt for by
+    /// clicks — by name.
+    measured: Vec<(String, Bounds<Pixels>)>,
     extra: Map<String, Value>,
     started: Instant,
 }
@@ -175,6 +178,7 @@ impl Clip {
             follow: follow.iter().map(|prefix| (*prefix).to_owned()).collect(),
             moves: BTreeMap::new(),
             named: Vec::new(),
+            measured: Vec::new(),
             extra: Map::new(),
             started: Instant::now(),
         }
@@ -257,6 +261,11 @@ impl Clip {
     pub(crate) fn region(&mut self, name: &str, spot: &str, frame: usize) {
         self.spot_at(spot, frame);
         self.named.push((name.to_owned(), spot.to_owned(), frame));
+    }
+
+    /// Names a region found another way than a spot, in window points.
+    pub(crate) fn measured_region(&mut self, name: &str, bounds: Bounds<Pixels>) {
+        self.measured.push((name.to_owned(), bounds));
     }
 
     /// Adds a field of the clip's own to `clip.json`.
@@ -358,8 +367,12 @@ impl Clip {
         let mut regions = Map::new();
         let mut frame_regions = Map::new();
         let mut outside = Vec::new();
-        for (name, spot, frame) in &self.named {
-            let bounds = self.spot_at(spot, *frame);
+        let named = self
+            .named
+            .iter()
+            .map(|(name, spot, frame)| (name, self.spot_at(spot, *frame)));
+        let measured = self.measured.iter().map(|(name, bounds)| (name, *bounds));
+        for (name, bounds) in named.chain(measured) {
             frame_regions.insert(name.clone(), rect(bounds, scale));
             // The kit refuses a region outside the page; such a one is in
             // frame_regions alone.
