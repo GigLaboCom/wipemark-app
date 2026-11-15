@@ -263,16 +263,31 @@ fn text_shelves(say: Say, report: &CleanReport) -> (Vec<Line>, Vec<Line>) {
     let mut best_effort = Vec::new();
     for finding in &report.kept {
         best_effort.push(Line::top(finding_line(say, finding)));
-        best_effort.push(Line::under(say(
-            if finding.class == UnicodeClass::Homoglyph {
-                Message::WindowReportKeptHomoglyph
-            } else {
-                Message::WindowReportKeptInPlace
-            },
-            &none(),
-        )));
+        best_effort.push(Line::under(say(kept_reason(finding.class), &none())));
     }
     (verifiable, best_effort)
+}
+
+/// Why a kept character of `class` was kept. A window cleans at the
+/// default `Options`, which keep two classes whole — a letter from
+/// another script and a space other than U+0020 — and remove every
+/// other, so a row of any other class is in `kept` only where context
+/// kept it (`dev/architecture/layer-a.md`). Exhaustive, so a twelfth
+/// class does not compile here until it has a reason.
+fn kept_reason(class: UnicodeClass) -> Message {
+    match class {
+        UnicodeClass::Homoglyph => Message::WindowReportKeptHomoglyph,
+        UnicodeClass::ExoticSpace => Message::WindowReportKeptSpace,
+        UnicodeClass::ZeroWidth
+        | UnicodeClass::ZeroWidthJoiner
+        | UnicodeClass::BidiControl
+        | UnicodeClass::TagCharacter
+        | UnicodeClass::VariationSelector
+        | UnicodeClass::SoftHyphen
+        | UnicodeClass::Noncharacter
+        | UnicodeClass::PrivateUse
+        | UnicodeClass::DefaultIgnorable => Message::WindowReportKeptInPlace,
+    }
 }
 
 /// "U+200B ZERO WIDTH SPACE · zero-width character · confirmed · 3 times".
@@ -971,6 +986,7 @@ mod tests {
     use chrono::{TimeZone as _, Utc};
     use gpui::prelude::*;
     use gpui::{Entity, TestAppContext, VisualTestContext};
+    use wipemark_core::{Confidence, UnicodeClass};
     use wipemark_i18n::{available_languages, FluentArgs, Localizer, Message, Rendering};
     use wipemark_intake::Handed;
 
@@ -1129,6 +1145,93 @@ mod tests {
             "{:?}",
             sheet.happened
         );
+    }
+
+    /// One of everything a window's clean finds and keeps: spaces other
+    /// than U+0020 and a Cyrillic a, kept because that is what the default
+    /// settings do with them, and what context keeps — the joiners of a
+    /// family, a heart's VS16, a flag's tags, a Hangul filler, the
+    /// non-joiner of a Persian word and a Hebrew paragraph's mark.
+    const KEPT: &str = concat!(
+        "# Kept\n\n",
+        "A no-break\u{00A0}space, a narrow\u{202F}one, a zero\u{200B}width space, ",
+        "and \u{0430} Cyrillic a.\n\n",
+        "A family \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}, a heart \u{2764}\u{FE0F}, ",
+        "a flag \u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F} ",
+        "and a syllable \u{1100}\u{1160}\u{11A8}.\n\n",
+        "\u{0645}\u{06CC}\u{200C}\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}\n\n",
+        "\u{05E9}\u{05DC}\u{05D5}\u{05DD}\u{200F}!\n",
+    );
+
+    /// Every kept character is told its own reason. "Where it does a job"
+    /// is said of what context kept — the rows Layer A marks as likely not
+    /// a mark — and of nothing else: a no-break space is inside no emoji
+    /// and no script needs it, so a space has a sentence of its own, as a
+    /// letter from another script has.
+    #[test]
+    fn a_kept_character_is_said_to_do_a_job_only_where_context_kept_it() {
+        let scratch = Scratch::new("kept");
+        let (arrival, outcome) = cleaned(&scratch, "kept.md", KEPT.as_bytes());
+        let Some(Report::Text(report)) = &outcome.report else {
+            panic!("{:?}", outcome.verdict);
+        };
+        let classes: Vec<UnicodeClass> = report.kept.iter().map(|row| row.class).collect();
+        for class in [
+            UnicodeClass::ZeroWidth,
+            UnicodeClass::ZeroWidthJoiner,
+            UnicodeClass::BidiControl,
+            UnicodeClass::TagCharacter,
+            UnicodeClass::VariationSelector,
+            UnicodeClass::ExoticSpace,
+            UnicodeClass::DefaultIgnorable,
+            UnicodeClass::Homoglyph,
+        ] {
+            assert!(classes.contains(&class), "no kept {class:?}: {classes:?}");
+        }
+
+        let localizer = english();
+        let say = |message: Message, args: &FluentArgs| localizer.format_args(message, args);
+        let sheet = sheet(&say, &arrival.intake, &outcome);
+        let in_place = say(Message::WindowReportKeptInPlace, &FluentArgs::new());
+        let homoglyph = say(Message::WindowReportKeptHomoglyph, &FluentArgs::new());
+        let space = say(Message::WindowReportKeptSpace, &FluentArgs::new());
+        assert_eq!(
+            sheet.best_effort.len(),
+            report.kept.len() * 2,
+            "{:?}",
+            sheet.best_effort
+        );
+        for (row, lines) in report.kept.iter().zip(sheet.best_effort.chunks(2)) {
+            let (character, reason) = (&lines[0], &lines[1]);
+            let codepoint = format!("U+{:04X} ", u32::from(row.codepoint));
+            assert!(
+                character.depth == 0 && character.text.starts_with(&codepoint),
+                "{codepoint}: {character:?}"
+            );
+            assert_eq!(reason.depth, 1, "{codepoint}: {reason:?}");
+            assert_eq!(
+                reason.text == in_place,
+                row.confidence == Confidence::LikelyFalsePositive,
+                "{codepoint}{:?}, {:?}: {}",
+                row.class,
+                row.confidence,
+                reason.text
+            );
+            assert_eq!(
+                reason.text == homoglyph,
+                row.class == UnicodeClass::Homoglyph,
+                "{codepoint}{:?}: {}",
+                row.class,
+                reason.text
+            );
+            assert_eq!(
+                reason.text == space,
+                row.class == UnicodeClass::ExoticSpace,
+                "{codepoint}{:?}: {}",
+                row.class,
+                reason.text
+            );
+        }
     }
 
     /// The Markdown copy in every language: no isolate, nothing Layer A
