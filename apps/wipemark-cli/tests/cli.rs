@@ -2939,37 +2939,42 @@ impl FakeHub {
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { continue };
-                let mut writer = stream.try_clone().expect("a writer");
-                let mut reader = BufReader::new(stream);
-                let mut first = String::new();
-                if reader.read_line(&mut first).unwrap_or(0) == 0 {
-                    continue;
-                }
-                let mut range = None;
-                loop {
-                    let mut line = String::new();
-                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
-                        break;
+                // A connection of its own: an 8 MiB range being written
+                // holds up no other request.
+                let (header, heard) = (header.clone(), heard.clone());
+                std::thread::spawn(move || {
+                    let mut writer = stream.try_clone().expect("a writer");
+                    let mut reader = BufReader::new(stream);
+                    let mut first = String::new();
+                    if reader.read_line(&mut first).unwrap_or(0) == 0 {
+                        return;
                     }
-                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("range:") {
-                        range = Some(value.trim().trim_start_matches("bytes=").to_owned());
+                    let mut range = None;
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                            break;
+                        }
+                        if let Some(value) = line.to_ascii_lowercase().strip_prefix("range:") {
+                            range = Some(value.trim().trim_start_matches("bytes=").to_owned());
+                        }
                     }
-                }
-                let path = first
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap_or_default()
-                    .to_owned();
-                let api = format!("/api/models/{HUB_REPO}");
-                let (status, body): (&str, Vec<u8>) = if path == format!("{api}/revision/main") {
-                    let gate = if gated { "\"manual\"" } else { "false" };
-                    (
+                    let path = first
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or_default()
+                        .to_owned();
+                    let api = format!("/api/models/{HUB_REPO}");
+                    let (status, body): (&str, Vec<u8>) = if path == format!("{api}/revision/main")
+                    {
+                        let gate = if gated { "\"manual\"" } else { "false" };
+                        (
                         "200 OK",
                         format!(r#"{{"sha":"{HUB_COMMIT}","gated":{gate},"cardData":{{"license":"apache-2.0"}}}}"#)
                             .into_bytes(),
                     )
-                } else if path == format!("{api}/tree/{HUB_COMMIT}?recursive=true") {
-                    (
+                    } else if path == format!("{api}/tree/{HUB_COMMIT}?recursive=true") {
+                        (
                         "200 OK",
                         format!(
                             r#"[{{"type":"file","path":"README.md","size":12,"oid":"abc"}},
@@ -2978,33 +2983,47 @@ impl FakeHub {
                         )
                         .into_bytes(),
                     )
-                } else if path == format!("/{HUB_REPO}/resolve/{HUB_COMMIT}/model-Q4_K_M.gguf") {
-                    if gated {
+                    } else if path == format!("/{HUB_REPO}/resolve/{HUB_COMMIT}/model-Q4_K_M.gguf")
+                    {
+                        if gated {
+                            ("401 Unauthorized", Vec::new())
+                        } else {
+                            let asked = range.unwrap_or_default();
+                            heard.lock().expect("ranges").push(asked.clone());
+                            let (from, to) = asked.split_once('-').expect("a range");
+                            let (from, to): (usize, usize) =
+                                (from.parse().expect("from"), to.parse().expect("to"));
+                            let bytes = (from..=to)
+                                .map(|at| header.get(at).copied().unwrap_or(0))
+                                .collect();
+                            ("206 Partial Content", bytes)
+                        }
+                    } else if path.starts_with("/api/models/") {
                         ("401 Unauthorized", Vec::new())
                     } else {
-                        let asked = range.unwrap_or_default();
-                        heard.lock().expect("ranges").push(asked.clone());
-                        let (from, to) = asked.split_once('-').expect("a range");
-                        let (from, to): (usize, usize) =
-                            (from.parse().expect("from"), to.parse().expect("to"));
-                        let bytes = (from..=to)
-                            .map(|at| header.get(at).copied().unwrap_or(0))
-                            .collect();
-                        ("206 Partial Content", bytes)
-                    }
-                } else if path.starts_with("/api/models/") {
-                    ("401 Unauthorized", Vec::new())
-                } else {
-                    ("404 Not Found", Vec::new())
-                };
-                let _ = writer.write_all(
-                    format!(
-                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                        body.len()
-                    )
-                    .as_bytes(),
-                );
-                let _ = writer.write_all(&body);
+                        ("404 Not Found", Vec::new())
+                    };
+                    let _ = writer.write_all(
+                        format!(
+                            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    );
+                    let _ = writer.write_all(&body);
+                    // A close that is a FIN, never a reset: nothing more from
+                    // this side, then whatever the client still sends read off.
+                    // On Windows a socket closed with anything unread resets,
+                    // and the client lost the answer's tail ("Peer
+                    // disconnected", 68 runs in 80 under load on Windows 10).
+                    let _ = writer.flush();
+                    let _ = writer.shutdown(std::net::Shutdown::Write);
+                    let _ = reader
+                        .get_ref()
+                        .set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                    let mut rest = Vec::new();
+                    let _ = std::io::Read::read_to_end(&mut reader, &mut rest);
+                });
             }
         });
         Self { port, ranges }
