@@ -34,21 +34,33 @@ Canonical pin string (`wipemark_llama_sys::pin::PIN`):
 
 ### The prebuilt release (E2-5)
 
-Release **`b10731`** of `https://github.com/GigLaboCom/llama-cpp-prebuilt`
-(<https://github.com/GigLaboCom/llama-cpp-prebuilt/releases/tag/b10731>),
-built from that repository at `a0f0475` by its run 37206727539 on
-2026-10-04 with this crate's configuration (its README, "What differs from
+Release **`b10731-2`** of `https://github.com/GigLaboCom/llama-cpp-prebuilt`
+(<https://github.com/GigLaboCom/llama-cpp-prebuilt/releases/tag/b10731-2>),
+built from that repository at `91da90f` by its run 43905795326 on
+2026-11-16 with this crate's configuration (its README, "What differs from
 a wipemark-llama-sys build": no compiled-in backend directory, relative
-rpaths, CMake's own MSVC Release flags). Each archive's sha256, read off
-the downloaded file (`sha256sum`) on 2026-10-04 and equal to the release's
-`SHA256SUMS`:
+rpaths, CMake's own MSVC Release flags). It is the same llama.cpp as the
+first release, `b10731` (run 37206727539, 2026-10-04), built again for
+Windows (D838–D839): the static C runtime (`/MT`) and `GGML_OPENMP=OFF`, so
+no DLL imports a Visual C++ runtime DLL, and `patches/windows/0001-llama-
+mmap-own-fopen.patch` — byte for byte `vendor/patches/` here, sha256
+`bb7e9e0abcc73f0681a5ddce7b166b6becb72ce427ab6f710a244e02fc581734`, named in
+the Windows archive's `PROVENANCE.txt` — without which a runtime per DLL
+ends the first model load. The other three targets are built again
+unchanged. Each archive's sha256, read off the downloaded file
+(`sha256sum`) on 2026-11-16 and equal to the release's `SHA256SUMS`:
 
-| target | `llama-cpp-b10731-<target>.tar.gz` sha256 | bytes | backends |
+| target | `llama-cpp-b10731-2-<target>.tar.gz` sha256 | bytes | backends |
 |---|---|---|---|
-| `x86_64-unknown-linux-gnu` | `0352d4924d84d634278a4ee14cd8429ad7bd9cfab6e5fbc49572754f1463df45` | 22 492 523 | 14 CPU variants + Vulkan |
-| `aarch64-unknown-linux-gnu` | `731d0e26d8d2a9f4d7822386a4af0c4b6dc693b9b105e00583c9dd0c59db050b` | 16 384 140 | CPU + Vulkan |
-| `x86_64-pc-windows-msvc` | `3a62da8b3f451add07c26163f08dc5ae4f029e360974356a7b8d8d4ee1db74cc` | 21 670 659 | 9 CPU variants + Vulkan |
-| `aarch64-apple-darwin` | `5686acb21e5e87c9a5ab1df870e4d6d110332ed7f9da6be10590ca0912fac919` | 2 257 599 | CPU + Metal + BLAS |
+| `x86_64-unknown-linux-gnu` | `4621ccb45a2af78f3ce60d0ff66d765d75c77b44611693fe7b449ee32401dc60` | 22 492 433 | 14 CPU variants + Vulkan |
+| `aarch64-unknown-linux-gnu` | `989d8a6e9fb6a42a43afa0e4c14e2f136da2ae551ab19f71070a95734049881f` | 16 384 131 | CPU + Vulkan |
+| `x86_64-pc-windows-msvc` | `031a5b0017e26c6f29b87ad0076c6770453403d36c54633144cf5637f92e0d1c` | 22 989 920 | 9 CPU variants + Vulkan, static C runtime |
+| `aarch64-apple-darwin` | `d6bc9a72e4c248ca50d66acdc9810e19d1a9f0e17c5d994497d83a202ca5adb7` | 2 257 587 | CPU + Metal + BLAS |
+
+`b10731`'s archives (Windows `/MD`, needing the Visual C++ runtime) stay
+published: the alternative road of D840 links one of them through
+`WIPEMARK_LLAMA_PREBUILT` (`3a62da8b3f451add07c26163f08dc5ae4f029e360974356a7b8d8d4ee1db74cc`
+for Windows).
 
 The release's own `SHA256SUMS` comes from the same place as the archives,
 so it proves a download was not damaged, not that it is the archive this
