@@ -32,8 +32,17 @@
 #           out, writes the notices, fails it on any C runtime import or any
 #           import neither in it nor in Windows (imports.sh), runs both
 #           programs' `--version` from it with PATH cut down to System32,
-#           and zips it.
-#           Unsigned (no Authenticode yet), no installer yet, and no update
+#           and zips it. From the same folder (D842–D843)
+#           scripts/release/windows/installer.sh makes the per-user NSIS
+#           installer, Wipemark-<version>-x86_64-setup.exe (no UAC,
+#           %LOCALAPPDATA%\Programs\Wipemark, Start menu, Apps & features,
+#           wipemark-cli on the user's PATH by a ticked box), with NSIS
+#           pinned by sha256; scripts/release/windows/installer-check.ps1
+#           installs it silently on the runner, checks it, updates it in
+#           place, uninstalls it and checks that PATH is exactly as before
+#           and the data kept. The zip and the setup.exe, each with its
+#           .sha256, are attested and go to the draft side by side.
+#           Unsigned (no Authenticode yet: SmartScreen warns), and no update
 #           for Windows from publish-update below, which takes only the
 #           .dmg, the AppImage and the .deb.
 #
@@ -367,7 +376,7 @@ jobs:
           if-no-files-found: error
 
   windows:
-    name: windows (portable .zip, static C runtime, imports gated)
+    name: windows (portable .zip and setup.exe, static C runtime, imports and installer gated)
     if: >-
       github.event_name == 'push' ||
       inputs.platform == 'all' ||
@@ -412,15 +421,33 @@ jobs:
         run: cargo build --release --locked --features llama-native -p wipemark-app -p wipemark-cli
 
       - name: Package (layout, notices, imports, --version, zip)
+        run: scripts/release/windows/package.sh target/release dist
+
+      # From the very folder the zip was made of (D843); NSIS pinned by
+      # sha256 inside installer.sh, the runner image having none.
+      - name: Installer (NSIS, per-user setup.exe)
         run: |
-          scripts/release/windows/package.sh target/release dist
-          cd dist && for f in Wipemark-*-x86_64-windows.zip; do sha256sum "$f" > "$f.sha256"; cat "$f.sha256"; done
+          scripts/release/windows/installer.sh dist/Wipemark-*-x86_64-windows dist
+          cd dist && for f in Wipemark-*-x86_64-windows.zip Wipemark-*-x86_64-setup.exe; do sha256sum "$f" > "$f.sha256"; cat "$f.sha256"; done
+
+      # The release's own installer, installed and uninstalled silently on
+      # this runner before it is attached: files, shortcut, Apps & features,
+      # PATH in and exactly out again, the data kept, nothing changed while
+      # Wipemark runs.
+      - name: Installer check (silent install, update, uninstall)
+        shell: pwsh
+        run: |
+          $setup = (Get-Item dist/Wipemark-*-x86_64-setup.exe).FullName
+          $package = (Get-Item dist/Wipemark-*-x86_64-windows).FullName
+          ./scripts/release/windows/installer-check.ps1 -Setup $setup -Package $package -DefaultDataDir
 
       - name: Attest the build
         if: github.event_name == 'push'
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: dist/Wipemark-*-x86_64-windows.zip
+          subject-path: |
+            dist/Wipemark-*-x86_64-windows.zip
+            dist/Wipemark-*-x86_64-setup.exe
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -429,6 +456,8 @@ jobs:
           path: |
             dist/Wipemark-*-x86_64-windows.zip
             dist/Wipemark-*-x86_64-windows.zip.sha256
+            dist/Wipemark-*-x86_64-setup.exe
+            dist/Wipemark-*-x86_64-setup.exe.sha256
           if-no-files-found: warn
 
   # No tag puts files on a draft from a history that carries a secret: the
@@ -547,6 +576,8 @@ jobs:
           files: |
             artifacts/*.zip
             artifacts/*.zip.sha256
+            artifacts/*-setup.exe
+            artifacts/*-setup.exe.sha256
 
   # The update, when a person publishes the draft (D783): the version becomes
   # visible to installations only then. Signs and publishes nothing without

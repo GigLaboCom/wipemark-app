@@ -1,0 +1,33 @@
+# German.nsh — the installer's and uninstaller's own words in German; the
+# same strings as English.nsh, whose header says more.
+
+!define /redef L ${LANG_GERMAN}
+
+LangString WelcomeNew ${L} "Dieses Setup installiert Wipemark ${VERSION} auf diesem Computer, nur für Sie: Administratorrechte sind nicht nötig.$\r$\n$\r$\nKlicken Sie auf Weiter, um fortzufahren."
+LangString WelcomeUpdate ${L} "Wipemark $OldVersion ist installiert. Das Setup aktualisiert es in seinem Ordner auf ${VERSION}; Ihre Daten, Einstellungen und heruntergeladenen Modelle bleiben erhalten.$\r$\n$\r$\nBeenden Sie Wipemark, bevor Sie fortfahren.$\r$\n$\r$\nKlicken Sie auf Weiter, um fortzufahren."
+LangString OptionsTitle ${L} "Optionen"
+LangString OptionsSubtitle ${L} "Legen Sie fest, wie Wipemark eingerichtet wird."
+LangString PathBox ${L} "wipemark-cli zum PATH hinzufügen"
+LangString PathText ${L} "Damit können Sie wipemark-cli in jedem neuen Terminalfenster ausführen: Eingabeaufforderung, PowerShell, Windows-Terminal. Der Installationsordner wird Ihrem Benutzer-PATH hinzugefügt, und beim Deinstallieren von Wipemark wird er wieder entfernt."
+LangString Running ${L} "Wipemark läuft ($InUse wird verwendet).$\r$\n$\r$\nBeenden Sie Wipemark und jedes noch in einem Terminal laufende wipemark-cli, und klicken Sie dann auf Wiederholen."
+LangString NotChanged ${L} "Wipemark läuft: Es wurde nichts geändert."
+LangString RemovingOld ${L} "Die frühere Installation wird entfernt aus"
+LangString PathFailed ${L} "Wipemark ist installiert, aber wipemark-cli konnte nicht zum PATH hinzugefügt werden:$\r$\n$HelperOut"
+LangString RunWipemark ${L} "Wipemark starten"
+LangString ShortcutComment ${L} "Entfernt KI-Herkunftsmarkierungen aus Ihren eigenen Texten und Bildern"
+LangString NeedsWindows10 ${L} "Wipemark benötigt Windows 10 (64 Bit) oder neuer."
+
+LangString UnTitle ${L} "Wipemark deinstallieren"
+LangString UnSubtitle ${L} "Wipemark von diesem Computer entfernen."
+LangString UnFolder ${L} "Wipemark wird aus diesem Ordner entfernt:"
+LangString UnDataText ${L} "Ihre Daten (Einstellungen, Verlauf, Protokolle) und die heruntergeladenen Modelle liegen in diesem Ordner:"
+LangString UnDataKept ${L} "Sie bleiben erhalten, damit eine spätere Installation sie wiederfindet, es sei denn, Sie setzen unten das Häkchen."
+LangString UnDataBox ${L} "Auch meine Daten und heruntergeladenen Modelle löschen ($DataSize)"
+LangString UnModelsElsewhere ${L} "Ein Modellordner, den Sie selbst unter Einstellungen > Modelle außerhalb dieses Ordners gewählt haben, wird nie gelöscht."
+LangString UnNoData ${L} "In diesem Ordner gibt es keine Daten von Wipemark:"
+LangString UnDataFailed ${L} "Wipemark ist deinstalliert, aber Ihre Daten konnten nicht vollständig gelöscht werden:$\r$\n$HelperOut"
+LangString UnDataKeptLog ${L} "Behalten: Ihre Daten und Modelle in"
+LangString UnitKB ${L} "KB"
+LangString UnitMB ${L} "MB"
+LangString UnitGB ${L} "GB"
+LangString DecimalSeparator ${L} ","

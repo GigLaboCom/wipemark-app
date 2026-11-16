@@ -41,7 +41,10 @@
 #             programs started with PATH cut down to System32, and no C
 #             runtime imported by anything a package would hold
 #             (scripts/release/windows/imports.sh): a Windows build depends
-#             on no runtime at all (the owner, 2026-11-16).
+#             on no runtime at all (the owner, 2026-11-16). Then the
+#             installer (D842–D843), made from a package of this debug build
+#             and installed, updated and uninstalled silently by
+#             scripts/release/windows/installer-check.ps1.
 #   secrets — gitleaks over the whole history with .gitleaks.toml, the
 #             config the pre-commit hook scans the staged changes with.
 name: gate
@@ -420,3 +423,22 @@ jobs:
           root="$(ls -d target/debug/llama-cpp-prebuilt/*/llama-cpp-*-x86_64-pc-windows-msvc | head -1)"
           cp "$root"/bin/*.dll "$root"/backends/*.dll "$pkg/"
           scripts/release/windows/imports.sh "$pkg"
+
+      # The installer (D842–D843) from this debug build: package.sh lays the
+      # folder out as a release's, installer.sh makes a setup.exe of it
+      # (zlib, seconds — a release's is solid LZMA), and installer-check.ps1
+      # installs it silently, checks the files, the shortcut, Apps & features
+      # and PATH (a new shell runs wipemark-cli --version), updates it in
+      # place, finds it running and changes nothing, uninstalls it and checks
+      # that PATH is exactly as before and the data kept — and, asked to, gone
+      # without following a junction out of it.
+      - name: installer (debug layout; silent install, update, uninstall)
+        if: ${{ !cancelled() }}
+        run: |
+          dist="$(cygpath -u "$RUNNER_TEMP")/installer"
+          rm -rf "$dist"
+          scripts/release/windows/package.sh target/debug "$dist"
+          WIPEMARK_INSTALLER_COMPRESSOR=zlib scripts/release/windows/installer.sh "$dist"/Wipemark-*-x86_64-windows "$dist"
+          pwsh -NoProfile -File scripts/release/windows/installer-check.ps1 \
+            -Setup "$(cygpath -w "$dist"/Wipemark-*-x86_64-setup.exe)" \
+            -Package "$(cygpath -w "$dist"/Wipemark-*-x86_64-windows)" -DefaultDataDir
