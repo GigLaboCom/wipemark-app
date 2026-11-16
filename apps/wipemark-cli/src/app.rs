@@ -181,7 +181,15 @@ fn exchange(
         }
         match stream.read(&mut buffer) {
             Ok(0) => break,
-            Ok(read) => answer.extend_from_slice(&buffer[..read]),
+            Ok(read) => {
+                answer.extend_from_slice(&buffer[..read]);
+                // Done at the last byte its Content-Length counts, not at
+                // the close: on Windows a server's close is often a reset,
+                // which would lose an answer already here.
+                if whole(&answer) {
+                    break;
+                }
+            }
             Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
                 if patience.is_some_and(|patience| asked.elapsed() > patience) {
@@ -193,6 +201,25 @@ fn exchange(
         }
     }
     body_of(&answer)
+}
+
+/// Whether `answer` holds a whole HTTP answer: its head, and as many bytes
+/// of body as the head's Content-Length says. Without a Content-Length an
+/// answer ends where the connection does.
+fn whole(answer: &[u8]) -> bool {
+    let Some(end) = answer.windows(4).position(|four| four == b"\r\n\r\n") else {
+        return false;
+    };
+    let head = String::from_utf8_lossy(&answer[..end]);
+    let length = head.lines().skip(1).find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if name.trim().eq_ignore_ascii_case("content-length") {
+            value.trim().parse::<usize>().ok()
+        } else {
+            None
+        }
+    });
+    length.is_some_and(|length| answer.len() >= end + 4 + length)
 }
 
 /// The JSON body of a whole HTTP answer, when its status is 200.
@@ -290,6 +317,48 @@ mod tests {
             &AtomicBool::new(false),
         )
         .expect("the whole answer");
+        assert_eq!(answer["result"]["answered"], true);
+    }
+
+    /// A whole answer is the answer, however the server then hangs up: a
+    /// reset after the last byte of its body (what Windows sends when a
+    /// socket is closed with anything left unread — found on the Windows
+    /// runner and on Windows 10, `ConnectionReset` after the 994 bytes of a
+    /// whole answer) loses nothing. The server here leaves the request's body
+    /// unread, which makes its close a reset on Linux too.
+    #[test]
+    fn a_whole_answer_survives_a_reset_after_it() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a port");
+        let address = listener.local_addr().expect("an address");
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            // The head, a byte at a time, so the body stays in the socket.
+            let mut head = Vec::new();
+            let mut byte = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") && stream.read(&mut byte).unwrap_or(0) == 1 {
+                head.push(byte[0]);
+            }
+            let reply = r#"{"jsonrpc":"2.0","id":1,"result":{"answered":true}}"#;
+            let _ = stream.write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                )
+                .as_bytes(),
+            );
+            std::thread::sleep(TICK * 10);
+            // Dropped with the body unread: a reset.
+        });
+        let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"padding": "x".repeat(4096)}});
+        let answer = exchange(
+            address,
+            &request,
+            Some(Duration::from_secs(10)),
+            &AtomicBool::new(false),
+        )
+        .expect("the whole answer, the reset after it notwithstanding");
         assert_eq!(answer["result"]["answered"], true);
     }
 
