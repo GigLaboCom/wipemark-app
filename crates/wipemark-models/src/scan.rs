@@ -162,13 +162,16 @@ mod tests {
         touch(&root.path().join("vendor/c.onnx"), 7);
 
         let found = weights_under(root.path()).expect("the root is readable");
-        let names: Vec<_> = found
-            .iter()
-            .map(|f| f.relative_to(root.path()).to_string_lossy().into_owned())
-            .collect();
+        // Paths, compared component by component: `vendor\c.onnx` on
+        // Windows, where the page shows a path on this machine.
+        let names: Vec<_> = found.iter().map(|f| f.relative_to(root.path())).collect();
         assert_eq!(
             names,
-            ["a.gguf", "vendor/c.onnx", "vendor/repo/quant/b.GGUF"],
+            [
+                Path::new("a.gguf"),
+                Path::new("vendor/c.onnx"),
+                Path::new("vendor/repo/quant/b.GGUF")
+            ],
             "sorted by path, whatever order the filesystem returned"
         );
         assert_eq!(found[2].bytes, 5);
