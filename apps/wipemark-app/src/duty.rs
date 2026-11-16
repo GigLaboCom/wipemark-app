@@ -515,7 +515,10 @@ pub enum Vacancy {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Duty {
     Assigned {
-        performer: Performer,
+        /// Boxed: inline, an assigned duty is 264 bytes on Windows —
+        /// where a `PathBuf` is 32 — against a vacancy's 56
+        /// (`clippy::large_enum_variant`).
+        performer: Box<Performer>,
         /// Why the side that was asked first is not the one answering.
         ///
         /// `None` when the answer was the first choice, **and** when
@@ -534,7 +537,7 @@ impl Duty {
     /// Somebody is on duty, first choice or second.
     pub fn assigned(performer: Performer) -> Self {
         Duty::Assigned {
-            performer,
+            performer: Box::new(performer),
             instead_of: None,
         }
     }
@@ -639,7 +642,7 @@ fn in_order(
         Ok(performer) => {
             let announce = worth_announcing(&passed, &performer);
             Duty::Assigned {
-                performer,
+                performer: Box::new(performer),
                 instead_of: announce.then_some(passed),
             }
         }

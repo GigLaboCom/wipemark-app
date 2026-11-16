@@ -9,11 +9,12 @@
 //! is this, and how sure is that.
 //!
 //! It is a library and a leaf — no workspace dependencies, no external
-//! ones, no localization, no I/O it is not explicitly asked for — so
-//! that every surface can reuse it without inheriting anything. What it
-//! hands back is structured ([`Kind`], [`Format`], [`Evidence`]); what
-//! that gets *called* on screen is the surface's business, in the
-//! surface's language.
+//! ones (but on Windows one safe call `std` does not yet make stable,
+//! [`inplace::same_file`]'s), no localization, no I/O it is not explicitly
+//! asked for — so that every surface can reuse it without inheriting
+//! anything. What it hands back is structured ([`Kind`], [`Format`],
+//! [`Evidence`]); what that gets *called* on screen is the surface's
+//! business, in the surface's language.
 //!
 //! # The rule: the bytes decide the kind, the name may refine it
 //!
@@ -593,9 +594,18 @@ mod tests {
         assert_eq!(intake.arrived, Arrived::AsText);
 
         // The same line as a `file:` URL, which is what several
-        // applications put on the pasteboard instead.
-        let url = format!("file://{}", path.to_string_lossy());
+        // applications put on the pasteboard instead — `file:///C:/…` on
+        // Windows.
+        let url = if cfg!(windows) {
+            format!("file:///{}", path.to_string_lossy().replace('\\', "/"))
+        } else {
+            format!("file://{}", path.to_string_lossy())
+        };
         assert_eq!(of_text(&url).format, Some(Format::Png));
+
+        // And in double quotes, as Explorer's *Copy as path* puts it.
+        let quoted = format!("\"{}\"", path.to_string_lossy());
+        assert_eq!(of_text(&quoted).format, Some(Format::Png));
     }
 
     /// D751: characters that are the document whatever they say — an MCP

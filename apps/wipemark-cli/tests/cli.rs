@@ -2302,11 +2302,14 @@ const CHATML: &str =
 /// A chat model's GGUF header and nothing after it — what `models add`
 /// reads; never a model.
 fn a_chat_model(scratch: &Scratch, name: &str) -> PathBuf {
+    let path = scratch.path("theirs").join(name);
     std::fs::create_dir_all(scratch.path("theirs")).expect("mkdir");
-    scratch.file(
-        &format!("theirs/{name}"),
-        &wipemark_models::gguf::synthetic_chat_model("qwen3", "Qwen3 4B", Some(CHATML)),
+    std::fs::write(
+        &path,
+        wipemark_models::gguf::synthetic_chat_model("qwen3", "Qwen3 4B", Some(CHATML)),
     )
+    .expect("write");
+    path
 }
 
 /// Other bytes of the same size in `file`, a minute later — an edit on any
@@ -2775,6 +2778,7 @@ fn models_add_again_by_another_road_keeps_its_row_name_and_context() {
     ]);
     assert_eq!(code(&first), 0, "{}", stderr(&first));
     std::fs::create_dir_all(scratch.path("elsewhere")).expect("mkdir");
+    #[cfg_attr(not(unix), allow(unused_mut, reason = "a link is made on Unix alone"))]
     let mut roads = vec![scratch.path("elsewhere/../theirs/m.gguf")];
     #[cfg(unix)]
     {
@@ -3029,7 +3033,7 @@ fn models_inspect_reads_a_model_on_the_hub_from_its_front() {
     let link = format!("https://huggingface.co/{HUB_REPO}/blob/main/model-Q4_K_M.gguf");
 
     let output = scratch.run_in(&["models", "inspect", &link], None, &vars);
-    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(code(&output), 0, "{}{}", stderr(&output), stdout(&output));
     let text = stdout(&output);
     for said in [
         format!("{HUB_REPO} at {HUB_COMMIT}"),
@@ -3053,7 +3057,7 @@ fn models_inspect_reads_a_model_on_the_hub_from_its_front() {
     );
 
     let output = scratch.run_in(&["models", "inspect", &link, "--json"], None, &vars);
-    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(code(&output), 0, "{}{}", stderr(&output), stdout(&output));
     let answer = json(&output);
     assert_eq!(answer["commit"], HUB_COMMIT);
     assert_eq!(answer["files"].as_array().map(Vec::len), Some(2));
@@ -3063,7 +3067,7 @@ fn models_inspect_reads_a_model_on_the_hub_from_its_front() {
     assert!(answer["read"]["fit"].is_string(), "{answer}");
 
     let output = scratch.run_in(&["models", "inspect", &link, "--entry"], None, &vars);
-    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(code(&output), 0, "{}{}", stderr(&output), stdout(&output));
     let draft = json(&output);
     assert!(stderr(&output).contains("a draft for manifests/models.v1.json"));
     let manifest =

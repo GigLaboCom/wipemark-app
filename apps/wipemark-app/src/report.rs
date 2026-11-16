@@ -1368,15 +1368,16 @@ mod tests {
     }
 
     /// The Markdown copy spells what nobody wrote for Markdown: a file
-    /// named with a U+200B and Markdown's characters, in every language,
-    /// leaves no character Layer A would remove in the copy, and reads
-    /// back as its own name with the invisible character spelled.
+    /// named with a U+200B and Markdown's characters — those a name carries
+    /// on every platform — in every language, leaves no character Layer A
+    /// would remove in the copy, and reads back as its own name with the
+    /// invisible character spelled.
     #[test]
     fn the_markdown_copy_spells_and_escapes_a_name() {
         let scratch = Scratch::new("named");
-        let name = "a\u{200B}b*c_d`e[f]#g.md";
+        let name = "a\u{200B}b_c`d[e]#f.md";
         let (arrival, outcome) = cleaned(&scratch, name, MARKED.as_bytes());
-        let spelled = "aU+200Bb*c_d`e[f]#g";
+        let spelled = "aU+200Bb_c`d[e]#f";
         for language in available_languages() {
             let localizer =
                 Localizer::for_languages(std::slice::from_ref(&language.id), Rendering::PlainText);
@@ -1390,7 +1391,7 @@ mod tests {
                 found.findings
             );
             assert!(
-                copy.contains("aU+200Bb\\*c\\_d\\`e\\[f\\]\\#g"),
+                copy.contains("aU+200Bb\\_c\\`d\\[e\\]\\#f"),
                 "{}: the name is not escaped: {copy}",
                 language.id
             );
@@ -1404,12 +1405,13 @@ mod tests {
         }
     }
 
-    /// `|`, `<` and `>` are Markdown too — a table's cell, an HTML tag — and
-    /// no file name carries them on every platform, so the line is spelled
-    /// here directly (X6).
+    /// `|`, `<`, `>` and `*` are Markdown too — a table's cell, an HTML
+    /// tag, emphasis — and no file name carries them on every platform (a
+    /// Windows one carries none of them), so the line is spelled here
+    /// directly (X6).
     #[test]
     fn the_markdown_copy_escapes_what_a_name_cannot_carry() {
-        assert_eq!(super::spelled("a|b<c>d\\e"), "a\\|b\\<c\\>d\\\\e");
+        assert_eq!(super::spelled("a|b<c>d\\e*f"), "a\\|b\\<c\\>d\\\\e\\*f");
     }
 
     /// A ZWJ Layer A keeps inside an emoji is not spelled because the same

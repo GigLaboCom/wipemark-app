@@ -9318,14 +9318,15 @@ fn profile_lines(standing: &Standing) -> Vec<String> {
 /// already true whatever the key turns out to be.
 pub(crate) fn engine_banner(duty: &Duty, looking: bool) -> (IconName, Tone, Vec<String>) {
     let (glyph, tone, first) = match duty {
-        Duty::Assigned {
-            performer: Performer::Endpoint(_),
-            ..
-        } if looking => (
-            IconName::CircleInfo,
-            Tone::Quiet,
-            t(Message::SettingsEngineStateChecking),
-        ),
+        Duty::Assigned { performer, .. }
+            if looking && matches!(**performer, Performer::Endpoint(_)) =>
+        {
+            (
+                IconName::CircleInfo,
+                Tone::Quiet,
+                t(Message::SettingsEngineStateChecking),
+            )
+        }
         Duty::Assigned { performer, .. } => on_duty_line(performer),
         Duty::Vacant(vacancy) => vacancy_line(vacancy),
     };
@@ -12507,6 +12508,7 @@ mod tests {
         });
         cx.run_until_parked();
         let around = root.join("models").join("..").join("theirs").join("m.gguf");
+        #[cfg_attr(not(unix), allow(unused_mut, reason = "a link is made on Unix alone"))]
         let mut roads = vec![around];
         #[cfg(unix)]
         {
@@ -12569,6 +12571,7 @@ mod tests {
             assert_eq!(ids, ["user-a"], "the add did not land");
             assert_eq!(preferences.added_chat("user-a"), Some(chat));
         });
+        #[cfg_attr(not(unix), allow(unused_mut, reason = "a link is made on Unix alone"))]
         let mut roads = vec![root.join("models").join("..").join("theirs").join("a.gguf")];
         #[cfg(unix)]
         {

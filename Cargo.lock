@@ -9898,6 +9898,9 @@ dependencies = [
 [[package]]
 name = "wipemark-intake"
 version = "0.1.4"
+dependencies = [
+ "winapi-util",
+]
 
 [[package]]
 name = "wipemark-license"
@@ -9954,6 +9957,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "ureq",
+ "winapi-util",
  "wipemark-core",
 ]
 
