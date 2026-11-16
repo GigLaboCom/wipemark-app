@@ -19,6 +19,11 @@
 *.icns                              binary
 *.wma                               binary
 
+# A patch is applied to upstream's tree byte for byte, so its line endings
+# are never converted: Git for Windows would give it CRLF, and `git apply`
+# refuses that copy.
+*.patch                             -text
+
 # Unicode data, crates/wipemark-core/ucd/: byte-exact, because
 # SHA256SUMS hashes these bytes and build.rs refuses a carriage return;
 # and never diffed, because a version bump is megabytes nobody reads —
