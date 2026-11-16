@@ -783,9 +783,6 @@ mod source {
     /// CMake's own Release flags for MSVC. See [`msvc_release_flags`].
     const MSVC_RELEASE: &str = "/O2 /Ob2 /DNDEBUG";
 
-    /// The static C runtime for MSVC (`/MT`). See [`msvc_release_flags`].
-    const MSVC_RUNTIME: &str = "MultiThreaded";
-
     /// Backend switches a developer is likely to set, so that changing one
     /// re-runs this script. Cargo cannot be told "rerun when any `GGML_*`
     /// changes"; whatever else is set is forwarded but only noticed on the
@@ -970,27 +967,13 @@ Libs: -L${libdir} -lggml
     /// `GigLaboCom/llama-cpp-prebuilt`, whose Windows archive is built with
     /// exactly these. A `CMAKE_*` variable in the environment still wins
     /// (`forward_cmake_env` runs after this).
-    ///
-    /// The C runtime is linked statically (`/MT`), as the prebuilt archive
-    /// links it since `b10731-2` and as `.cargo/config.toml` links the
-    /// executables (`+crt-static`): a Windows build needs no Visual C++
-    /// Redistributable (the owner, 2026-11-16).
     fn msvc_release_flags(cfg: &mut cmake::Config) {
-        if msvc_target() {
-            // `static_crt` makes the flags the crate hands CMake say `-MT`
-            // too, so they never contradict the runtime library property.
-            cfg.static_crt(true)
-                .define("CMAKE_C_FLAGS_RELEASE", MSVC_RELEASE)
+        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+            cfg.define("CMAKE_C_FLAGS_RELEASE", MSVC_RELEASE)
                 .define("CMAKE_CXX_FLAGS_RELEASE", MSVC_RELEASE)
-                .define("CMAKE_MSVC_RUNTIME_LIBRARY", MSVC_RUNTIME)
                 .cflag("/DWIN32 /D_WINDOWS")
                 .cxxflag("/DWIN32 /D_WINDOWS /EHsc");
         }
-    }
-
-    /// Whether the target is MSVC's.
-    fn msvc_target() -> bool {
-        std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
     }
 
     /// Stage 1 — configure, build and install the shared ggml. Returns the
@@ -1015,13 +998,6 @@ Libs: -L${libdir} -lggml
             // at run time (wipemark-llama's `Runtime::init`).
             .define("GGML_BACKEND_DIR", path_arg(backends_dir));
         msvc_release_flags(&mut cfg);
-        if msvc_target() {
-            // MSVC's OpenMP runtime (vcomp140.dll) has no static form, so
-            // with the static C runtime it would be the one Visual C++ DLL
-            // left; ggml's own thread pool runs the CPU backend instead.
-            // The prebuilt archive's choice too (`b10731-2`).
-            cfg.define("GGML_OPENMP", "OFF");
-        }
         forward_cmake_env(&mut cfg);
         forward_ggml_env(&mut cfg);
         // `cmake::Config::build()` runs configure + build + install into

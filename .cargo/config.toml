@@ -14,15 +14,3 @@
 # with an authentication error against a public repository.
 [net]
 git-fetch-with-cli = true
-
-# On Windows the C runtime is linked into every executable (`/MT`): a
-# Windows build starts on a machine with no Visual C++ Redistributable, or
-# an older one than the toolset that built it (the owner, 2026-11-16 —
-# Windows apps are self-contained). The C and C++ the `cc` crate builds
-# follows the flag; wipemark-llama-sys builds llama.cpp from source the same
-# way, and the prebuilt DLLs are linked so since b10731-2.
-# `scripts/release/windows/imports.sh` fails a package that imports
-# vcruntime, msvcp, vcomp or the api-ms-win-crt sets. A `RUSTFLAGS` in the
-# environment replaces this table — set the flag there too.
-[target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]

@@ -297,7 +297,10 @@ fn windows_resources() {
     // `rc` reads a quoted path with C escapes; a verbatim `\\?\` prefix
     // from `canonicalize` is not a path it opens.
     let icon = icon.display().to_string();
-    let icon = icon.strip_prefix(r"\\?\").unwrap_or(&icon).replace('\\', "\\\\");
+    let icon = icon
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&icon)
+        .replace('\\', "\\\\");
 
     let version = env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION");
     let mut numbers = version

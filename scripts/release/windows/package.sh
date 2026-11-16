@@ -6,9 +6,10 @@
 # CI). It is the Windows half of scripts/release/macos/bundle.sh and
 # scripts/release/linux/appdir.sh: the same two programs, llama.cpp's
 # libraries and backends beside them, nothing taken from the build
-# machine's paths at run time — and, by the owner's rule, nothing the
-# Visual C++ Redistributable would have to supply. A portable folder; an
-# installer is a later step.
+# machine's paths at run time — and, by the owner's rule, nobody asked to
+# install the Visual C++ Redistributable: the runtime DLLs the programs and
+# llama.cpp import travel in the folder (vc-runtime.sh). A portable folder;
+# an installer is a later step.
 #
 # What it does:
 #   1. finds llama.cpp's unpacked prebuilt archive under the build directory
@@ -23,19 +24,24 @@
 #      directory first; the three DLLs must be the ones the build linked
 #      (compared with the copies wipemark-llama-sys put beside the build's
 #      programs);
-#   3. copies NOTICE and LICENSE.md, and writes THIRD-PARTY.md from
+#   3. copies the Visual C++ runtime DLLs they import beside them, from the
+#      newest Visual Studio's redistributable files, never older than the
+#      toolset that built llama.cpp (scripts/release/windows/vc-runtime.sh);
+#   4. copies NOTICE and LICENSE.md, and writes THIRD-PARTY.md from
 #      Cargo.lock (scripts/release/third-party.py for x86_64-pc-windows-msvc,
 #      with llama.cpp's licence; D779) — a package without it is not made;
-#   4. checks it: scripts/release/windows/imports.sh (no Visual C++ runtime,
-#      every import in the package or in System32), and both programs'
-#      `--version` from the package with PATH cut down to System32;
-#   5. zips the folder into dist/Wipemark-<version>-x86_64-windows.zip, its
+#   5. checks it: scripts/release/windows/imports.sh (the Visual C++ runtime
+#      from the package, everything else from the package or System32), and
+#      both programs' `--version` from the package with PATH cut down to
+#      System32;
+#   6. zips the folder into dist/Wipemark-<version>-x86_64-windows.zip, its
 #      top directory the folder's name, and prints the sizes.
 #
 # How to run:   cargo build --release --locked --features llama-native \
 #                 -p wipemark-app -p wipemark-cli
 #               scripts/release/windows/package.sh [target/release] [dist]
-# Needs:        Windows with Git Bash; llvm-readobj (imports.sh); python 3
+# Needs:        Windows with Git Bash; Visual Studio or its Build Tools with
+#               the C++ workload (vc-runtime.sh); llvm-readobj; python 3
 #               and cargo (the notices; the registry a build left, or
 #               `cargo fetch --locked`).
 # Output:       dist/Wipemark-<version>-x86_64-windows/ and its .zip; one
@@ -104,7 +110,13 @@ done
 [ "$n" -gt 0 ] || { echo "ERROR: no backends under $llama/backends" >&2; exit 1; }
 echo "    llama.cpp: 3 libraries, $n backends"
 
-# 3. Notices.
+# 3. The Visual C++ runtime.
+echo "==> the Visual C++ runtime"
+provenance=""
+[ -f "$llama/PROVENANCE.txt" ] && provenance="$llama/PROVENANCE.txt"
+"$repo/scripts/release/windows/vc-runtime.sh" "$pkg" $provenance
+
+# 4. Notices.
 for f in NOTICE LICENSE.md; do
   cp "$repo/$f" "$pkg/"
 done
@@ -112,7 +124,7 @@ done
   --target "$target" --llama-license "$llama/LICENSE-llama.cpp") | sed 's/^/    /'
 [ -s "$pkg/THIRD-PARTY.md" ] || { echo "ERROR: no THIRD-PARTY.md written" >&2; exit 1; }
 
-# 4. Checks.
+# 5. Checks.
 echo "==> imports"
 "$repo/scripts/release/windows/imports.sh" "$pkg" | sed 's/^/    /'
 echo "==> the programs from the package, PATH = System32 only"
@@ -124,7 +136,7 @@ for exe in wipemark-cli.exe wipemark.exe; do
   echo "    $exe --version: ${out:-(no output: a GUI program prints none here)}"
 done
 
-# 5. The zip.
+# 6. The zip.
 (cd "$dist" && "$py" -I - "$name" <<'PY'
 import os, sys, zipfile
 name = sys.argv[1]
