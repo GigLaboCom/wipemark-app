@@ -222,6 +222,14 @@ x11rb = { version = "0.13", features = ["randr"] }
 # pins, with the `v5` feature it already turns on.
 uuid = { version = "1", features = ["v5"] }
 
+# The Windows icon and version resource (build.rs, `windows_resources`):
+# compiles an `.rc` with the Windows SDK's `rc.exe` and links it into the
+# binary. Already built on every platform as gpui-pre's own build
+# dependency (its default `windows-manifest`), at this version, so the
+# lock gains an edge and no crate; off Windows the script never calls it.
+[build-dependencies]
+embed-resource = "3"
+
 [features]
 default = []
 # Forwarded to the engine crate. `local-llama` compiles the local engine

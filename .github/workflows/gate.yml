@@ -36,6 +36,12 @@
 #             display watch and the AppKit window move run nowhere else. No
 #             model on a hosted runner: the `--ignored` live gate still runs
 #             by hand.
+#   windows — MSVC, the same lint and tests as macos over the workspace,
+#             llama.cpp at the pin prebuilt with the static C runtime, the
+#             programs started with PATH cut down to System32, and no
+#             Visual C++ runtime imported by anything a package would hold
+#             (scripts/release/windows/imports.sh): a Windows build needs
+#             no Redistributable (the owner, 2026-11-16).
 #   secrets — gitleaks over the whole history with .gitleaks.toml, the
 #             config the pre-commit hook scans the staged changes with.
 name: gate
@@ -324,3 +330,93 @@ jobs:
       - name: Disk left
         if: always()
         run: df -h /
+
+  # Windows (E10; the owner, 2026-11-16): the workspace linted and tested on
+  # MSVC, the first lint the Windows-only paths get — the stubs where the
+  # tray, the shortcut and the display watch are not built yet, and every
+  # `cfg(unix)` test's other half. Then llama.cpp at the pin, prebuilt with
+  # the static C runtime (CPU variants + Vulkan; no Vulkan driver on the
+  # runner, so the CPU registers), and the self-contained rule checked on
+  # what this build links: `.cargo/config.toml`'s `+crt-static` on the
+  # programs, the prebuilt DLLs' `/MT`, no Visual C++ runtime imported by
+  # either (scripts/release/windows/imports.sh). The packaged release is
+  # release.yml's.
+  windows:
+    name: windows (clippy, tests, llama-native prebuilt, imports)
+    runs-on: windows-latest
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Submodule
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+
+      - name: Machine
+        run: |
+          cmd //c ver
+          wmic cpu get name 2>/dev/null | sed -n 2p || true
+          cmake --version | head -1
+          command -v llvm-readobj || ls "/c/Program Files/LLVM/bin/llvm-readobj.exe"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
+          cache-on-failure: true
+
+      # The steps after this one run even when an earlier one failed, as on
+      # macOS: one run reports every red line on this platform.
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: test
+        if: ${{ !cancelled() }}
+        run: cargo test --workspace --locked --no-fail-fast
+
+      - name: test wipemark-engine --features local-llama
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-engine --features local-llama --locked --no-fail-fast
+
+      - name: clippy (llama-native)
+        if: ${{ !cancelled() }}
+        run: cargo clippy -p wipemark-llama -p wipemark-engine -p wipemark-app -p wipemark-cli --features wipemark-app/llama-native,wipemark-cli/llama-native --all-targets --locked -- -D warnings
+
+      - name: test (llama-native, model-free)
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-llama-sys -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked --no-fail-fast
+
+      # Windows has no rpath: wipemark-llama-sys copies the three DLLs beside
+      # the programs, and this runs `wipemark --version` with PATH cut down
+      # to System32 (D232).
+      - name: standalone (llama-native, PATH = System32)
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-app --features llama-native --locked --test standalone --no-fail-fast
+
+      - name: ggml devices
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-llama --features native --locked --test native the_runtime_reports_at_least_the_cpu_backend -- --nocapture
+
+      # What a package would hold, from this (debug) build: the two programs,
+      # llama.cpp's three DLLs and every backend. The C runtime a debug Rust
+      # build links is the release one, so the imports are a release's.
+      - name: imports (no Visual C++ runtime, everything resolves)
+        if: ${{ !cancelled() }}
+        run: |
+          cargo build -p wipemark-app -p wipemark-cli --features wipemark-app/llama-native,wipemark-cli/llama-native --locked
+          pkg="$RUNNER_TEMP/imports"
+          rm -rf "$pkg" && mkdir -p "$pkg"
+          cp target/debug/wipemark.exe target/debug/wipemark-cli.exe "$pkg/"
+          root="$(ls -d target/debug/llama-cpp-prebuilt/*/llama-cpp-*-x86_64-pc-windows-msvc | head -1)"
+          cp "$root"/bin/*.dll "$root"/backends/*.dll "$pkg/"
+          scripts/release/windows/imports.sh "$pkg"

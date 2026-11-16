@@ -9768,6 +9768,7 @@ dependencies = [
  "async-signal",
  "base64 0.22.1",
  "chrono",
+ "embed-resource",
  "flume 0.11.1",
  "futures-lite",
  "global-hotkey",

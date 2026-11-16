@@ -17,7 +17,11 @@
 #   -DCMAKE_C_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG
 #   -DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG
 #   -DCMAKE_CXX_FLAGS=... /EHsc ...
-# and no other value for the two Release variables.
+#   -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded   (the static C runtime, /MT)
+# and no other value for the two Release variables; the ggml line also
+#   -DGGML_OPENMP=OFF   (vcomp140.dll has no static form)
+# — the prebuilt archive's flags since b10731-2 (the owner, 2026-11-16: a
+# Windows build needs no Visual C++ Redistributable).
 set -euo pipefail
 
 out="${1:?usage: $0 <build-script stderr file>}"
@@ -50,6 +54,19 @@ for i in 0 1; do
       fi
     done
   done
+  runtime=$(grep '^-DCMAKE_MSVC_RUNTIME_LIBRARY=' <<<"$args" || true)
+  if [ "$runtime" = "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded" ]; then
+    echo "ok   ($stage): $runtime"
+  else
+    echo "FAIL ($stage): ${runtime:-CMAKE_MSVC_RUNTIME_LIBRARY (not defined)}" >&2; status=1
+  fi
+  if [ "$stage" = ggml ]; then
+    if grep -qx -- '-DGGML_OPENMP=OFF' <<<"$args"; then
+      echo "ok   ($stage): -DGGML_OPENMP=OFF"
+    else
+      echo "FAIL ($stage): GGML_OPENMP is not OFF" >&2; status=1
+    fi
+  fi
   cxx=$(grep '^-DCMAKE_CXX_FLAGS=' <<<"$args" || true)
   if grep -q '/EHsc' <<<"$cxx"; then
     echo "ok   ($stage): $cxx"

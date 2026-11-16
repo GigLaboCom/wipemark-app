@@ -25,6 +25,16 @@
 #           lazy-shot's names, and they reach only the steps that sign —
 #           never the build, whose build scripts run third-party code.
 #
+#   windows the portable Windows package (E10; the owner, 2026-11-16), a
+#           release build with llama.cpp's static-C-runtime DLLs beside it:
+#           scripts/release/windows/package.sh lays it out, writes the
+#           notices, fails it on any Visual C++ runtime import or any import
+#           neither in it nor in System32 (imports.sh), runs both programs'
+#           `--version` from it with PATH cut down to System32, and zips it.
+#           Unsigned (no Authenticode yet), no installer yet, and no update
+#           for Windows from publish-update below, which takes only the
+#           .dmg, the AppImage and the .deb.
+#
 #   publish-update  on the person's Publish of the draft (`release:
 #           published`, D783), or by hand from the tag (platform
 #           `publish-update`): the release's own files downloaded, their sums
@@ -65,6 +75,7 @@ on:
           - all
           - linux
           - macos
+          - windows
           - publish-update
 
 concurrency:
@@ -353,6 +364,71 @@ jobs:
             dist/*.dmg.sha256
           if-no-files-found: error
 
+  windows:
+    name: windows (portable .zip, static C runtime, imports gated)
+    if: >-
+      github.event_name == 'push' ||
+      inputs.platform == 'all' ||
+      inputs.platform == 'windows'
+    runs-on: windows-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Submodule
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+
+      # The registry only, as on Linux: the target directory is rebuilt every
+      # time, so a release never links an object another build left behind.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: release-windows-cargo-registry-${{ hashFiles('Cargo.lock') }}
+
+      # A release build compiles GPUI's HLSL shaders with the Windows SDK's
+      # fxc.exe (gpui-pre-windows' build script) — a debug build compiles
+      # them at run time from the build machine's sources, which is why
+      # only a release is ever packaged. `+crt-static` is .cargo/config.toml's.
+      - name: Build (release, llama-native)
+        run: cargo build --release --locked --features llama-native -p wipemark-app -p wipemark-cli
+
+      - name: Package (layout, notices, imports, --version, zip)
+        run: |
+          scripts/release/windows/package.sh target/release dist
+          cd dist && for f in Wipemark-*-x86_64-windows.zip; do sha256sum "$f" > "$f.sha256"; cat "$f.sha256"; done
+
+      - name: Attest the build
+        if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/Wipemark-*-x86_64-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wipemark-windows
+          path: |
+            dist/Wipemark-*-x86_64-windows.zip
+            dist/Wipemark-*-x86_64-windows.zip.sha256
+          if-no-files-found: warn
+
   # No tag puts files on a draft from a history that carries a secret: the
   # scan gate.yml's `secrets` job runs, with the same config as the
   # pre-commit hook (.gitleaks.toml), needed by both release jobs. The
@@ -439,6 +515,36 @@ jobs:
           files: |
             artifacts/*.dmg
             artifacts/*.dmg.sha256
+
+  release-windows:
+    name: release (Windows files to the draft)
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/wipemark-v')
+    needs: [windows, secrets]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release-publish-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wipemark-windows
+          path: artifacts
+
+      - name: Title
+        id: title
+        run: echo "title=Wipemark ${GITHUB_REF_NAME#wipemark-v}" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.title.outputs.title }}
+          draft: true
+          body: "Draft — built and gated by the release workflow; the notes are docs/release/."
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/*.zip
+            artifacts/*.zip.sha256
 
   # The update, when a person publishes the draft (D783): the version becomes
   # visible to installations only then. Signs and publishes nothing without

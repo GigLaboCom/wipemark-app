@@ -34,6 +34,12 @@
 //! background executor: the rule is the rule, and `config.toml` may sit
 //! on a network home directory.
 
+// A release build on Windows is a GUI program: started from Explorer or
+// the Start menu it opens no console window behind its own. A debug build
+// keeps the console, where its log goes. `wipemark-cli` is the program for
+// a terminal.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod assets;
 mod chrome;
 mod clean;
