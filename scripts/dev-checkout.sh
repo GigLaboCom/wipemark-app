@@ -28,7 +28,7 @@ if [ -e "$DEV" ]; then
 fi
 
 # The first worktree git lists is the main working copy.
-MAIN="$(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree /{print substr($0, 10); exit}')"
+MAIN="$(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree / && !seen++ {print substr($0, 10)}')"
 if [ "$MAIN" != "$REPO_ROOT" ] && [ -d "$MAIN/dev/.git" ]; then
   ln -s "$MAIN/dev" "$DEV"
   echo "dev → $MAIN/dev"
