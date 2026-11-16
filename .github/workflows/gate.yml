@@ -37,12 +37,11 @@
 #             model on a hosted runner: the `--ignored` live gate still runs
 #             by hand.
 #   windows — MSVC, the same lint and tests as macos over the workspace,
-#             llama.cpp at the pin prebuilt, the programs started with PATH
-#             cut down to System32, and what a package would hold gated with
-#             the Visual C++ runtime copied in beside it
-#             (scripts/release/windows/vc-runtime.sh, imports.sh): a Windows
-#             build asks nobody for the Redistributable (the owner,
-#             2026-11-16).
+#             llama.cpp at the pin prebuilt with the static C runtime, the
+#             programs started with PATH cut down to System32, and no C
+#             runtime imported by anything a package would hold
+#             (scripts/release/windows/imports.sh): a Windows build depends
+#             on no runtime at all (the owner, 2026-11-16).
 #   secrets — gitleaks over the whole history with .gitleaks.toml, the
 #             config the pre-commit hook scans the staged changes with.
 name: gate
@@ -335,14 +334,12 @@ jobs:
   # Windows (E10; the owner, 2026-11-16): the workspace linted and tested on
   # MSVC, the first lint the Windows-only paths get — the stubs where the
   # tray, the shortcut and the display watch are not built yet, and every
-  # `cfg(unix)` test's other half. Then llama.cpp at the pin, prebuilt (CPU
-  # variants + Vulkan; no Vulkan driver on the runner, so the CPU
-  # registers), and the self-contained rule checked on what this build
-  # links: the Visual C++ runtime the programs and llama.cpp's DLLs import
-  # (the shared one, /MD — llama.cpp hands a FILE* from ggml-base.dll to
-  # llama.dll, which a static runtime per DLL cannot take) copied in beside
-  # them from the runner's Visual Studio, and every import found in that
-  # folder or in Windows (scripts/release/windows/vc-runtime.sh,
+  # `cfg(unix)` test's other half. Then llama.cpp at the pin, prebuilt with
+  # the static C runtime and its one Windows patch (CPU variants + Vulkan; no
+  # Vulkan driver on the runner, so the CPU registers), and the
+  # self-contained rule checked on what this build links:
+  # `.cargo/config.toml`'s `+crt-static` on the programs, the prebuilt DLLs'
+  # `/MT`, no C runtime imported by either (scripts/release/windows/
   # imports.sh). The packaged release is release.yml's.
   windows:
     name: windows (clippy, tests, llama-native prebuilt, imports)
@@ -411,10 +408,9 @@ jobs:
         run: cargo test -p wipemark-llama --features native --locked --test native the_runtime_reports_at_least_the_cpu_backend -- --nocapture
 
       # What a package would hold, from this (debug) build: the two programs,
-      # llama.cpp's three DLLs and every backend, and the Visual C++ runtime
-      # they import. The C runtime a debug Rust build links is the release
-      # one, so the imports are a release's.
-      - name: imports (the Visual C++ runtime in the folder, everything resolves)
+      # llama.cpp's three DLLs and every backend. The C runtime a debug Rust
+      # build links is the release one, so the imports are a release's.
+      - name: imports (no C runtime, everything resolves)
         if: ${{ !cancelled() }}
         run: |
           cargo build -p wipemark-app -p wipemark-cli --features wipemark-app/llama-native,wipemark-cli/llama-native --locked
@@ -423,5 +419,4 @@ jobs:
           cp target/debug/wipemark.exe target/debug/wipemark-cli.exe "$pkg/"
           root="$(ls -d target/debug/llama-cpp-prebuilt/*/llama-cpp-*-x86_64-pc-windows-msvc | head -1)"
           cp "$root"/bin/*.dll "$root"/backends/*.dll "$pkg/"
-          scripts/release/windows/vc-runtime.sh "$pkg" "$root/PROVENANCE.txt"
           scripts/release/windows/imports.sh "$pkg"

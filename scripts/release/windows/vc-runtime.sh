@@ -2,17 +2,31 @@
 # vc-runtime.sh — put the Visual C++ runtime DLLs a Windows package's
 # programs import beside them.
 #
-# What it is for: the owner's rule — a Windows build of Wipemark asks
-# nobody to install the Visual C++ Redistributable (2026-11-01, mnemoria's
-# ORT; 2026-11-16 for Wipemark). llama.cpp's DLLs are built with the
-# shared C runtime (/MD): they hand a FILE* from ggml-base.dll to llama.dll
-# (src/llama-mmap.cpp, `ggml_fopen` then `_fileno`), which only works when
-# both use one runtime — with the static one (/MT) a model load dies with
-# 0xc0000409 (tried 2026-11-16, llama-cpp-prebuilt's b10731-2). So the
-# runtime ships with the package, beside the programs — Microsoft's "local
-# deployment" of the redistributable files. The Universal CRT
-# (ucrtbase.dll, the api-ms-win-crt-* sets) is part of Windows 10 and 11
-# and is not copied.
+# What it is for: THE ALTERNATIVE ROAD, kept and documented on the owner's
+# word (2026-11-16) — the release uses the static C runtime
+# (WIPEMARK_WINDOWS_RUNTIME=static, the default: +crt-static, llama-cpp-
+# prebuilt's b10731-2 /MT with its one patch). This road is the one to take
+# if that patch stops applying at a pin bump, or another runtime object
+# turns out to cross from one of llama.cpp's DLLs to another: build with
+# the shared runtime (/MD) everywhere and carry the Visual C++ runtime DLLs
+# in the package — Microsoft's "local deployment" of the redistributable
+# files — so still nobody installs the Redistributable. Checked on Windows
+# 10 on 2026-11-16: the package with b10731 (/MD) and these four DLLs
+# (msvcp140, vcruntime140, vcruntime140_1, vcomp140) loaded every one of
+# them from its own folder, and a model generated from it. The Universal
+# CRT (ucrtbase.dll, the api-ms-win-crt-* sets) is part of Windows 10 and
+# 11 and is not copied.
+#
+# The road end to end (Windows, Git Bash, from the repository root):
+#   RUSTFLAGS="-C target-feature=-crt-static" \
+#   WIPEMARK_LLAMA_PREBUILT=<an unpacked /MD archive: llama-cpp-prebuilt's
+#     b10731, sha256 3a62da8b…db74cc> \
+#     cargo build --release --locked --features llama-native -p wipemark-app -p wipemark-cli
+#   WIPEMARK_WINDOWS_RUNTIME=app-local WIPEMARK_LLAMA_ROOT=<the same archive> \
+#     scripts/release/windows/package.sh
+# (RUSTFLAGS replaces .cargo/config.toml's +crt-static; the programs then
+# share the carried runtime. package.sh runs this script, and imports.sh
+# then requires those DLLs from the package.)
 #
 # What it does:
 #   1. reads the imports of every .exe and .dll in the package directory
