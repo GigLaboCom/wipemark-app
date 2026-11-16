@@ -439,6 +439,11 @@ jobs:
           rm -rf "$dist"
           scripts/release/windows/package.sh target/debug "$dist"
           WIPEMARK_INSTALLER_COMPRESSOR=zlib scripts/release/windows/installer.sh "$dist"/Wipemark-*-x86_64-windows "$dist"
+          # The runner's own data folder, which package.sh's --version runs
+          # wrote a log into (the CLI opens its log before it reads its
+          # arguments): the check wants the default folder empty, to seed it.
+          runner_data="$(cygpath -u "$APPDATA")/GigLabo"
+          if [ -d "$runner_data" ]; then find "$runner_data"; rm -rf "$runner_data"; fi
           pwsh -NoProfile -File scripts/release/windows/installer-check.ps1 \
             -Setup "$(cygpath -w "$dist"/Wipemark-*-x86_64-setup.exe)" \
             -Package "$(cygpath -w "$dist"/Wipemark-*-x86_64-windows)" -DefaultDataDir

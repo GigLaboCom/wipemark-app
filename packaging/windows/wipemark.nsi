@@ -106,6 +106,7 @@ Var DataSize       ; the data folder's size, said for a person
 Var DataKiB
 Var DeleteData     ; 1: the uninstaller's box is ticked, or /DELETEDATA
 Var DataBox
+Var UnFinishText   ; the uninstaller's last page: where the data is, or that it went
 
 !define MUI_ICON "${__FILEDIR__}\..\..\icons\windows\wipemark.ico"
 !define MUI_UNICON "${__FILEDIR__}\..\..\icons\windows\wipemark.ico"
@@ -114,6 +115,7 @@ Var DataBox
 !define MUI_ABORTWARNING
 
 !define MUI_WELCOMEPAGE_TEXT "$WelcomeText"
+!define MUI_PAGE_CUSTOMFUNCTION_PRE WelcomePre
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "${LICENSE_TXT}"
 Page custom OptionsPage OptionsLeave
@@ -127,6 +129,7 @@ Page custom OptionsPage OptionsLeave
 
 UninstPage custom un.DataPage un.DataLeave
 !insertmacro MUI_UNPAGE_INSTFILES
+!define MUI_FINISHPAGE_TEXT "$UnFinishText"
 !insertmacro MUI_UNPAGE_FINISH
 
 # The first is the fallback for a system language that is none of them.
@@ -276,7 +279,14 @@ Function .onInit
       StrCpy $AddPath 1
     ${EndIf}
   ${EndIf}
-  ${If} $OldVersion != ""
+FunctionEnd
+
+# Here and not in .onInit: a language /LANG= picks there takes effect only
+# after .onInit, so a string read in it would be in the system's language.
+Function WelcomePre
+  ${If} $OldVersion == "${VERSION}"
+    StrCpy $WelcomeText "$(WelcomeAgain)"
+  ${ElseIf} $OldVersion != ""
     StrCpy $WelcomeText "$(WelcomeUpdate)"
   ${Else}
     StrCpy $WelcomeText "$(WelcomeNew)"
@@ -548,6 +558,7 @@ Section "Uninstall"
   RMDir "$INSTDIR"
   DeleteRegKey HKCU "${UNINST_KEY}"
 
+  StrCpy $UnFinishText "$(MUI_UNTEXT_FINISH_INFO_TEXT)"
   ${If} $DeleteData == 1
     StrCpy $R9 "$DataDir"
     System::Call 'kernel32::SetEnvironmentVariable(t "WIPEMARK_SETUP_DATA", t R9) i'
@@ -558,8 +569,11 @@ Section "Uninstall"
       ${IfNot} ${Silent}
         MessageBox MB_OK|MB_ICONEXCLAMATION "$(UnDataFailed)"
       ${EndIf}
+    ${Else}
+      StrCpy $UnFinishText "$(UnFinishDeleted)"
     ${EndIf}
-  ${Else}
+  ${ElseIf} ${FileExists} "$DataDir\*.*"
     DetailPrint "$(UnDataKeptLog) $DataDir"
+    StrCpy $UnFinishText "$(UnFinishKept)"
   ${EndIf}
 SectionEnd

@@ -437,6 +437,11 @@ jobs:
       - name: Installer check (silent install, update, uninstall)
         shell: pwsh
         run: |
+          # The runner's own data folder, which package.sh's --version runs
+          # wrote a log into (the CLI opens its log before it reads its
+          # arguments): the check wants the default folder empty, to seed it.
+          $runnerData = Join-Path $env:APPDATA 'GigLabo'
+          if (Test-Path $runnerData) { Get-ChildItem -Recurse -Force $runnerData | ForEach-Object FullName; Remove-Item -Recurse -Force $runnerData }
           $setup = (Get-Item dist/Wipemark-*-x86_64-setup.exe).FullName
           $package = (Get-Item dist/Wipemark-*-x86_64-windows).FullName
           ./scripts/release/windows/installer-check.ps1 -Setup $setup -Package $package -DefaultDataDir

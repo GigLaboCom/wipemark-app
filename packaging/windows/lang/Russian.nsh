@@ -5,6 +5,7 @@
 
 LangString WelcomeNew ${L} "Программа установит Wipemark ${VERSION} на этот компьютер, только для вас: права администратора не нужны.$\r$\n$\r$\nНажмите «Далее», чтобы продолжить."
 LangString WelcomeUpdate ${L} "Установлен Wipemark $OldVersion. Программа обновит его до версии ${VERSION} в той же папке; ваши данные, настройки и загруженные модели сохранятся.$\r$\n$\r$\nЗакройте Wipemark, прежде чем продолжить.$\r$\n$\r$\nНажмите «Далее», чтобы продолжить."
+LangString WelcomeAgain ${L} "Wipemark ${VERSION} уже установлен. Программа установит его заново в той же папке; ваши данные, настройки и загруженные модели сохранятся.$\r$\n$\r$\nЗакройте Wipemark, прежде чем продолжить.$\r$\n$\r$\nНажмите «Далее», чтобы продолжить."
 LangString OptionsTitle ${L} "Параметры"
 LangString OptionsSubtitle ${L} "Выберите, как установить Wipemark."
 LangString PathBox ${L} "Добавить wipemark-cli в PATH"
@@ -27,6 +28,8 @@ LangString UnModelsElsewhere ${L} "Папка моделей, которую в�
 LangString UnNoData ${L} "В этой папке нет данных Wipemark:"
 LangString UnDataFailed ${L} "Wipemark удалён, но ваши данные удалить полностью не удалось:$\r$\n$HelperOut"
 LangString UnDataKeptLog ${L} "Сохранены ваши данные и модели в"
+LangString UnFinishKept ${L} "Wipemark удалён с этого компьютера.$\r$\n$\r$\nВаши данные и загруженные модели сохранены в папке:$\r$\n$DataDir$\r$\n$\r$\nНажмите «Готово», чтобы закрыть это окно."
+LangString UnFinishDeleted ${L} "Wipemark удалён с этого компьютера, а ваши данные и загруженные модели удалены.$\r$\n$\r$\nНажмите «Готово», чтобы закрыть это окно."
 LangString UnitKB ${L} "КБ"
 LangString UnitMB ${L} "МБ"
 LangString UnitGB ${L} "ГБ"

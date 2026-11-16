@@ -5,6 +5,7 @@
 
 LangString WelcomeNew ${L} "Dieses Setup installiert Wipemark ${VERSION} auf diesem Computer, nur für Sie: Administratorrechte sind nicht nötig.$\r$\n$\r$\nKlicken Sie auf Weiter, um fortzufahren."
 LangString WelcomeUpdate ${L} "Wipemark $OldVersion ist installiert. Das Setup aktualisiert es in seinem Ordner auf ${VERSION}; Ihre Daten, Einstellungen und heruntergeladenen Modelle bleiben erhalten.$\r$\n$\r$\nBeenden Sie Wipemark, bevor Sie fortfahren.$\r$\n$\r$\nKlicken Sie auf Weiter, um fortzufahren."
+LangString WelcomeAgain ${L} "Wipemark ${VERSION} ist installiert. Das Setup installiert es in seinem Ordner erneut; Ihre Daten, Einstellungen und heruntergeladenen Modelle bleiben erhalten.$\r$\n$\r$\nBeenden Sie Wipemark, bevor Sie fortfahren.$\r$\n$\r$\nKlicken Sie auf Weiter, um fortzufahren."
 LangString OptionsTitle ${L} "Optionen"
 LangString OptionsSubtitle ${L} "Legen Sie fest, wie Wipemark eingerichtet wird."
 LangString PathBox ${L} "wipemark-cli zum PATH hinzufügen"
@@ -27,6 +28,8 @@ LangString UnModelsElsewhere ${L} "Ein Modellordner, den Sie selbst unter Einste
 LangString UnNoData ${L} "In diesem Ordner gibt es keine Daten von Wipemark:"
 LangString UnDataFailed ${L} "Wipemark ist deinstalliert, aber Ihre Daten konnten nicht vollständig gelöscht werden:$\r$\n$HelperOut"
 LangString UnDataKeptLog ${L} "Behalten: Ihre Daten und Modelle in"
+LangString UnFinishKept ${L} "Wipemark wurde von diesem Computer entfernt.$\r$\n$\r$\nIhre Daten und heruntergeladenen Modelle bleiben erhalten in:$\r$\n$DataDir$\r$\n$\r$\nKlicken Sie auf Fertig stellen, um das Fenster zu schließen."
+LangString UnFinishDeleted ${L} "Wipemark wurde von diesem Computer entfernt, und Ihre Daten und heruntergeladenen Modelle wurden gelöscht.$\r$\n$\r$\nKlicken Sie auf Fertig stellen, um das Fenster zu schließen."
 LangString UnitKB ${L} "KB"
 LangString UnitMB ${L} "MB"
 LangString UnitGB ${L} "GB"

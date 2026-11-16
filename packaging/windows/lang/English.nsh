@@ -2,12 +2,13 @@
 # (packaging/windows/wipemark.nsi; NSIS's Modern UI has the rest). German.nsh
 # and Russian.nsh hold the same strings: the application's three languages.
 # A string may name the installer's variables ($OldVersion, $InUse,
-# $HelperOut, $DataSize, $OldDir), read when it is shown.
+# $HelperOut, $DataSize, $DataDir), read when it is shown.
 
 !define /redef L ${LANG_ENGLISH}
 
 LangString WelcomeNew ${L} "Setup will install Wipemark ${VERSION} on this computer, for you alone: no administrator rights are needed.$\r$\n$\r$\nClick Next to continue."
 LangString WelcomeUpdate ${L} "Wipemark $OldVersion is installed. Setup will update it to ${VERSION} in its folder; your data, settings and downloaded models are kept.$\r$\n$\r$\nClose Wipemark before you continue.$\r$\n$\r$\nClick Next to continue."
+LangString WelcomeAgain ${L} "Wipemark ${VERSION} is installed. Setup will install it again in its folder; your data, settings and downloaded models are kept.$\r$\n$\r$\nClose Wipemark before you continue.$\r$\n$\r$\nClick Next to continue."
 LangString OptionsTitle ${L} "Options"
 LangString OptionsSubtitle ${L} "Choose how Wipemark is set up."
 LangString PathBox ${L} "Add wipemark-cli to PATH"
@@ -30,6 +31,8 @@ LangString UnModelsElsewhere ${L} "A models folder you chose yourself in Setting
 LangString UnNoData ${L} "There is no Wipemark data in this folder:"
 LangString UnDataFailed ${L} "Wipemark is uninstalled, but your data could not all be deleted:$\r$\n$HelperOut"
 LangString UnDataKeptLog ${L} "Kept: your data and models in"
+LangString UnFinishKept ${L} "Wipemark has been uninstalled from this computer.$\r$\n$\r$\nYour data and downloaded models are kept in:$\r$\n$DataDir$\r$\n$\r$\nClick Finish to close."
+LangString UnFinishDeleted ${L} "Wipemark has been uninstalled from this computer, and your data and downloaded models have been deleted.$\r$\n$\r$\nClick Finish to close."
 LangString UnitKB ${L} "KB"
 LangString UnitMB ${L} "MB"
 LangString UnitGB ${L} "GB"

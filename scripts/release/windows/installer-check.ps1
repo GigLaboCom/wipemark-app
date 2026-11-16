@@ -13,8 +13,9 @@
 #   0. refuses a machine where Wipemark is installed or wipemark-cli is
 #      already on PATH; sets the user's PATH to a known value (an unexpanded
 #      %USERPROFILE% entry, one with a space, a trailing ';'), and seeds a
-#      data folder — the default one with -DefaultDataDir (CI's runner has
-#      none), else a scratch one through WIPEMARK_DATA_DIR;
+#      data folder — the default one with -DefaultDataDir (it must not
+#      exist: CI removes the runner's, which only its --version runs wrote),
+#      else a scratch one through WIPEMARK_DATA_DIR;
 #   1. setup /S /D=<scratch>\O'Brien Programs\Wipemark (a space and an
 #      apostrophe on purpose): exit 0; every file of the package there, byte
 #      for byte, and uninstall.exe; the Start menu shortcut to wipemark.exe;
