@@ -190,7 +190,7 @@ jobs:
       github.event_name == 'push' ||
       inputs.platform == 'all' ||
       inputs.platform == 'macos'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 180
     permissions:
       contents: read
