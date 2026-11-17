@@ -66,6 +66,22 @@ toolbar-help-preview = Rest the pointer on a preview to see it larger. The Actio
 toolbar-help-pending = Clean and Rewrite are on every row, and in its Actions menu; Clean all and Rewrite all take every row not started. A clean runs at once with { -layer-a }; a rewrite waits its turn in the one line of rewrites — this window's, an agent's and the command line's — on the engine on duty, and Rewrite all says the price first. Results go where the Retention page says.
 toolbar-help-elsewhere = The quick-scrub panel is in the menu bar; the preferences are behind the gear at the bottom right.
 
+## More from GigLabo (D836): a button at the toolbar's right, beside Help,
+## and the dialog it opens — the studio's other products as cards, a click
+## on one opening its site in the browser. GigLabo is the studio's name and
+## is not translated, like the brand; the products' names and their
+## one-line descriptions come with the list and stay in English.
+
+products-button = More from GigLabo
+products-button-tooltip = The other apps and tools GigLabo builds, each with a link to its site.
+products-title = More from GigLabo
+products-intro = { -brand-name } is one of the things built at GigLabo, a studio for custom software, web apps and AI. These are the others we build and run.
+products-desktop = Desktop apps
+products-ai = AI tools
+products-web = On the web
+products-studio = The studio
+products-close = Close
+
 ## The queue — the main window's table.
 ##
 ## One row per thing that arrived, lazy-shot's table in shape: a filter

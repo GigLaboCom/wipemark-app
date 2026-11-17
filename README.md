@@ -237,7 +237,7 @@ Wipemark does not look for those, and it does not remove them.
 
 | | |
 |---|---|
-| **Main window** | One list of everything that arrived: what you drop, paste or import, and what the panel, the command line and agents processed. *Clean*, *Rewrite*, *Clean all* and *Rewrite all* act on rows. A row's menu has *Report…*, *Compare with the result*, *Open with*, *Open the result*, *Show the result in its folder*, *Copy the result*, and *Clean again* or *Rewrite again* once a row is done. An action that cannot run is greyed and says why. The status bar names the engine on duty and, while a model is loaded here, offers *Unload*. |
+| **Main window** | One list of everything that arrived: what you drop, paste or import, and what the panel, the command line and agents processed. *Clean*, *Rewrite*, *Clean all* and *Rewrite all* act on rows. A row's menu has *Report…*, *Compare with the result*, *Open with*, *Open the result*, *Show the result in its folder*, *Copy the result*, and *Clean again* or *Rewrite again* once a row is done. An action that cannot run is greyed and says why. The status bar names the engine on duty and, while a model is loaded here, offers *Unload*. *More from GigLabo* on the toolbar lists the studio's other apps and tools; `GIGLABO_PRODUCTS=off` hides it. |
 | **Panel** | A small window you summon over whatever you are working in. Drop, paste or import onto it, then press *Clean*. It comes and goes on its own. |
 | **Compare** | A result beside its original, with the changed lines and words marked. Edit the result and save it over the result's own file, never over the original; it can also save as you type. *Copy all* copies the result. |
 | **Report** | The three shelves for one row, with *Copy as Markdown* and *Copy JSON*. |

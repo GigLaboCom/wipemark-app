@@ -18,6 +18,7 @@ members = [
     "crates/wipemark-store",
     "crates/wipemark-secret",
     "crates/wipemark-update",
+    "crates/giglabo-products",
     "apps/wipemark-app",
     "apps/wipemark-cli",
 ]
@@ -213,6 +214,9 @@ wipemark-log = { path = "crates/wipemark-log" }
 wipemark-store = { path = "crates/wipemark-store" }
 wipemark-secret = { path = "crates/wipemark-secret" }
 wipemark-update = { path = "crates/wipemark-update" }
+# "More from GigLabo" (D836): gpui-kit-grid's crate of the same name, under
+# its own name so it can move into a repository the applications share.
+giglabo-products = { path = "crates/giglabo-products" }
 
 # Lints — adapted from qdrant, via heretic-mnemoria and
 # heretic-amuse-merge. Kept identical to Merge on purpose: code that

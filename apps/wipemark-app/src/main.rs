@@ -8,7 +8,8 @@
 //!
 //! * **toolbar** — Import, which opens the platform's file picker, and
 //!   Help, a popover saying what the window does; both live here because
-//!   they are the window's chrome, the way the status bar is
+//!   they are the window's chrome, the way the status bar is; beside Help,
+//!   More from GigLabo ([`products`], D836)
 //! * **the queue** — [`queue`]: everything that has been dropped on the
 //!   window or imported, one row each, with a preview; the whole table
 //!   is the drop zone (E7 / S7.1, the listing half; nothing is cleaned)
@@ -81,6 +82,8 @@ mod pasteboard;
 mod placement;
 mod preview;
 mod previews;
+// More from GigLabo on the toolbar, and its dialog (D836).
+mod products;
 mod profile;
 // E4-6c: the Prompts section of the Settings window.
 mod prompts;
@@ -132,6 +135,7 @@ use crate::hotkey::Registration;
 use crate::hover::Tip as _;
 use crate::icon::{Icon, IconName};
 use crate::placement::Origin;
+use crate::products::ProductsDialog;
 use crate::queue::{Queue, QueueEvent, Road};
 use crate::report::ReportView;
 use crate::settings::{OpenSettings, Preferences, Section};
@@ -221,6 +225,9 @@ struct Shell {
     /// Repaints the status bar and the notice as a check lands, and opens
     /// the dialog when it is asked for.
     _updates: Subscription,
+    /// More from GigLabo (D836), while it is open, and its subscription —
+    /// an element in this view's own tree, like the walk-through.
+    products: Option<(Entity<ProductsDialog>, Subscription)>,
 }
 
 impl Shell {
@@ -465,6 +472,7 @@ impl Shell {
             update_dialog: None,
             update_answered: 0,
             _updates: updated,
+            products: None,
         };
         // A fresh install, or `--setup` on the command line. Once per
         // launch either way: the row is written when the walk-through
@@ -573,6 +581,20 @@ impl Shell {
             cx.notify();
         });
         self.update_dialog = Some((view, closed));
+        cx.notify();
+    }
+
+    /// Put More from GigLabo over the panes, unless it is there already.
+    fn open_products(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.products.is_some() {
+            return;
+        }
+        let view = cx.new(|cx| ProductsDialog::new(window, cx));
+        let closed = cx.subscribe(&view, |shell, _, _: &dialog::Answer, cx| {
+            shell.products = None;
+            cx.notify();
+        });
+        self.products = Some((view, closed));
         cx.notify();
     }
 
@@ -839,8 +861,8 @@ fn help(cx: &App) -> impl IntoElement {
 }
 
 impl Shell {
-    /// The toolbar: Import, Paste and Clean all on the left, Help on the
-    /// right.
+    /// The toolbar: Import, Paste and Clean all on the left, More from
+    /// GigLabo and Help on the right.
     ///
     /// Four buttons, and the space between them is deliberate — the
     /// bar is where the *window's* controls go, and a preference is not
@@ -969,6 +991,14 @@ impl Shell {
                 )
             })
             .child(div().flex_1())
+            // On the side of the bar that is about the window rather than
+            // its rows, before Help, which keeps the corner (D836). Nothing
+            // under `GIGLABO_PRODUCTS=off`.
+            .child(
+                products::button().on_click(cx.listener(|shell, _: &ClickEvent, window, cx| {
+                    shell.open_products(window, cx);
+                })),
+            )
             .child(
                 Popover::new("help")
                     .anchor(Anchor::TopRight)
@@ -1104,6 +1134,11 @@ impl Render for Shell {
                     .into_any_element()
             }))
             .children(self.update_dialog.as_ref().map(|(view, _)| {
+                deferred(view.clone())
+                    .with_priority(dialog::MODAL_PRIORITY)
+                    .into_any_element()
+            }))
+            .children(self.products.as_ref().map(|(view, _)| {
                 deferred(view.clone())
                     .with_priority(dialog::MODAL_PRIORITY)
                     .into_any_element()
