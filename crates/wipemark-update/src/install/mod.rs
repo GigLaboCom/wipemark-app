@@ -90,7 +90,8 @@ pub trait Probe {
     fn developer_id(&self, app: &Path) -> bool;
 }
 
-/// The system's answers: `access(W_OK)`, and on macOS `codesign`.
+/// The system's answers: `access(W_OK)` — off Unix, an entry made and
+/// removed — and on macOS `codesign`.
 pub struct System;
 
 impl Probe for System {
@@ -740,10 +741,18 @@ mod tests {
         assert_eq!(left, ["Wipemark-0.1.0-x86_64.AppImage", "notes.txt"]);
     }
 
+    /// A scratch folder is writable and a folder that is not there is not,
+    /// on every platform — Windows asks by making an entry, which is gone
+    /// again once it has answered. Answer `false` off Unix, as before: red.
     #[test]
     fn writable_is_the_systems_answer() {
         let dir = tempfile::tempdir().unwrap();
         assert!(System.writable(dir.path()));
         assert!(!System.writable(&dir.path().join("absent")));
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "the question left an entry behind"
+        );
     }
 }

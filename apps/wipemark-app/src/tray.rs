@@ -49,7 +49,8 @@
 //! one blocking call this module exists to avoid. On macOS the answer is
 //! already in the channel when it is returned.
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+// Not behind the tray's cfg: `panel_label` and `update_label` build on
+// every platform (the panel and the update row say the same words).
 use wipemark_i18n::{args, t, t_args, Message};
 
 use crate::theme::ThemePreference;

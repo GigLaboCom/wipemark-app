@@ -123,8 +123,10 @@ ALLOWED = {
     "wipemark-picture": {"wipemark-core", "wipemark-image", "wipemark-pixels"},
     # What was handed to the application, and what it turns out to be.
     # A leaf, and a strict one: no workspace dependency and no external
-    # one either. It is reached from the panel's drop zone, from the
-    # CLI's argument list and from the MCP server's blobs, which is
+    # one either — but `winapi-util` on Windows, for the one thing `std`
+    # does not yet hand out there, a file's index on its volume
+    # (`inplace::same_file`). It is reached from the panel's drop zone,
+    # from the CLI's argument list and from the MCP server's blobs, which is
     # three surfaces with nothing else in common — so anything it
     # depended on would be inherited by all three. It names kinds
     # (`Kind::Image`) rather than importing the crates that act on them:

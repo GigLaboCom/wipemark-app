@@ -1,3 +1,29 @@
+# Every text file is checked out with LF, on every platform. Git for
+# Windows checks text out with CRLF by default (core.autocrlf=true), and so
+# do GitHub's Windows runners: the prompt templates the build takes in with
+# include_str! would then be other templates, their hashes "stale" against
+# the shipped ones, and a file a test compares byte for byte would gain a
+# carriage return on every line. What git reads as binary is never
+# converted; the rules below this one name what must never be, whatever
+# its first bytes look like.
+* text=auto eol=lf
+
+# Pictures, icons and the visible marks' alpha maps: binary everywhere.
+*.png                               binary
+*.jpg                               binary
+*.jpeg                              binary
+*.webp                              binary
+*.tif                               binary
+*.tiff                              binary
+*.ico                               binary
+*.icns                              binary
+*.wma                               binary
+
+# A patch is applied to upstream's tree byte for byte, so its line endings
+# are never converted: Git for Windows would give it CRLF, and `git apply`
+# refuses that copy.
+*.patch                             -text
+
 # Unicode data, crates/wipemark-core/ucd/: byte-exact, because
 # SHA256SUMS hashes these bytes and build.rs refuses a carriage return;
 # and never diffed, because a version bump is megabytes nobody reads —

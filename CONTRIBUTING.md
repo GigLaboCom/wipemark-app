@@ -264,9 +264,13 @@ samply record cargo run -p wipemark-app
 1. Set the version in the root `Cargo.toml` (`[workspace.package]`), write
    its notes in `docs/release/<version>.md`, and merge to `main`.
 2. Tag `main` with `wipemark-v<version>` and push the tag.
-3. `.github/workflows/release.yml` builds the Linux AppImage and `.deb` and
+3. `.github/workflows/release.yml` builds the Linux AppImage and `.deb`,
    the macOS `.dmg` (signed with the Developer ID and notarized when the
-   secrets exist), gates them, and attaches them to a **draft** release.
+   secrets exist), and the Windows portable `.zip` and per-user installer
+   `Wipemark-<version>-x86_64-setup.exe` (both unsigned, from one folder;
+   `scripts/release/windows/installer-check.ps1` installs and uninstalls
+   the installer on the runner first), gates them, and attaches them to a
+   **draft** release.
 4. A person reads the draft and publishes it. Publishing runs the lane's
    `publish-update` job, which signs each file's release statement and puts
    it on the release service, so installed copies learn of the new version.

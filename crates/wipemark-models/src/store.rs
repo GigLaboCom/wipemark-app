@@ -1803,8 +1803,9 @@ impl Downloads {
     }
 
     /// A test's remount: every device and inode number this store reads
-    /// from now on has `shift` added to it (D375).
-    #[cfg(test)]
+    /// from now on has `shift` added to it (D375). Unix only, as those
+    /// numbers in an identity are.
+    #[cfg(all(test, unix))]
     pub(crate) fn remount_by(&self, shift: u64) {
         self.remount.store(shift, Ordering::SeqCst);
     }
@@ -2043,7 +2044,9 @@ fn last_of(path: &Path) -> Option<String> {
 }
 
 /// Whether the file at `path` is the one `open` holds — on Unix, the same
-/// device and inode; elsewhere it cannot be told, and is taken to be.
+/// device and inode; on Windows, the same volume and file index
+/// ([`windows`]); elsewhere, or on a file system that numbers nothing, it
+/// cannot be told, and is taken to be.
 fn same_file(path: &Path, open: &std::fs::File) -> bool {
     #[cfg(unix)]
     {
@@ -2053,10 +2056,67 @@ fn same_file(path: &Path, open: &std::fs::File) -> bool {
             _ => false,
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        if std::fs::symlink_metadata(path).is_err() {
+            return false;
+        }
+        match (windows::file_id(path, false), windows::file_id_of(open)) {
+            (Some(there), Some(held)) => there == held,
+            _ => true,
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (path, open);
         true
+    }
+}
+
+/// A file's identity on Windows, which `std` reads but does not yet hand
+/// out (`MetadataExt::file_index` is unstable): the volume's serial number
+/// and the file's index on it, from `GetFileInformationByHandle`, through
+/// `winapi-util` — this crate forbids `unsafe`. Two names of one file — a
+/// hard link, a path through `..` — share both, as two names of one inode
+/// share a device and an inode number on Unix. `wipemark-intake`'s
+/// `inplace::same_file` reads the same two numbers the same way; neither
+/// crate may depend on the other.
+#[cfg(windows)]
+pub(crate) mod windows {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    use std::path::Path;
+
+    /// Lets a folder be opened too, as `std::fs::metadata` opens one.
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    /// The link itself rather than what it names, as
+    /// `std::fs::symlink_metadata` opens one.
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+
+    /// `(volume serial number, file index)` of what `path` names — through
+    /// a link when `follow` — or `None` when it cannot be opened or its file
+    /// system numbers nothing ([`file_id_of`]).
+    pub(crate) fn file_id(path: &Path, follow: bool) -> Option<(u64, u64)> {
+        let flags = if follow {
+            FILE_FLAG_BACKUP_SEMANTICS
+        } else {
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT
+        };
+        // No access asked for: the attributes are readable without it, and
+        // a file a download holds open for writing still opens.
+        let file = std::fs::OpenOptions::new()
+            .access_mode(0)
+            .custom_flags(flags)
+            .open(path)
+            .ok()?;
+        file_id_of(&file)
+    }
+
+    /// `(volume serial number, file index)` of an open file — `None` for an
+    /// index of 0, which some network shares give every file.
+    pub(crate) fn file_id_of(file: &std::fs::File) -> Option<(u64, u64)> {
+        let information = winapi_util::file::information(file).ok()?;
+        let index = information.file_index();
+        (index != 0).then(|| (information.volume_serial_number(), index))
     }
 }
 
@@ -2602,6 +2662,31 @@ mod tests {
         );
     }
 
+    /// The `.part` a download holds open is told from another file at its
+    /// place on every platform with numbers to tell them by: through
+    /// another name of it, it is the one held; another file of the same
+    /// bytes, or nothing, is not. What `stamp_part` asks before it writes
+    /// where a download stopped. On Windows it was taken to be, whatever
+    /// was there: red.
+    #[test]
+    fn the_file_a_download_holds_is_told_from_another_at_its_place() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let part = dir.path().join("m.gguf.part");
+        std::fs::write(&part, b"0123").expect("seed");
+        let sink = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&part)
+            .expect("open");
+        let second = dir.path().join("second.part");
+        std::fs::hard_link(&part, &second).expect("a hard link");
+        let other = dir.path().join("other.part");
+        std::fs::write(&other, b"0123").expect("another");
+        assert!(super::same_file(&part, &sink), "its own place");
+        assert!(super::same_file(&second, &sink), "another name of it");
+        assert!(!super::same_file(&other, &sink), "another file");
+        assert!(!super::same_file(&dir.path().join("absent"), &sink));
+    }
+
     /// D375 (L-c): a mark that cannot be written — the records folder is
     /// not one — refuses the download before anything is asked of the
     /// server, and the `.part` it would have opened is not left behind
@@ -2861,8 +2946,14 @@ mod tests {
                 if path.is_dir() {
                     walk(root, &path, out);
                 } else {
+                    // `/`-separated on every platform, so one list reads the
+                    // same tree everywhere.
                     let relative = path.strip_prefix(root).expect("under the root");
-                    out.push(relative.display().to_string());
+                    let names: Vec<_> = relative
+                        .components()
+                        .map(|name| name.as_os_str().to_string_lossy())
+                        .collect();
+                    out.push(names.join("/"));
                 }
             }
         }

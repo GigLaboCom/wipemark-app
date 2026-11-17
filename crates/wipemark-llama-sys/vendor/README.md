@@ -13,13 +13,23 @@ E2-5):
 ```
 vendor/
   fetch.sh      # clones llama.cpp at the pinned commit (run this first)
+  patches/      # applied by fetch.sh; the bytes llama-cpp-prebuilt applies on Windows
   llama.cpp/    # @ 0eadefeb… (b10731) — gitignored, fetched on demand
 ```
 
 ## Why a fetch step, and not committed source or a submodule
 
-The tree is a **build input reproduced verbatim from the pin** (`../PIN.md`),
-not source this repository maintains or patches. It is large and identical
+The tree is a **build input reproduced from the pin** (`../PIN.md`), not
+source this repository maintains — verbatim but for `patches/`, one file
+since 2026-11-16: `0001-llama-mmap-own-fopen.patch`, byte for byte the one
+`GigLaboCom/llama-cpp-prebuilt` applies to its Windows build
+(`patches/windows/`, from `b10731-2`). With the static C runtime (`/MT`,
+which an MSVC build uses so a Windows package needs no Visual C++
+Redistributable) every DLL has its own runtime, and upstream's `llama.dll`
+calls `_fileno` on a `FILE *` that `ggml-base.dll`'s opened — the first
+model load ends the process with `0xc0000409`. The patch opens the file
+inside `llama.dll`; nothing changes outside `#if defined(_WIN32)`.
+`build.rs` refuses an MSVC source build whose tree lacks it. It is large and identical
 for everyone at a given pin, so committing it would only bloat the
 repository, and a submodule would make every CI checkout clone llama.cpp
 for lanes that never build it. `fetch.sh` clones it at the exact commit

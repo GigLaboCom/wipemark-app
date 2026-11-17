@@ -498,9 +498,10 @@ impl Downloads {
 }
 
 /// What makes two paths one file (D436): the path with every link and `..`
-/// resolved, and — on Unix — the device and inode it names, which a hard
-/// link shares too. Read once, so a list of models is compared against one
-/// path without reading each of them again.
+/// resolved, and the device and inode it names on Unix — the volume and
+/// file index on Windows — which a hard link shares too. Read once, so a
+/// list of models is compared against one path without reading each of
+/// them again.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FileKey {
     canonical: Option<PathBuf>,
@@ -520,7 +521,9 @@ impl FileKey {
                 .ok()
                 .map(|meta| (meta.dev(), meta.ino()))
         };
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        let inode = crate::store::windows::file_id(path, true);
+        #[cfg(not(any(unix, windows)))]
         let inode = None;
         FileKey {
             canonical: std::fs::canonicalize(path).ok(),
@@ -529,7 +532,8 @@ impl FileKey {
     }
 
     /// Whether the two keys are one file's: one resolved path, or one
-    /// device and inode. Two keys of nothing are not one file.
+    /// device and inode (volume and index). Two keys of nothing are not one
+    /// file.
     #[must_use]
     pub fn same(&self, other: &FileKey) -> bool {
         (self.canonical.is_some() && self.canonical == other.canonical)

@@ -35,8 +35,14 @@ flume.workspace = true
 # reach Hugging Face is indistinguishable, from the user's side, from a
 # downloader that does not work. Declared per-target because the feature
 # pulls a crate that only exists on Windows.
+#
+# And whether two names are one file (`user::FileKey`, `store::same_file`):
+# the volume's serial number and the file's index on it, which `std` reads
+# but does not yet hand out, through the safe `winapi-util` — this crate
+# forbids `unsafe`. Already in Cargo.lock (`same-file`'s).
 [target.'cfg(windows)'.dependencies]
 ureq = { workspace = true, features = ["win-system-proxy"] }
+winapi-util = "0.1"
 
 # `O_NONBLOCK`, by target, for the one open of a model file this crate
 # reads (`store::open_regular`, D455): an open of a pipe for reading
