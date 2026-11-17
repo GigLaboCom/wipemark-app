@@ -46,9 +46,12 @@
 #   uninstall.exe [/S] [/DELETEDATA] [/LANG=…]
 #              silent keeps the data unless /DELETEDATA is given.
 #              Exit 0 removed, 1 cancelled, 2 Wipemark running past the wait.
-#              It copies itself to %TEMP% and returns at once (NSIS's way of
-#              deleting itself); wait for uninstall.exe to disappear, or run
-#              a copy outside the folder with _?=<folder>.
+#              It copies itself to %TEMP%\~nsu<n>.tmp\Un.exe and returns at
+#              once (NSIS's way of deleting itself); wait for that Un.exe
+#              to end, or run a copy outside the folder with _?=<folder>,
+#              which is waited for and gives the exit code.
+#   The last page of the uninstaller says where the data was kept, or that
+#   it was deleted.
 #
 # How to build: scripts/release/windows/installer.sh, which passes VERSION,
 # VERSION_QUAD, PKG (the package folder), FILES (the generated list of its
