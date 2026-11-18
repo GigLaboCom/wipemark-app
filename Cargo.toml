@@ -163,7 +163,7 @@ gpui = { package = "gpui-pre", version = "=0.3.12" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
 # The app's headless frames on macOS (apps/wipemark-app/src/footage.rs, a
 # dev-dependency there): gpui-pre-apple's `AppleTextSystem`, built on the
-# test's own thread, where `MacPlatform` refuses any but the main one (D840).
+# test's own thread, where `MacPlatform` refuses any but the main one (D848).
 # Already in the tree through gpui-pre-macos, so it pins no new build; the
 # same exact version, which `scripts/check-gpui-pin.sh` holds it to.
 gpui_apple = { package = "gpui-pre-apple", version = "=0.3.12" }

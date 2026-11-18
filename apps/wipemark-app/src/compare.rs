@@ -6387,7 +6387,7 @@ mod tests {
     /// the result placed by the window's own scrolling together, into the
     /// folder `WIPEMARK_COMPARE_SHOTS` names; in the dark theme with
     /// `WIPEMARK_COMPARE_DARK` set. `scripts/verify/e7-11/shots.sh` runs it, on
-    /// Linux and on macOS (`crate::footage`, D840).
+    /// Linux and on macOS (`crate::footage`, D848).
     #[test]
     #[ignore]
     fn compare_screenshots() {

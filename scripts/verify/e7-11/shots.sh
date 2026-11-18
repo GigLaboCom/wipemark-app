@@ -13,7 +13,7 @@
 #   window would show, with no window. It runs in the Linux container
 #   (wgpu, lavapipe, DejaVu) and, since gpui-pre 0.3.12, on macOS (Metal
 #   into an offscreen texture, CoreText: the text system is built directly,
-#   because `MacPlatform` refuses the test's thread — D840).
+#   because `MacPlatform` refuses the test's thread — D848).
 #
 # What it does, step by step
 #   1. Runs the ignored test `compare::tests::compare_screenshots` on this
