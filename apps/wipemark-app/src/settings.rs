@@ -1028,6 +1028,10 @@ pub struct Preferences {
     /// not leave `scanning` set.
     #[cfg(test)]
     scan_panics: bool,
+    /// The scan's answer was staged by a footage test
+    /// ([`Preferences::stage_scan`]): no scan replaces it.
+    #[cfg(test)]
+    staged: bool,
     /// Held as an `Arc` because the write happens on a background
     /// thread, and what crosses that boundary has to own itself. Never
     /// `None` — a store that could not be opened is an in-memory one
@@ -1541,6 +1545,8 @@ impl Preferences {
             rescan: false,
             #[cfg(test)]
             scan_panics: false,
+            #[cfg(test)]
+            staged: false,
             store,
             serves,
             local,
@@ -1610,6 +1616,63 @@ impl Preferences {
             None,
             cx,
         )
+    }
+
+    /// Put in place what the models scan would have found, for a footage
+    /// test that draws a machine other than the one it runs on: the models
+    /// folder `dir`, `host`, a Metal backend, the catalogue `catalogue`
+    /// (this build's when `None`), each entry of `present` whole in the
+    /// folder at the size the catalogue gives it — as a file of the
+    /// person's own found at the folder's top (D302) — and every other one
+    /// absent, the folder read with nothing else in it. No probe, no walk,
+    /// no hash, and no scan afterwards replaces it. Configuration only:
+    /// nothing is loaded and nothing is measured, so no page can say a
+    /// model is in memory.
+    #[cfg(test)]
+    pub(crate) fn stage_scan(
+        &mut self,
+        dir: PathBuf,
+        host: Host,
+        catalogue: Option<Manifest>,
+        present: &[&str],
+        cx: &mut Context<Self>,
+    ) {
+        self.staged = true;
+        assert!(self.select_models_dir(Some(dir.clone()), cx));
+        if let Some(catalogue) = catalogue {
+            self.catalogue = catalogue;
+        }
+        self.host = Some(host);
+        self.gpu = Some(true);
+        self.installed.clear();
+        self.weights.clear();
+        self.found.clear();
+        for entry in &self.catalogue.models {
+            let here = present.contains(&entry.id.as_str());
+            let bytes = entry.files.iter().map(|file| file.size_bytes).sum();
+            self.installed.insert(
+                entry.id.clone(),
+                if here {
+                    State::Present { bytes }
+                } else {
+                    State::Absent
+                },
+            );
+            if here {
+                let name = entry.files[0]
+                    .url
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&entry.id)
+                    .to_owned();
+                self.weights.insert(entry.id.clone(), dir.join(&name));
+                self.found.insert(entry.id.clone(), dir.join(&name));
+            }
+        }
+        self.foreign.clear();
+        self.offers.clear();
+        self.folder = Folder::Read { others: Vec::new() };
+        cx.notify();
     }
 
     /// The Retention page's rows.
@@ -2876,6 +2939,10 @@ impl Preferences {
     /// time, and the second scan finds the first one's record instead of
     /// hashing the file again.
     pub fn look_at_models(&mut self, cx: &Context<Self>) {
+        #[cfg(test)]
+        if self.staged {
+            return;
+        }
         if self.scanning || self.reading.is_some() {
             self.rescan = true;
             return;
@@ -5157,56 +5224,62 @@ impl SettingsView {
         let muted = theme.muted_foreground;
 
         v_flex().children(section.shown_rows().enumerate().map(|(index, setting)| {
-            v_flex()
-                .gap_1()
-                .py_4()
-                // Between the rows and never above the first one: the
-                // heading above already draws that line.
-                .when(index > 0, |row| row.border_t_1().border_color(border))
-                .children(setting.caption().map(|caption| {
-                    div()
-                        .text_xs()
-                        .font_semibold()
-                        .text_color(muted)
-                        .child(SharedString::from(t(caption)))
-                }))
-                .child(
-                    h_flex()
-                        .gap_6()
-                        .items_center()
-                        .child(
-                            div()
-                                .flex_1()
-                                // Without this a long title refuses to
-                                // wrap and pushes the control off the
-                                // window instead.
-                                .min_w(px(0.0))
-                                .text_sm()
-                                .font_medium()
-                                .child(SharedString::from(t(setting.title()))),
-                        )
-                        // A fixed column rather than "whatever the
-                        // widget wants". The dropdown asks for the full
-                        // width of whatever it is put in, and against a
-                        // `flex_1` label it wins: the title collapses to
-                        // one letter per line and the window grows to
-                        // fit it.
-                        .child(
-                            div()
-                                .flex()
-                                .flex_none()
-                                .w(CONTROL_COLUMN)
-                                .justify_end()
-                                .child(self.control(setting, cx)),
-                        ),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(SharedString::from(t(setting.description()))),
-                )
-                .children(self.below(setting, cx))
+            crate::spot::spot(
+                move || format!("settings-row-{setting:?}"),
+                v_flex()
+                    .gap_1()
+                    .py_4()
+                    // Between the rows and never above the first one: the
+                    // heading above already draws that line.
+                    .when(index > 0, |row| row.border_t_1().border_color(border))
+                    .children(setting.caption().map(|caption| {
+                        div()
+                            .text_xs()
+                            .font_semibold()
+                            .text_color(muted)
+                            .child(SharedString::from(t(caption)))
+                    }))
+                    .child(
+                        h_flex()
+                            .gap_6()
+                            .items_center()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    // Without this a long title refuses to
+                                    // wrap and pushes the control off the
+                                    // window instead.
+                                    .min_w(px(0.0))
+                                    .text_sm()
+                                    .font_medium()
+                                    .child(SharedString::from(t(setting.title()))),
+                            )
+                            // A fixed column rather than "whatever the
+                            // widget wants". The dropdown asks for the full
+                            // width of whatever it is put in, and against a
+                            // `flex_1` label it wins: the title collapses to
+                            // one letter per line and the window grows to
+                            // fit it.
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_none()
+                                    .w(CONTROL_COLUMN)
+                                    .justify_end()
+                                    .child(crate::spot::spot(
+                                        move || format!("settings-control-{setting:?}"),
+                                        self.control(setting, cx),
+                                    )),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(t(setting.description()))),
+                    )
+                    .children(self.below(setting, cx)),
+            )
         }))
     }
 
@@ -6412,7 +6485,10 @@ impl SettingsView {
                 Some(Message::SettingsEngineDescription),
                 cx,
             ))
-            .child(self.state_of_the_engine(cx))
+            .child(crate::spot::spot(
+                || "settings-engine-banner".to_owned(),
+                self.state_of_the_engine(cx),
+            ))
             .child(self.local_model(cx))
             .child(self.rows(Section::Engine, cx))
     }
@@ -7363,7 +7439,10 @@ impl SettingsView {
                 Some(Message::SettingsModelsDescription),
                 cx,
             ))
-            .child(self.state_of_the_shelf(cx))
+            .child(crate::spot::spot(
+                || "settings-models-banner".to_owned(),
+                self.state_of_the_shelf(cx),
+            ))
             .child(self.rows(Section::Models, cx))
             .child(
                 v_flex()
@@ -7378,7 +7457,13 @@ impl SettingsView {
                             .filter(|entry| {
                                 wipemark_models::DRAFTS_OFFERED || !entry.serves(Role::Draft)
                             })
-                            .map(|entry| self.model_card(entry, cx)),
+                            .map(|entry| {
+                                let id = entry.id.clone();
+                                crate::spot::spot(
+                                    move || format!("settings-model-{id}"),
+                                    self.model_card(entry, cx),
+                                )
+                            }),
                     )
                     // E8-1: the models the person added, among the
                     // catalogue's, then any being added now.
@@ -7391,7 +7476,10 @@ impl SettingsView {
                     )
                     .children(self.adding_cards(cx)),
             )
-            .child(Self::add_file_row(cx))
+            .child(crate::spot::spot(
+                || "settings-models-add".to_owned(),
+                Self::add_file_row(cx),
+            ))
             .children(self.also_in_the_folder(cx))
     }
 
@@ -9892,7 +9980,10 @@ impl Render for SettingsView {
                     // switch repaint rather than half-repaint.
                     .bg(background)
                     .text_color(foreground)
-                    .child(self.sections(cx))
+                    .child(crate::spot::spot(
+                        || "settings-sidebar".to_owned(),
+                        self.sections(cx),
+                    ))
                     .child(
                         v_flex()
                             .id(self.section.id())
@@ -10264,6 +10355,9 @@ fn clear_choices() -> Vec<Choice<u32>> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod footage_tests;
 
 #[cfg(test)]
 mod tests {

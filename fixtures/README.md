@@ -33,6 +33,23 @@ clean-parity/
           table is the claim: the CLI's exit and whether it writes, and
           whether a window writes, per input; `apps/wipemark-cli/tests/
           parity.rs` and the app's `clean::tests` both read it.
+compare/  `long-paragraphs/`: the original and the rewrite
+          `compare::tests::compare_screenshots` draws (E7-11).
+          `team-update/`: the rewrite feature video's pair.
+          `original.md` is byte for byte what the `team` code of
+          `media/screenshots/make-demo.sh` writes (a zero-width space
+          ends its first paragraph, a soft hyphen is inside
+          "understand"); `rewritten.md` is the real rewrite of it by
+          Gemma 4 12B Instruct (QAT, UD-Q4_K_XL) through the local
+          engine on Metal, 2026-10-16, build `39217ad`. That file is
+          gone: its text is transcribed from the README's Compare still
+          (`docs/screenshots/compare.png`), and its heading, blank lines
+          and last newline are the original's bytes, which a rewrite
+          copies. The claim is the app's `compare::tests::
+          the_team_update_rewrite_is_what_the_october_window_counted`:
+          seven changed lines, each paired with the original's line for
+          line and all marked by word, and the footer's "7 lines added,
+          7 lines removed". `compare::footage_tests` draws it.
 demo/     `reply.txt`: the demo text of the text feature video — a
           one-line reply carrying a zero-width space, a no-break space,
           a soft hyphen, the joiner of an emoji, a Cyrillic a and a word
