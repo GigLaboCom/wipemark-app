@@ -8628,8 +8628,14 @@ impl SettingsView {
                 Some(Message::SettingsMcpDescription),
                 cx,
             ))
-            .child(self.state_of_the_server(cx))
-            .child(self.rows(Section::Mcp, cx))
+            .child(crate::spot::spot(
+                || "mcp-banner".to_owned(),
+                self.state_of_the_server(cx),
+            ))
+            .child(crate::spot::spot(
+                || "mcp-rows".to_owned(),
+                self.rows(Section::Mcp, cx),
+            ))
             // Under the address it is about, and only when it is true.
             // A warning that is always on screen is a warning nobody
             // reads on the day it starts applying.
@@ -8766,7 +8772,8 @@ impl SettingsView {
             // on this page a user might need without wanting the whole
             // JSON blob — and because `0.0.0.0` in the row above is not
             // what a client dials. See `BindAddress::host`.
-            .child(
+            .child(crate::spot::spot(
+                || "mcp-endpoint".to_owned(),
                 div()
                     .text_xs()
                     .text_color(muted)
@@ -8775,8 +8782,9 @@ impl SettingsView {
                         Message::SettingsMcpEndpoint,
                         &args!("url" => endpoint.url()),
                     ))),
-            )
-            .child(
+            ))
+            .child(crate::spot::spot(
+                || "mcp-tabs".to_owned(),
                 TabBar::new("mcp-clients")
                     .underline()
                     .selected_index(selected)
@@ -8792,11 +8800,12 @@ impl SettingsView {
                             cx.notify();
                         }
                     })),
-            )
+            ))
             .child(
                 div()
                     .relative()
-                    .child(
+                    .child(crate::spot::spot(
+                        || "mcp-snippet".to_owned(),
                         div()
                             .id(block)
                             // A snippet is one long line more often
@@ -8814,14 +8823,11 @@ impl SettingsView {
                             .text_xs()
                             .font_family(mono)
                             .child(snippet.clone()),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .top_1()
-                            .right_1()
-                            .child(self.copy_button(copy, snippet, cx)),
-                    ),
+                    ))
+                    .child(div().absolute().top_1().right_1().child(crate::spot::spot(
+                        || "mcp-copy".to_owned(),
+                        self.copy_button(copy, snippet, cx),
+                    ))),
             )
     }
 }
@@ -10358,6 +10364,9 @@ fn clear_choices() -> Vec<Choice<u32>> {
 
 #[cfg(test)]
 mod footage_tests;
+
+#[cfg(test)]
+mod footage_agents_tests;
 
 #[cfg(test)]
 mod tests {

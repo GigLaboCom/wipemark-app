@@ -163,8 +163,9 @@ pub(crate) struct Clip {
     /// The regions the clip names, as the part they are and the frame they
     /// are read at.
     named: Vec<(String, String, usize)>,
-    /// Regions read off a view's own state rather than a part's prepaint —
-    /// an editor's row, a word's bounds — by name.
+    /// Regions read off a view's own state rather than a part's prepaint,
+    /// or found another way than a spot — an editor's row, a word's bounds,
+    /// a tab's hitbox felt for by clicks — by name.
     measured: Vec<(String, Bounds<Pixels>)>,
     extra: Map<String, Value>,
     started: Instant,
@@ -287,8 +288,8 @@ impl Clip {
         self.named.push((name.to_owned(), spot.to_owned(), frame));
     }
 
-    /// Names a region the view itself says where it is — `bounds` in window
-    /// points, as the editor's own geometry gives them.
+    /// Names a region the view itself says where it is, or one found
+    /// another way than a spot — `bounds` in window points.
     pub(crate) fn measure(&mut self, name: &str, bounds: Bounds<Pixels>) {
         self.measured.push((name.to_owned(), bounds));
     }

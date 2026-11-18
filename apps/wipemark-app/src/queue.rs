@@ -2189,6 +2189,8 @@ fn holds(row: &Row, work: Option<&Work>, action: Action, home: &Home) -> bool {
 #[cfg(test)]
 mod across_tests;
 #[cfg(test)]
+mod footage_agents_tests;
+#[cfg(test)]
 pub(crate) mod footage_tests;
 #[cfg(test)]
 mod origin_tests;
@@ -2752,7 +2754,10 @@ fn copyable(id: (&'static str, u64), value: Option<String>, cx: &App) -> AnyElem
     h_flex()
         .gap_1()
         .min_w(px(0.0))
-        .child(div().text_sm().truncate().child(shown))
+        .child(spot(
+            || format!("queue-{}-value-{}", id.0, id.1),
+            div().text_sm().truncate().child(shown),
+        ))
         // The tooltip on a frame of our own around the button rather than
         // the button's own, which gpui-component keeps up after the button
         // has gone (D796).
@@ -2787,35 +2792,46 @@ fn name_cell(row: &Row, cx: &App) -> AnyElement {
             .and_then(|arrival| wording::evidence_note(&arrival.intake)),
     };
 
+    let id = row.id;
     v_flex()
         .w_full()
         .min_w(px(0.0))
         .gap_0p5()
-        .child(
+        .child(spot(
+            || format!("queue-title-{id}"),
             div()
                 .text_sm()
                 .font_semibold()
                 .truncate()
                 .child(SharedString::from(row.look.title.clone())),
-        )
+        ))
         .children(folder.map(|folder| {
-            div()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .truncate()
-                .child(SharedString::from(folder))
+            spot(
+                || format!("queue-folder-{id}"),
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .truncate()
+                    .child(SharedString::from(folder)),
+            )
         }))
         .children(note.map(|(note, tone)| {
-            h_flex()
-                .gap_1()
-                .items_center()
-                .text_xs()
-                .text_color(match tone {
-                    Tone::Warning => theme.warning,
-                    Tone::Muted => theme.muted_foreground,
-                })
-                .child(Icon::new(IconName::CircleInfo).small())
-                .child(div().truncate().child(SharedString::from(note)))
+            spot(
+                || format!("queue-note-{id}"),
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .text_xs()
+                    .text_color(match tone {
+                        Tone::Warning => theme.warning,
+                        Tone::Muted => theme.muted_foreground,
+                    })
+                    .child(Icon::new(IconName::CircleInfo).small())
+                    .child(spot(
+                        || format!("queue-note-text-{id}"),
+                        div().truncate().child(SharedString::from(note)),
+                    )),
+            )
         }))
         .into_any_element()
 }
@@ -3499,11 +3515,14 @@ impl Queue {
                 || format!("queue-preview-{id}"),
                 preview_cell(row, lines, cx),
             )))
-            .child(Column::Id.cell().child(copyable(
-                ("copy-id", row.id),
-                row.entry.map(|entry| entry.to_string()),
-                cx,
-            )))
+            .child(spot(
+                || format!("queue-id-{id}"),
+                Column::Id.cell().child(copyable(
+                    ("copy-id", row.id),
+                    row.entry.map(|entry| entry.to_string()),
+                    cx,
+                )),
+            ))
             .child(Column::Keyword.cell().child(copyable(
                 ("copy-keyword", row.id),
                 row.keyword.clone(),
