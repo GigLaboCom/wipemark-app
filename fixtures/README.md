@@ -33,6 +33,14 @@ clean-parity/
           table is the claim: the CLI's exit and whether it writes, and
           whether a window writes, per input; `apps/wipemark-cli/tests/
           parity.rs` and the app's `clean::tests` both read it.
+demo/     `reply.txt`: the demo text of the text feature video — a
+          one-line reply carrying a zero-width space, a no-break space,
+          a soft hyphen, the joiner of an emoji, a Cyrillic a and a word
+          joiner. Its claim is the app's `report::tests::
+          the_demo_reply_is_said_as_the_video_shows_it`: what `inspect`
+          and `clean` find, at which bytes, the row's *Cleaned* and the
+          Report's line under each kept one. `queue::footage_tests`
+          draws it.
 marks/    mark catalogues the developer tools read through
           `--catalogue` (E12-R12 stage 4b): `synthetic-wordmark/` is a
           stand-in profile, `fixture-wordmark` — a text-like 72 × 24

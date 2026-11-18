@@ -103,6 +103,9 @@ mod setup;
 // SIGTERM, SIGINT and SIGHUP quit the way the tray's Quit does (D717).
 #[cfg(unix)]
 mod signals;
+// The rectangles the footage tests read off a frame; the element itself
+// outside tests.
+mod spot;
 mod theme;
 mod title;
 mod tray;
