@@ -307,9 +307,7 @@ pub(crate) use wipemark_intake::text::{decode, encode};
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
-    use wipemark_intake::{Format, HEAD};
+    use wipemark_intake::Format;
 
     use super::{decode, encode, picture_of, read, read_any, Content, Encoding, Source};
 
@@ -366,6 +364,8 @@ mod tests {
         use std::sync::mpsc;
         use std::time::Duration;
 
+        use wipemark_intake::HEAD;
+
         let dir = std::env::temp_dir().join(format!("wipemark-fifo-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a folder");
@@ -421,7 +421,7 @@ mod tests {
     /// that never finishes is a failed assertion that names it, never a
     /// wait (Y7, the shape of the application's X2).
     #[cfg(unix)]
-    fn released(pipe: &Path, finished: &std::sync::mpsc::Receiver<()>, who: &str) {
+    fn released(pipe: &std::path::Path, finished: &std::sync::mpsc::Receiver<()>, who: &str) {
         use std::os::unix::fs::OpenOptionsExt as _;
         use std::sync::mpsc::RecvTimeoutError;
         use std::time::{Duration, Instant};

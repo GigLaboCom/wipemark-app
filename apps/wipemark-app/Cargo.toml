@@ -64,6 +64,10 @@ wipemark-secret.workspace = true
 # hands back, already in the lock through it.
 wipemark-update.workspace = true
 semver = "1"
+# "More from GigLabo" on the toolbar, and the cards of the dialog it opens
+# (src/products.rs, D836): the list and its icons are that crate's data,
+# the words and the dialog are this application's.
+giglabo-products.workspace = true
 anyhow.workspace = true
 toml.workspace = true
 # The Settings window's remembered rectangle, which goes into the store
@@ -221,6 +225,14 @@ x11rb = { version = "0.13", features = ["randr"] }
 # what gpui's Wayland backend makes its uuid from (D614). The version gpui
 # pins, with the `v5` feature it already turns on.
 uuid = { version = "1", features = ["v5"] }
+
+# The Windows icon and version resource (build.rs, `windows_resources`):
+# compiles an `.rc` with the Windows SDK's `rc.exe` and links it into the
+# binary. Already built on every platform as gpui-pre's own build
+# dependency (its default `windows-manifest`), at this version, so the
+# lock gains an edge and no crate; off Windows the script never calls it.
+[build-dependencies]
+embed-resource = "3"
 
 [features]
 default = []

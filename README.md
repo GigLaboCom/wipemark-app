@@ -237,7 +237,7 @@ Wipemark does not look for those, and it does not remove them.
 
 | | |
 |---|---|
-| **Main window** | One list of everything that arrived: what you drop, paste or import, and what the panel, the command line and agents processed. *Clean*, *Rewrite*, *Clean all* and *Rewrite all* act on rows. A row's menu has *Report…*, *Compare with the result*, *Open with*, *Open the result*, *Show the result in its folder*, *Copy the result*, and *Clean again* or *Rewrite again* once a row is done. An action that cannot run is greyed and says why. The status bar names the engine on duty and, while a model is loaded here, offers *Unload*. |
+| **Main window** | One list of everything that arrived: what you drop, paste or import, and what the panel, the command line and agents processed. *Clean*, *Rewrite*, *Clean all* and *Rewrite all* act on rows. A row's menu has *Report…*, *Compare with the result*, *Open with*, *Open the result*, *Show the result in its folder*, *Copy the result*, and *Clean again* or *Rewrite again* once a row is done. An action that cannot run is greyed and says why. The status bar names the engine on duty and, while a model is loaded here, offers *Unload*. *More from GigLabo* on the toolbar lists the studio's other apps and tools; `GIGLABO_PRODUCTS=off` hides it. |
 | **Panel** | A small window you summon over whatever you are working in. Drop, paste or import onto it, then press *Clean*. It comes and goes on its own. |
 | **Compare** | A result beside its original, with the changed lines and words marked. Edit the result and save it over the result's own file, never over the original; it can also save as you type. *Copy all* copies the result. |
 | **Report** | The three shelves for one row, with *Copy as Markdown* and *Copy JSON*. |
@@ -322,7 +322,7 @@ Download from **[GitHub Releases](https://github.com/GigLaboCom/wipemark-app/rel
 |---|---|
 | macOS on Apple Silicon (M1 or later), macOS 12 or later | `Wipemark-0.1.4-arm64.dmg` |
 | Linux x86_64, glibc 2.39 or later (Ubuntu 24.04, Debian 13, Fedora 40 and newer) | `Wipemark-0.1.4-x86_64.AppImage`, or `wipemark_0.1.4_amd64.deb` for Ubuntu and Debian |
-| Windows | not in this version |
+| Windows 10 or 11, 64-bit | not in 0.1.4; from the first release with a Windows build, `Wipemark-<version>-x86_64-setup.exe`, or `Wipemark-<version>-x86_64-windows.zip` to run without installing |
 
 The [release notes](docs/release/0.1.4.md) cover each platform in full,
 uninstalling included.
@@ -353,6 +353,35 @@ without a tray, closing the main window quits. Under Wayland the windows
 run through XWayland so the panel opens where you put it;
 `WIPEMARK_WAYLAND=1` runs them as native Wayland windows.
 
+**Windows.** Run `Wipemark-<version>-x86_64-setup.exe`. It installs for
+you alone, without asking for administrator rights, into
+`%LOCALAPPDATA%\Programs\Wipemark`; puts Wipemark in the Start menu and in
+Settings › Apps; and, unless you untick *Add wipemark-cli to PATH*, adds
+its folder to your PATH, so `wipemark-cli` runs in any terminal you open
+afterwards. The installer is not signed yet, so SmartScreen says "Windows
+protected your PC": choose *More info*, then *Run anyway*. Run a newer
+installer over the installed version to update it in place; close
+Wipemark first, or the installer asks you to. Without questions:
+
+```bat
+Wipemark-<version>-x86_64-setup.exe /S
+Wipemark-<version>-x86_64-setup.exe /S /PATH=0 /D=C:\Tools\Wipemark
+```
+
+`/PATH=0` leaves PATH alone; `/D=` comes last, unquoted. A silent install
+that finds Wipemark running waits 30 seconds for it to close, then ends
+with exit code 2 and changes nothing. The `.zip` holds the same files:
+unpack it anywhere and run `wipemark.exe`; nothing is installed. On
+Windows there is no tray icon or system-wide shortcut yet, and no
+self-update: run the next installer over this one.
+
+To uninstall, use Settings › Apps › Wipemark › Uninstall. Your data and
+downloaded models stay unless you tick *Also delete my data and
+downloaded models*, which shows their size; a models folder you chose
+yourself outside the data folder is never deleted. `uninstall.exe /S` in
+the installation folder uninstalls without questions and keeps the data
+(`/S /DELETEDATA` deletes it too).
+
 **New versions.** Turn on the daily check on the first launch's last step
 or in Settings › General › New versions; *Check now* works either way. A new
 version is used only if its signature verifies. `Wipemark.app` and the
@@ -360,14 +389,15 @@ AppImage, each in a folder you can write to, update themselves; the `.deb`
 says a new version is out and downloads it, verified, for you to install.
 
 **Your data** lives in `~/Library/Application Support/com.GigLabo.wipemark`
-on macOS and `~/.local/share/wipemark` (or `$XDG_DATA_HOME/wipemark`) on
-Linux: `wipemark.db` (settings, the list and the rewrite queue), `models/`,
+on macOS, `~/.local/share/wipemark` (or `$XDG_DATA_HOME/wipemark`) on
+Linux and `%APPDATA%\GigLabo\wipemark\data` on Windows: `wipemark.db` (settings, the list and the rewrite queue), `models/`,
 `logs/`, `previews/` (a small preview for each picture in the list that has
 no file behind it — an agent's, a paste — deleted with its row or by
 *Delete kept previews*), and `kept/` if the Retention page keeps copies.
 `WIPEMARK_DATA_DIR=/some/folder` moves all of it, for the application and
 the command line alike. Uninstalling leaves it, your results and your keys
-alone.
+alone; on Windows the data goes only if you tick the uninstaller's box, and
+your keys and results stay either way.
 
 ### Models
 

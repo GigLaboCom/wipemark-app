@@ -2302,11 +2302,14 @@ const CHATML: &str =
 /// A chat model's GGUF header and nothing after it — what `models add`
 /// reads; never a model.
 fn a_chat_model(scratch: &Scratch, name: &str) -> PathBuf {
+    let path = scratch.path("theirs").join(name);
     std::fs::create_dir_all(scratch.path("theirs")).expect("mkdir");
-    scratch.file(
-        &format!("theirs/{name}"),
-        &wipemark_models::gguf::synthetic_chat_model("qwen3", "Qwen3 4B", Some(CHATML)),
+    std::fs::write(
+        &path,
+        wipemark_models::gguf::synthetic_chat_model("qwen3", "Qwen3 4B", Some(CHATML)),
     )
+    .expect("write");
+    path
 }
 
 /// Other bytes of the same size in `file`, a minute later — an edit on any
@@ -2775,6 +2778,7 @@ fn models_add_again_by_another_road_keeps_its_row_name_and_context() {
     ]);
     assert_eq!(code(&first), 0, "{}", stderr(&first));
     std::fs::create_dir_all(scratch.path("elsewhere")).expect("mkdir");
+    #[cfg_attr(not(unix), allow(unused_mut, reason = "a link is made on Unix alone"))]
     let mut roads = vec![scratch.path("elsewhere/../theirs/m.gguf")];
     #[cfg(unix)]
     {
@@ -2935,37 +2939,42 @@ impl FakeHub {
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { continue };
-                let mut writer = stream.try_clone().expect("a writer");
-                let mut reader = BufReader::new(stream);
-                let mut first = String::new();
-                if reader.read_line(&mut first).unwrap_or(0) == 0 {
-                    continue;
-                }
-                let mut range = None;
-                loop {
-                    let mut line = String::new();
-                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
-                        break;
+                // A connection of its own: an 8 MiB range being written
+                // holds up no other request.
+                let (header, heard) = (header.clone(), heard.clone());
+                std::thread::spawn(move || {
+                    let mut writer = stream.try_clone().expect("a writer");
+                    let mut reader = BufReader::new(stream);
+                    let mut first = String::new();
+                    if reader.read_line(&mut first).unwrap_or(0) == 0 {
+                        return;
                     }
-                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("range:") {
-                        range = Some(value.trim().trim_start_matches("bytes=").to_owned());
+                    let mut range = None;
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                            break;
+                        }
+                        if let Some(value) = line.to_ascii_lowercase().strip_prefix("range:") {
+                            range = Some(value.trim().trim_start_matches("bytes=").to_owned());
+                        }
                     }
-                }
-                let path = first
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap_or_default()
-                    .to_owned();
-                let api = format!("/api/models/{HUB_REPO}");
-                let (status, body): (&str, Vec<u8>) = if path == format!("{api}/revision/main") {
-                    let gate = if gated { "\"manual\"" } else { "false" };
-                    (
+                    let path = first
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or_default()
+                        .to_owned();
+                    let api = format!("/api/models/{HUB_REPO}");
+                    let (status, body): (&str, Vec<u8>) = if path == format!("{api}/revision/main")
+                    {
+                        let gate = if gated { "\"manual\"" } else { "false" };
+                        (
                         "200 OK",
                         format!(r#"{{"sha":"{HUB_COMMIT}","gated":{gate},"cardData":{{"license":"apache-2.0"}}}}"#)
                             .into_bytes(),
                     )
-                } else if path == format!("{api}/tree/{HUB_COMMIT}?recursive=true") {
-                    (
+                    } else if path == format!("{api}/tree/{HUB_COMMIT}?recursive=true") {
+                        (
                         "200 OK",
                         format!(
                             r#"[{{"type":"file","path":"README.md","size":12,"oid":"abc"}},
@@ -2974,33 +2983,47 @@ impl FakeHub {
                         )
                         .into_bytes(),
                     )
-                } else if path == format!("/{HUB_REPO}/resolve/{HUB_COMMIT}/model-Q4_K_M.gguf") {
-                    if gated {
+                    } else if path == format!("/{HUB_REPO}/resolve/{HUB_COMMIT}/model-Q4_K_M.gguf")
+                    {
+                        if gated {
+                            ("401 Unauthorized", Vec::new())
+                        } else {
+                            let asked = range.unwrap_or_default();
+                            heard.lock().expect("ranges").push(asked.clone());
+                            let (from, to) = asked.split_once('-').expect("a range");
+                            let (from, to): (usize, usize) =
+                                (from.parse().expect("from"), to.parse().expect("to"));
+                            let bytes = (from..=to)
+                                .map(|at| header.get(at).copied().unwrap_or(0))
+                                .collect();
+                            ("206 Partial Content", bytes)
+                        }
+                    } else if path.starts_with("/api/models/") {
                         ("401 Unauthorized", Vec::new())
                     } else {
-                        let asked = range.unwrap_or_default();
-                        heard.lock().expect("ranges").push(asked.clone());
-                        let (from, to) = asked.split_once('-').expect("a range");
-                        let (from, to): (usize, usize) =
-                            (from.parse().expect("from"), to.parse().expect("to"));
-                        let bytes = (from..=to)
-                            .map(|at| header.get(at).copied().unwrap_or(0))
-                            .collect();
-                        ("206 Partial Content", bytes)
-                    }
-                } else if path.starts_with("/api/models/") {
-                    ("401 Unauthorized", Vec::new())
-                } else {
-                    ("404 Not Found", Vec::new())
-                };
-                let _ = writer.write_all(
-                    format!(
-                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                        body.len()
-                    )
-                    .as_bytes(),
-                );
-                let _ = writer.write_all(&body);
+                        ("404 Not Found", Vec::new())
+                    };
+                    let _ = writer.write_all(
+                        format!(
+                            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    );
+                    let _ = writer.write_all(&body);
+                    // A close that is a FIN, never a reset: nothing more from
+                    // this side, then whatever the client still sends read off.
+                    // On Windows a socket closed with anything unread resets,
+                    // and the client lost the answer's tail ("Peer
+                    // disconnected", 68 runs in 80 under load on Windows 10).
+                    let _ = writer.flush();
+                    let _ = writer.shutdown(std::net::Shutdown::Write);
+                    let _ = reader
+                        .get_ref()
+                        .set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                    let mut rest = Vec::new();
+                    let _ = std::io::Read::read_to_end(&mut reader, &mut rest);
+                });
             }
         });
         Self { port, ranges }
@@ -3029,7 +3052,7 @@ fn models_inspect_reads_a_model_on_the_hub_from_its_front() {
     let link = format!("https://huggingface.co/{HUB_REPO}/blob/main/model-Q4_K_M.gguf");
 
     let output = scratch.run_in(&["models", "inspect", &link], None, &vars);
-    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(code(&output), 0, "{}{}", stderr(&output), stdout(&output));
     let text = stdout(&output);
     for said in [
         format!("{HUB_REPO} at {HUB_COMMIT}"),
@@ -3053,7 +3076,7 @@ fn models_inspect_reads_a_model_on_the_hub_from_its_front() {
     );
 
     let output = scratch.run_in(&["models", "inspect", &link, "--json"], None, &vars);
-    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(code(&output), 0, "{}{}", stderr(&output), stdout(&output));
     let answer = json(&output);
     assert_eq!(answer["commit"], HUB_COMMIT);
     assert_eq!(answer["files"].as_array().map(Vec::len), Some(2));
@@ -3063,7 +3086,7 @@ fn models_inspect_reads_a_model_on_the_hub_from_its_front() {
     assert!(answer["read"]["fit"].is_string(), "{answer}");
 
     let output = scratch.run_in(&["models", "inspect", &link, "--entry"], None, &vars);
-    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(code(&output), 0, "{}{}", stderr(&output), stdout(&output));
     let draft = json(&output);
     assert!(stderr(&output).contains("a draft for manifests/models.v1.json"));
     let manifest =

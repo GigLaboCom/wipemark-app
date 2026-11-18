@@ -20,6 +20,7 @@ use std::{env, fs};
 
 fn main() {
     llama_rpath();
+    windows_resources();
     // Read when the script runs, never `env!` — that is fixed when the
     // script is compiled, and cargo reuses one compiled script across
     // checkouts sharing a target directory: a second checkout built into
@@ -270,4 +271,86 @@ fn llama_rpath() {
     if let (Ok(dir), false) = (env::var("DEP_WIPEMARK_LLAMA_LIB_DIR"), windows) {
         println!("cargo:rustc-link-arg-bins=-Wl,-rpath,{dir}");
     }
+}
+
+/// On Windows, the executable's icon and its version resource.
+///
+/// GPUI's Windows backend gives every window the icon resource with id 1 of
+/// the running module (`load_icon` in gpui-pre-windows), and Explorer,
+/// the taskbar and Alt+Tab show the same one; without it they show the
+/// blank default. `VERSIONINFO` is what Explorer's Details tab, the
+/// installer and Windows' own crash reports read the name and version
+/// from. GPUI's own resource file already carries the manifest
+/// (PerMonitorV2, gpui-pre's `windows-manifest`), so this one has none.
+///
+/// The `.rc` is written into `OUT_DIR` with the version of this build, so
+/// nothing in the tree has to be edited when the version moves.
+fn windows_resources() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let icon = manifest_dir.join("../../icons/windows/wipemark.ico");
+    println!("cargo:rerun-if-changed={}", icon.display());
+    let icon = fs::canonicalize(&icon).unwrap_or_else(|e| panic!("{}: {e}", icon.display()));
+    // `rc` reads a quoted path with C escapes; a verbatim `\\?\` prefix
+    // from `canonicalize` is not a path it opens.
+    let icon = icon.display().to_string();
+    let icon = icon
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&icon)
+        .replace('\\', "\\\\");
+
+    let version = env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION");
+    let mut numbers = version
+        .split(['.', '-', '+'])
+        .take(3)
+        .map(|part| part.parse::<u16>().unwrap_or(0))
+        .collect::<Vec<_>>();
+    numbers.resize(4, 0);
+    let commas = numbers
+        .iter()
+        .map(u16::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let rc = format!(
+        r#"#include <winver.h>
+1 ICON "{icon}"
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION {commas}
+PRODUCTVERSION {commas}
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "GigLabo"
+      VALUE "FileDescription", "Wipemark"
+      VALUE "FileVersion", "{version}"
+      VALUE "InternalName", "wipemark"
+      VALUE "LegalCopyright", "Copyright 2026 GigLabo and Denis Esakov"
+      VALUE "OriginalFilename", "wipemark.exe"
+      VALUE "ProductName", "Wipemark"
+      VALUE "ProductVersion", "{version}"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 1200
+  END
+END
+"#
+    );
+    let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR")).join("wipemark.rc");
+    fs::write(&out, rc).unwrap_or_else(|e| panic!("write {}: {e}", out.display()));
+    embed_resource::compile(&out, embed_resource::NONE)
+        .manifest_optional()
+        .unwrap_or_else(|e| panic!("wipemark.rc: {e}"));
 }

@@ -1,7 +1,8 @@
 //! The calls into libc, and nothing else: whether a folder is writable, and
 //! on macOS the one atomic swap of two directories.
 //! `unsafe` lives here alone (the crate is `deny(unsafe_code)`), each call over a path turned
-//! into a C string first.
+//! into a C string first. Off Unix, whether a folder is writable is asked
+//! by making an entry in it.
 
 use std::path::Path;
 
@@ -20,9 +21,26 @@ pub fn writable(dir: &Path) -> bool {
     unsafe { libc::access(path.as_ptr(), libc::W_OK) == 0 }
 }
 
+/// Whether this user may create and rename entries in `dir`, off Unix:
+/// whether an empty file of a name nothing else uses can be made there,
+/// removed again at once. No `access` to ask on Windows — the folder's
+/// read-only attribute is not what decides, its access list is — and
+/// making an entry is the question itself. A folder that does not exist
+/// is not writable, and neither is one on a read-only volume.
 #[cfg(not(unix))]
-pub fn writable(_dir: &Path) -> bool {
-    false
+pub fn writable(dir: &Path) -> bool {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    let probe = dir.join(format!(".wipemark-writable-{}-{nanos}", std::process::id()));
+    match std::fs::File::create_new(&probe) {
+        Ok(file) => {
+            drop(file);
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 /// Swap `a` and `b` in one call: `renamex_np(a, b, RENAME_SWAP)`, atomic on

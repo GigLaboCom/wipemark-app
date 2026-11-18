@@ -2573,6 +2573,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "giglabo-products"
+version = "0.1.4"
+dependencies = [
+ "gpui-component",
+ "gpui-pre",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "gimli"
 version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9768,8 +9778,10 @@ dependencies = [
  "async-signal",
  "base64 0.22.1",
  "chrono",
+ "embed-resource",
  "flume 0.11.1",
  "futures-lite",
+ "giglabo-products",
  "global-hotkey",
  "gpui-base",
  "gpui-component",
@@ -9897,6 +9909,9 @@ dependencies = [
 [[package]]
 name = "wipemark-intake"
 version = "0.1.4"
+dependencies = [
+ "winapi-util",
+]
 
 [[package]]
 name = "wipemark-license"
@@ -9953,6 +9968,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "ureq",
+ "winapi-util",
  "wipemark-core",
 ]
 

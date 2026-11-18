@@ -2426,28 +2426,38 @@ mod tests {
         assert_eq!(model_choices(Vec::new()).len(), 1);
     }
 
+    /// `unix` as an absolute path on this platform: itself, and on Windows
+    /// on drive C, where a path with no drive is not absolute.
+    fn absolute(unix: &str) -> PathBuf {
+        if cfg!(windows) {
+            PathBuf::from(format!("C:{}", unix.replace('/', "\\")))
+        } else {
+            PathBuf::from(unix)
+        }
+    }
+
     /// The folder field: empty puts the default back, `~` is a person's
     /// home and nothing else is guessed at.
     #[test]
     fn a_typed_folder_is_read_generously_and_refused_strictly() {
-        let home = Path::new("/Users/someone");
+        let home = absolute("/Users/someone");
+        let home = home.as_path();
+        let big = absolute("/Volumes/Big/models");
+        let typed = big.to_str().expect("UTF-8");
         assert_eq!(folder_typed("", Some(home)), Typed::Default);
         assert_eq!(folder_typed("   ", Some(home)), Typed::Default);
+        assert_eq!(folder_typed(typed, Some(home)), Typed::Folder(big.clone()));
         assert_eq!(
-            folder_typed("/Volumes/Big/models", Some(home)),
-            Typed::Folder(PathBuf::from("/Volumes/Big/models"))
-        );
-        assert_eq!(
-            folder_typed("  /Volumes/Big/models  ", Some(home)),
-            Typed::Folder(PathBuf::from("/Volumes/Big/models"))
+            folder_typed(&format!("  {typed}  "), Some(home)),
+            Typed::Folder(big.clone())
         );
         assert_eq!(
             folder_typed("~/models", Some(home)),
-            Typed::Folder(PathBuf::from("/Users/someone/models"))
+            Typed::Folder(home.join("models"))
         );
         assert_eq!(
             folder_typed("~", Some(home)),
-            Typed::Folder(PathBuf::from("/Users/someone"))
+            Typed::Folder(home.to_path_buf())
         );
         // No home to expand against is not a folder, and neither is
         // anything relative.

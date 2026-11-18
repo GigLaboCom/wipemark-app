@@ -1717,6 +1717,7 @@ mod tests {
 
     use super::*;
     use crate::clean::{Refusal, Unable};
+    #[cfg(unix)]
     use crate::retention::Destination;
 
     /// Every case a look can come to, beside the line it should read as.
