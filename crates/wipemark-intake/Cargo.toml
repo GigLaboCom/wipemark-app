@@ -15,5 +15,13 @@ description = "Wipemark — what was handed to the application, and what it turn
 # the bytes and the name disagree — and a table this crate cannot see
 # into is a table whose answers it cannot explain in a report.
 
+# The one exception, on Windows alone: whether two names are one file
+# (`inplace::same_file`, what keeps a result from being written over its
+# source) is the volume's serial number and the file's index on it, which
+# `std` reads but does not yet hand out, and this crate forbids `unsafe`.
+# `winapi-util` is the safe call, already in Cargo.lock (`same-file`'s).
+[target.'cfg(windows)'.dependencies]
+winapi-util = "0.1"
+
 [lints]
 workspace = true

@@ -2019,6 +2019,9 @@ window-report-normalized = { $count ->
     }
 window-report-kept-homoglyph = Kept at the default settings: a letter from another script is replaced only by an aggressive clean, which a window does not run.
 window-report-kept-in-place = Kept where it does a job: inside an emoji or a script that needs it.
+# Under a kept space other than U+0020 — a no-break space, a thin space, an
+# ideographic one — which the row above it names.
+window-report-kept-space = Kept as typography: documents use spaces like this one on purpose, so it is reported for information and left as it is.
 window-report-picture-checked = The result was read again: no AI provenance metadata is left in it.
 window-report-picture-still = Read again, the result still carried AI provenance metadata.
 window-report-shelf-empty = Nothing on this shelf for this clean.

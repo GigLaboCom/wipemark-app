@@ -54,7 +54,7 @@ UI framework
   Licensed under the Apache License, Version 2.0.
   Consumed as the `gpui-pre` snapshots of its crates on crates.io, pinned
   to one exact version in the workspace Cargo.toml.
-  One of them, `gpui-pre-linux` 0.3.8, is carried modified under
+  One of them, `gpui-pre-linux` 0.3.12, is carried modified under
   `vendor/gpui-pre-linux/`: the published crate with
   `vendor/gpui-pre-linux.patch` applied, which changes
   `src/linux/x11/client.rs`, `src/linux/x11/clipboard.rs`,
@@ -64,7 +64,7 @@ UI framework
   dragged text is handed over as a private drop file, a refused type
   falls back to the next, and a drop is placed where the drag's own
   message says (Wipemark, 2026-10-12), and so that a picture written to
-  the clipboard is offered as that picture (Wipemark, 2026-10-16). Each changed file opens with a notice of the change. Its
+  the clipboard is offered as that picture (Wipemark, 2026-10-16), and so that the desktop's button layout reaches the windows outside the client's borrow (Wipemark, 2026-11-18). Each changed file opens with a notice of the change. Its
   licence file, `LICENSE-APACHE`, is kept in that directory as
   published.
 

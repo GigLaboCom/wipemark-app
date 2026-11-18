@@ -3185,6 +3185,7 @@ mod tests {
             ctx: 8192,
             vendor: Vendor::OpenLlm,
             fit: wipemark_models::host::Fit::Unknown,
+            draft: duty::Speculation::Alone(duty::NoDraft::NoneMade),
         };
         let engine = duty::engine_for(&Performer::Machine(local), &LocalOptions::default(), None)
             .expect("a native build hands out an engine");

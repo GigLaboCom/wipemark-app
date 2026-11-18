@@ -91,11 +91,18 @@ fn jpeg_encode(components: u8, raster: &Raster) -> Result<Vec<u8>, PictureError>
     let samples = raster.samples();
     let grey = components == 1
         && samples
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .all(|p| p[0] == p[1] && p[1] == p[2]);
     let (bytes, colour): (Vec<u8>, image::ExtendedColorType) = if grey {
         (
-            samples.chunks_exact(3).map(|p| p[0] as u8).collect(),
+            samples
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|p| p[0] as u8)
+                .collect(),
             image::ExtendedColorType::L8,
         )
     } else {
@@ -195,7 +202,7 @@ fn png_encode(info: &PngInfo, raster: &Raster) -> Result<(Vec<u8>, Encoding), Pi
     // A palette, kept when every colour is in it.
     if let (png::ColorType::Indexed, Some(palette), true) = (info.colour, &info.palette, eight) {
         let mut index: HashMap<[u16; 4], u8> = HashMap::new();
-        for (i, rgb) in palette.chunks_exact(3).enumerate() {
+        for (i, rgb) in palette.as_chunks::<3>().0.iter().enumerate() {
             let a = info
                 .trns
                 .as_ref()

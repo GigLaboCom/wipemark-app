@@ -8,8 +8,12 @@
 #   wrap off, wrap on unpadded as the window was before, and wrap on padded.
 #   An Xvfb in the container showed only black (lavapipe presents nothing to
 #   it), so the pictures are drawn by GPUI's own renderer into an image —
-#   `HeadlessAppContext` with the real text system and `WgpuHeadlessRenderer`
-#   — which is what a window would show, with no window.
+#   `HeadlessAppContext` with the real text system and the platform's
+#   headless renderer (apps/wipemark-app/src/footage.rs) — which is what a
+#   window would show, with no window. It runs in the Linux container
+#   (wgpu, lavapipe, DejaVu) and, since gpui-pre 0.3.12, on macOS (Metal
+#   into an offscreen texture, CoreText: the text system is built directly,
+#   because `MacPlatform` refuses the test's thread — D848).
 #
 # What it does, step by step
 #   1. Runs the ignored test `compare::tests::compare_screenshots` on this
@@ -32,15 +36,20 @@
 # How to run it (from the repository root)
 #   OUT=/tmp/shots scripts/verify/e7-11/shots.sh
 #   OUT=/tmp/shots BASE=origin/feat/e0-e6-shell scripts/verify/e7-11/shots.sh
-#   Environment: OUT (required), SCROLL (default 40), BASE (optional),
+#   Environment: OUT (required), SCROLL (default 40), DARK=1 (the dark
+#   theme), BASE (optional),
 #   CARGO_TARGET_DIR honoured for this checkout; the BASE build uses
 #   BASE_TARGET (default a folder in the scratch worktree), never the same
 #   one — see the comment at the build.
 #
 # What it needs
-#   cargo and the app's build; a Vulkan or GL driver wgpu can render with
-#   headless (lavapipe: mesa-vulkan-drivers); ImageMagick's `convert` for the
-#   small copies; fonts (DejaVu in the container). git for BASE.
+#   cargo and the app's build; on Linux a Vulkan or GL driver wgpu can render
+#   with headless (lavapipe: mesa-vulkan-drivers) and fonts (DejaVu in the
+#   container), on macOS a Metal device (any Mac); ImageMagick's `convert`
+#   for the small copies. git for BASE, whose test is the one of a commit
+#   from before footage.rs (its context is put back in by hand below): on
+#   macOS that context is `MacPlatform`'s, which panics off the main thread
+#   ("Mac platform not created on main thread"), so BASE is Linux only.
 #
 # What its output means
 #   PNGs in $OUT (2800×1640, the window at scale 2) and $OUT/small; the test's
@@ -53,6 +62,7 @@ OUT=${OUT:?set OUT to a folder for the pictures}
 SCROLL=${SCROLL:-40}
 mkdir -p "$OUT/small"
 export WIPEMARK_COMPARE_SHOTS=$OUT WIPEMARK_COMPARE_SCROLL=$SCROLL
+if [ -n "${DARK:-}" ]; then export WIPEMARK_COMPARE_DARK=1; fi
 
 (cd "$ROOT" && cargo test -p wipemark-app --locked -- --ignored \
     compare::tests::compare_screenshots --nocapture)
@@ -71,6 +81,15 @@ source = (here / "apps/wipemark-app/src/compare.rs").read_text()
 start = source.index("    /// The visual check of E7-11 (the coordinator")
 end = source.index("    // -- saving an edited result (E7-9)")
 test = source[start:end]
+# A commit from before footage.rs builds its context in the test itself.
+test = test.replace(
+    "            let mut cx = crate::footage::context();\n",
+    "            let mut cx = HeadlessAppContext::with_platform(\n"
+    "                gpui_platform::current_platform(true).text_system(),\n"
+    "                Arc::new(crate::assets::WipemarkAssets),\n"
+    "                gpui_platform::current_headless_renderer,\n"
+    "            );\n",
+)
 # The commit has no `wrap` row, and its result wraps by its own button.
 test = test.replace("                wrap: padded,\n", "")
 test = test.replace(

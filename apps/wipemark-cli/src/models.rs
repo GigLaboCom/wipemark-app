@@ -371,8 +371,10 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
             (entry, state, fit(entry, host), chosen)
         })
         .collect();
-    // Where an entry was found, when that is not where a download puts
-    // it — the folder-relative path, `/`-separated.
+    // A path under the folder as every line of this listing says it —
+    // where an entry was found, another tool's file, a file not in the
+    // catalogue: folder-relative and `/`-separated on every platform, in
+    // the JSON and in the prose alike.
     let below = |path: &Path| -> String {
         path.strip_prefix(folder)
             .unwrap_or(path)
@@ -473,7 +475,7 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
             .iter()
             .map(|found| {
                 serde_json::json!({
-                    "path": found.relative_to(folder).to_string_lossy().replace('\\', "/"),
+                    "path": below(&found.path),
                     "size_bytes": found.bytes,
                     "format": found.format.extension(),
                     "verified": false,
@@ -632,7 +634,7 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
             for found in &others {
                 lines.push(format!(
                     "  {} · {}",
-                    found.relative_to(folder).display(),
+                    below(&found.path),
                     say(
                         Message::CliModelsSize,
                         &args!("gigabytes" => gigabytes(found.bytes)),

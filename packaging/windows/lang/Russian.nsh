@@ -1,0 +1,36 @@
+# Russian.nsh — the installer's and uninstaller's own words in Russian; the
+# same strings as English.nsh, whose header says more.
+
+!define /redef L ${LANG_RUSSIAN}
+
+LangString WelcomeNew ${L} "Программа установит Wipemark ${VERSION} на этот компьютер, только для вас: права администратора не нужны.$\r$\n$\r$\nНажмите «Далее», чтобы продолжить."
+LangString WelcomeUpdate ${L} "Установлен Wipemark $OldVersion. Программа обновит его до версии ${VERSION} в той же папке; ваши данные, настройки и загруженные модели сохранятся.$\r$\n$\r$\nЗакройте Wipemark, прежде чем продолжить.$\r$\n$\r$\nНажмите «Далее», чтобы продолжить."
+LangString WelcomeAgain ${L} "Wipemark ${VERSION} уже установлен. Программа установит его заново в той же папке; ваши данные, настройки и загруженные модели сохранятся.$\r$\n$\r$\nЗакройте Wipemark, прежде чем продолжить.$\r$\n$\r$\nНажмите «Далее», чтобы продолжить."
+LangString OptionsTitle ${L} "Параметры"
+LangString OptionsSubtitle ${L} "Выберите, как установить Wipemark."
+LangString PathBox ${L} "Добавить wipemark-cli в PATH"
+LangString PathText ${L} "Тогда wipemark-cli можно запускать в любом новом окне терминала: в командной строке, PowerShell, Windows Terminal. Папка установки добавляется в PATH вашего пользователя, а при удалении Wipemark убирается оттуда."
+LangString Running ${L} "Wipemark запущен ($InUse занят).$\r$\n$\r$\nЗакройте Wipemark и wipemark-cli, если он ещё работает в терминале, и нажмите «Повторить»."
+LangString NotChanged ${L} "Wipemark запущен: ничего не изменено."
+LangString RemovingOld ${L} "Удаляется прежняя установка в"
+LangString PathFailed ${L} "Wipemark установлен, но добавить wipemark-cli в PATH не удалось:$\r$\n$HelperOut"
+LangString RunWipemark ${L} "Запустить Wipemark"
+LangString ShortcutComment ${L} "Удаляет метки происхождения ИИ из ваших собственных текстов и изображений"
+LangString NeedsWindows10 ${L} "Для Wipemark нужна 64-разрядная Windows 10 или новее."
+
+LangString UnTitle ${L} "Удаление Wipemark"
+LangString UnSubtitle ${L} "Удаление Wipemark с этого компьютера."
+LangString UnFolder ${L} "Wipemark будет удалён из этой папки:"
+LangString UnDataText ${L} "Ваши данные (настройки, история, журналы) и загруженные модели находятся в этой папке:"
+LangString UnDataKept ${L} "Они сохранятся, чтобы их нашла следующая установка, если вы не отметите флажок ниже."
+LangString UnDataBox ${L} "Также удалить мои данные и загруженные модели ($DataSize)"
+LangString UnModelsElsewhere ${L} "Папка моделей, которую вы сами выбрали в «Настройки > Модели» вне этой папки, никогда не удаляется."
+LangString UnNoData ${L} "В этой папке нет данных Wipemark:"
+LangString UnDataFailed ${L} "Wipemark удалён, но ваши данные удалить полностью не удалось:$\r$\n$HelperOut"
+LangString UnDataKeptLog ${L} "Сохранены ваши данные и модели в"
+LangString UnFinishKept ${L} "Wipemark удалён с этого компьютера.$\r$\n$\r$\nВаши данные и загруженные модели сохранены в папке:$\r$\n$DataDir$\r$\n$\r$\nНажмите «Готово», чтобы закрыть это окно."
+LangString UnFinishDeleted ${L} "Wipemark удалён с этого компьютера, а ваши данные и загруженные модели удалены.$\r$\n$\r$\nНажмите «Готово», чтобы закрыть это окно."
+LangString UnitKB ${L} "КБ"
+LangString UnitMB ${L} "МБ"
+LangString UnitGB ${L} "ГБ"
+LangString DecimalSeparator ${L} ","

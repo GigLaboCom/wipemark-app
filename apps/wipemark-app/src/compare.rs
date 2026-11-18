@@ -192,9 +192,8 @@ use std::time::Duration;
 use gpui::prelude::*;
 use gpui::{
     actions, canvas, deferred, div, px, size, Anchor, AnyElement, AnyWindowHandle, App, Bounds,
-    ClickEvent, Context, Entity, FocusHandle, Focusable, Global, Hsla, KeyBinding, Pixels, Rgba,
-    SharedString, Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
-    WindowOptions,
+    ClickEvent, Context, Entity, FocusHandle, Focusable, Global, Hsla, Pixels, Rgba, SharedString,
+    Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{
@@ -224,6 +223,7 @@ use crate::icon::{Icon, IconName};
 use crate::result::{self, Offer, ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
 use crate::settings::Preferences;
+use crate::spot::spot;
 use crate::title::{self, Title};
 use crate::{clean, dialog, drop, journal, placement, wording};
 
@@ -446,8 +446,8 @@ impl Global for Opened {}
 /// `gpui_component::init`.
 pub fn init(cx: &mut App) {
     cx.bind_keys([
-        KeyBinding::new("secondary-w", CloseCompare, Some(CONTEXT)),
-        KeyBinding::new("secondary-s", SaveCompare, Some(CONTEXT)),
+        crate::keys::binding("secondary-w", CloseCompare, Some(CONTEXT), cx),
+        crate::keys::binding("secondary-s", SaveCompare, Some(CONTEXT), cx),
     ]);
 }
 
@@ -2371,7 +2371,10 @@ impl CompareView {
             .size_full()
             .border_r_1()
             .border_color(theme.border)
-            .child(Self::caption(Message::CompareOriginal, cx))
+            .child(spot(
+                || "compare-original-caption".to_owned(),
+                Self::caption(Message::CompareOriginal, cx),
+            ))
             // A blank strip the height of the result's toolbar. The two
             // sides are read across, line against line, and without it
             // every line on the left sits a toolbar higher than its
@@ -2384,16 +2387,23 @@ impl CompareView {
                     .border_b_1()
                     .border_color(theme.border),
             )
-            .child(
+            .child(spot(
+                || "compare-original-editor".to_owned(),
                 div()
                     .flex_1()
                     .min_h(px(0.0))
                     .child(result::pane(&self.original, cx).readonly(true)),
-            );
+            ));
         let right = v_flex()
             .size_full()
-            .child(Self::caption(Message::CompareResult, cx))
-            .child(div().flex_1().min_h(px(0.0)).child(self.result.clone()));
+            .child(spot(
+                || "compare-result-caption".to_owned(),
+                Self::caption(Message::CompareResult, cx),
+            ))
+            .child(spot(
+                || "compare-result-editor".to_owned(),
+                div().flex_1().min_h(px(0.0)).child(self.result.clone()),
+            ));
 
         // Laid out before both editors and painted after them: how long the
         // two panes took, a trace line with no text in it — what a window
@@ -2446,8 +2456,8 @@ impl CompareView {
             .child(before)
             .child(
                 h_resizable("compare-split")
-                    .child(resizable_panel().child(left))
-                    .child(resizable_panel().child(right)),
+                    .child(resizable_panel().child(spot(|| "compare-original".to_owned(), left)))
+                    .child(resizable_panel().child(spot(|| "compare-result".to_owned(), right))),
             )
             .child(after)
             .into_any_element()
@@ -2820,7 +2830,8 @@ impl CompareView {
         saving.seen = seen;
         saving.saved = text;
         saving.written = true;
-        saving.saved_at = Some(chrono::Local::now());
+        // The queue's clock, which a footage test holds still.
+        saving.saved_at = Some(crate::queue::local_now());
         saving.not_saved = None;
         saving.dirty = dirty;
     }
@@ -3635,7 +3646,8 @@ impl Render for CompareView {
             // The banner: what the result is, and that nothing here is
             // saved or written — and the one control that is the
             // window's rather than the editor's.
-            .child(
+            .child(spot(
+                || "compare-banner".to_owned(),
                 h_flex()
                     .w_full()
                     .flex_shrink_0()
@@ -3660,13 +3672,19 @@ impl Render for CompareView {
                             .debug_selector(|| BANNER_TEXT.into())
                             .text_xs()
                             .text_color(muted)
-                            .children(banner.into_iter().map(SharedString::from)),
+                            .children(banner.into_iter().enumerate().map(|(at, line)| {
+                                spot(
+                                    move || format!("compare-banner-line-{at}"),
+                                    div().child(SharedString::from(line)),
+                                )
+                            })),
                     )
                     // The controls keep their width: gpui-component's
                     // button is never narrower than its label, and the
                     // explanation, which starts from nothing (`flex_1`),
                     // is what gives (D748).
-                    .child(
+                    .child(spot(
+                        || "compare-reset".to_owned(),
                         Button::new("compare-reset")
                             .debug_selector(|| BANNER_RESET.into())
                             .small()
@@ -3688,8 +3706,9 @@ impl Render for CompareView {
                             .on_click(cx.listener(|view, _: &ClickEvent, window, cx| {
                                 view.reset(window, cx);
                             })),
-                    )
-                    .child(
+                    ))
+                    .child(spot(
+                        || "compare-help".to_owned(),
                         Popover::new("compare-help")
                             .anchor(Anchor::TopRight)
                             .trigger(
@@ -3701,10 +3720,11 @@ impl Render for CompareView {
                                     .tip(SharedString::from(t(Message::CompareHelp))),
                             )
                             .content(move |_, _, cx| help(comparison, cx)),
-                    ),
-            )
+                    )),
+            ))
             .child(self.body(cx))
-            .child(
+            .child(spot(
+                || "compare-footer".to_owned(),
                 h_flex()
                     .w_full()
                     .flex_shrink_0()
@@ -3717,23 +3737,29 @@ impl Render for CompareView {
                     .text_xs()
                     .text_color(muted)
                     .child(Icon::new(IconName::CodeCompare).small().color(muted))
-                    .child(div().flex_none().debug_selector(|| SUMMARY.into()).child(
-                        SharedString::from(if ready { self.summary() } else { String::new() }),
+                    .child(spot(
+                        || "compare-summary".to_owned(),
+                        div().flex_none().debug_selector(|| SUMMARY.into()).child(
+                            SharedString::from(if ready { self.summary() } else { String::new() }),
+                        ),
                     ))
                     // Under the result: whether it is saved (S4).
                     .child(div().flex_1())
                     .children(status.map(|status| {
-                        div()
-                            // Why a save failed is a whole sentence: it
-                            // wraps rather than run off the window's edge,
-                            // and the count beside it keeps its words
-                            // (D749).
-                            .min_w_0()
-                            .debug_selector(|| STATUS.into())
-                            .when(failed, |line| line.text_color(theme.warning))
-                            .child(SharedString::from(status))
+                        spot(
+                            || "compare-status".to_owned(),
+                            div()
+                                // Why a save failed is a whole sentence: it
+                                // wraps rather than run off the window's
+                                // edge, and the count beside it keeps its
+                                // words (D749).
+                                .min_w_0()
+                                .debug_selector(|| STATUS.into())
+                                .when(failed, |line| line.text_color(theme.warning))
+                                .child(SharedString::from(status)),
+                        )
                     })),
-            )
+            ))
             .children(self.saving.question.as_ref().map(|(question, _)| {
                 deferred(question.clone()).with_priority(dialog::MODAL_PRIORITY)
             }));
@@ -3747,6 +3773,9 @@ impl Render for CompareView {
         crate::chrome::framed(content, || Title::Compare { name }.text(), window)
     }
 }
+
+#[cfg(test)]
+mod footage_tests;
 
 #[cfg(test)]
 mod tests {
@@ -4536,6 +4565,98 @@ mod tests {
         );
     }
 
+    /// The rewrite video's pair (`fixtures/compare/team-update/`): the
+    /// demo's team update as `media/screenshots/make-demo.sh` writes it,
+    /// and Gemma 4 12B's rewrite of it from October, transcribed from the
+    /// README's still. What the window counted then is the claim: every
+    /// paragraph one changed line, paired with the original's line for line
+    /// and marked by word, the heading and the blank lines the same, and the
+    /// footer "7 lines added, 7 lines removed". A paragraph split or joined
+    /// in the transcription, a lost blank line or a changed heading goes
+    /// red here; the words themselves are checked against the still.
+    #[gpui::test]
+    fn the_team_update_rewrite_is_what_the_october_window_counted(cx: &mut TestAppContext) {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/compare/team-update");
+        let original = std::fs::read_to_string(fixture.join("original.md")).expect("original");
+        let rewritten = std::fs::read_to_string(fixture.join("rewritten.md")).expect("rewrite");
+        // make-demo.sh's bytes: a zero-width space ends the first paragraph
+        // and a soft hyphen is inside "understand".
+        assert_eq!(original.len(), 1348);
+        let hidden: Vec<(usize, char)> = original
+            .char_indices()
+            .filter(|(_, c)| !c.is_ascii())
+            .collect();
+        assert_eq!(hidden, [(245, '\u{200B}'), (1132, '\u{AD}')]);
+        assert!(
+            rewritten.is_ascii(),
+            "the rewrite carries a hidden character"
+        );
+        assert_eq!(original.lines().count(), 15);
+        assert_eq!(rewritten.lines().count(), 15);
+        assert!(original.ends_with(".\n") && rewritten.ends_with(".\n"));
+
+        let diff = Diff::of(&original, &rewritten);
+        let paragraphs: Vec<usize> = (1..=7).map(|n| 2 * n).collect();
+        let hunks: Vec<(Range<usize>, Range<usize>)> = diff
+            .hunks()
+            .iter()
+            .map(|hunk| (hunk.removed.clone(), hunk.added.clone()))
+            .collect();
+        assert_eq!(
+            hunks,
+            paragraphs
+                .iter()
+                .map(|&row| (row..row + 1, row..row + 1))
+                .collect::<Vec<_>>(),
+            "not seven paragraphs, each one line against one"
+        );
+        let level: Vec<(usize, usize)> = paragraphs.iter().map(|&row| (row, row)).collect();
+        assert_eq!(
+            diff.pairs(),
+            level,
+            "a paragraph is not paired with its own"
+        );
+        assert_eq!(diff.alike(), level, "a paragraph is not marked by word");
+        assert_eq!((diff.added(), diff.removed()), (7, 7));
+        let english = wipemark_i18n::Localizer::for_languages(
+            &["en-US".parse().expect("a tag")],
+            wipemark_i18n::Rendering::PlainText,
+        );
+        assert_eq!(
+            english.format_args(
+                Message::CompareChanged,
+                &args!("added" => diff.added(), "removed" => diff.removed())
+            ),
+            "7 lines added, 7 lines removed"
+        );
+
+        // The window, opened on the two files as a row's Compare opens a
+        // rewrite, counts the same.
+        let scratch = Scratch::new("team-update");
+        let handed = scratch.file("team-update.md", original.as_bytes());
+        let delivered = scratch.file("team-update.rewritten.md", rewritten.as_bytes());
+        let subject = Subject {
+            intake: Some(wipemark_intake::of(&Handed::Path(handed.clone()))),
+            handed: Handed::Path(handed),
+            made: Made::Rewritten {
+                from: RewriteFrom::File(delivered),
+                kept: None,
+            },
+        };
+        let (view, cx) = window_on(cx, subject, Comparison::default());
+        settle(cx);
+        assert_eq!(panes_of(&view, cx), (original, rewritten));
+        let summary = cx.update(|_, cx| view.read(cx).summary());
+        assert_eq!(
+            summary,
+            t_args(
+                Message::CompareChanged,
+                &args!("added" => 7, "removed" => 7)
+            )
+        );
+    }
+
     /// Compare refuses what the queue's Clean refuses, in the sentence the
     /// queue's row shows for the same file (D282): a file that is not
     /// valid UTF-8 past its head, and one in an eight-bit encoding intake
@@ -5196,7 +5317,7 @@ mod tests {
             let editor = view.read(cx).editor(side, cx);
             editor.read(cx).input_bounds().center()
         });
-        cx.simulate_event(gpui::ScrollWheelEvent {
+        cx.simulate_event(gpui::ScrollEvent {
             position: over,
             delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(pixels))),
             ..Default::default()
@@ -5348,7 +5469,7 @@ mod tests {
                     gpui::MouseButton::Left,
                     gpui::Modifiers::default(),
                 ),
-                Some(over) => cx.simulate_event(gpui::ScrollWheelEvent {
+                Some(over) => cx.simulate_event(gpui::ScrollEvent {
                     position: over,
                     delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-1.5 * height))),
                     ..Default::default()
@@ -6235,7 +6356,7 @@ mod tests {
         };
         let (right, left) = (over(Side::Result, cx), over(Side::Original, cx));
         let turn = |at: gpui::Point<Pixels>, pixels: f32| {
-            gpui::ScrollWheelEvent {
+            gpui::ScrollEvent {
                 position: at,
                 delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(pixels))),
                 ..Default::default()
@@ -6264,8 +6385,9 @@ mod tests {
     /// `unwrapped.png`, `result-wrapped.png` and `padded.png`, at the top and
     /// then with the original scrolled `WIPEMARK_COMPARE_SCROLL` lines down and
     /// the result placed by the window's own scrolling together, into the
-    /// folder `WIPEMARK_COMPARE_SHOTS` names. `scripts/verify/e7-11/shots.sh`
-    /// runs it.
+    /// folder `WIPEMARK_COMPARE_SHOTS` names; in the dark theme with
+    /// `WIPEMARK_COMPARE_DARK` set. `scripts/verify/e7-11/shots.sh` runs it, on
+    /// Linux and on macOS (`crate::footage`, D848).
     #[test]
     #[ignore]
     fn compare_screenshots() {
@@ -6278,6 +6400,7 @@ mod tests {
             .ok()
             .and_then(|lines| lines.parse().ok())
             .unwrap_or(40.0);
+        let dark = std::env::var_os("WIPEMARK_COMPARE_DARK").is_some();
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/compare/long-paragraphs");
         let original = std::fs::read_to_string(fixture.join("original.txt")).expect("original");
@@ -6289,11 +6412,7 @@ mod tests {
             ("result-wrapped", true, false),
             ("padded", true, true),
         ] {
-            let mut cx = HeadlessAppContext::with_platform(
-                gpui_platform::current_platform(true).text_system(),
-                Arc::new(crate::assets::WipemarkAssets),
-                gpui_platform::current_headless_renderer,
-            );
+            let mut cx = crate::footage::context();
             cx.update(gpui_component::init);
             let comparison = Comparison {
                 wrap: padded,
@@ -6307,6 +6426,9 @@ mod tests {
             let subject = of(Handed::Text(original.clone()));
             let window = cx
                 .open_window(size(px(1400.0), px(820.0)), move |window, cx| {
+                    if dark {
+                        crate::theme::ThemePreference::Dark.apply(Some(window), cx);
+                    }
                     let view = cx.new(|cx| {
                         CompareView::new(subject, comparison, None, None, None, window, cx)
                     });

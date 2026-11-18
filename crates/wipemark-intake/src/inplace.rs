@@ -8,7 +8,9 @@
 //! than in the CLI because nothing can depend on an application, and here
 //! rather than in a crate of its own because this crate already names the
 //! set-aside copy ([`with_infix`], [`ORIGINAL_INFIX`]) and every surface
-//! already depends on it. It needs nothing but `std`.
+//! already depends on it. It needs nothing but `std` — and, on Windows,
+//! a file's index on its volume, which `std` does not yet hand out
+//! ([`same_file`]).
 //!
 //! # Never into an existing file
 //!
@@ -453,9 +455,10 @@ fn staged(temporary: &Path, bytes: &[u8], model: Option<&Path>) -> io::Result<()
 // Moved from the CLI's `input.rs` (E4-4), for the queue's own check.
 
 /// Whether `out` names the same file as `input` — the same inode on
-/// Unix, so `-o note.md`, `-o ./note.md`, a symlink and a hard link to
-/// the input are all caught; the same canonical path elsewhere. False
-/// when `out` does not exist: nothing can be overwritten there.
+/// Unix, the same file index on the same volume on Windows — so
+/// `-o note.md`, `-o ./note.md`, a symlink and a hard link to the input
+/// are all caught. False when `out` does not exist: nothing can be
+/// overwritten there.
 pub fn same_file(input: &Path, out: &Path) -> bool {
     let (Ok(input_meta), Ok(out_meta)) = (std::fs::metadata(input), std::fs::metadata(out)) else {
         return false;
@@ -468,10 +471,45 @@ pub fn same_file(input: &Path, out: &Path) -> bool {
     #[cfg(not(unix))]
     {
         let _ = (input_meta, out_meta);
+        #[cfg(windows)]
+        if let (Some(input), Some(out)) = (windows::file_id(input), windows::file_id(out)) {
+            return input == out;
+        }
         match (std::fs::canonicalize(input), std::fs::canonicalize(out)) {
             (Ok(input), Ok(out)) => input == out,
             _ => false,
         }
+    }
+}
+
+/// A file's identity on Windows, which `std` reads but does not yet hand
+/// out (`MetadataExt::file_index` is unstable): the volume's serial number
+/// and the file's index on it, from `GetFileInformationByHandle`, through
+/// `winapi-util` — this crate forbids `unsafe`. Two names of one file — a
+/// hard link, a path through `..` or a link — share both.
+#[cfg(windows)]
+mod windows {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    use std::path::Path;
+
+    /// Lets a folder be opened too, as `std::fs::metadata` opens one.
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+
+    /// `(volume serial number, file index)` of what `path` names, through
+    /// a link — `None` when it cannot be opened, or when its file system
+    /// numbers nothing (an index of 0, which some network shares give
+    /// every file).
+    pub(super) fn file_id(path: &Path) -> Option<(u64, u64)> {
+        // No access asked for: the attributes are readable without it, and
+        // a file another program holds open still opens.
+        let file = std::fs::OpenOptions::new()
+            .access_mode(0)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+            .ok()?;
+        let information = winapi_util::file::information(&file).ok()?;
+        let index = information.file_index();
+        (index != 0).then(|| (information.volume_serial_number(), index))
     }
 }
 
@@ -481,7 +519,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        copy, original_beside, replace, replace_with, temporary_for, write_atomically,
+        copy, original_beside, replace, replace_with, same_file, temporary_for, write_atomically,
         write_atomically_if, write_atomically_with, write_first_free, write_new, write_new_with,
         Failure, Keep, Replaced,
     };
@@ -908,9 +946,6 @@ mod tests {
         assert_eq!(scratch.names(), ["note.md"]);
     }
 
-    /// A write never goes into the destination's inode: a hard link to it
-    /// keeps the old bytes, and no temporary file is left.
-    #[cfg(unix)]
     /// A publish that waits on a check (D443): `still` is asked after the
     /// temporary is staged — the destination it sees is what the check
     /// sees — and a `false` publishes nothing and leaves no temporary
@@ -949,6 +984,8 @@ mod tests {
         assert_eq!(scratch.names(), vec!["x.cleaned.md"]);
     }
 
+    /// A write never goes into the destination's inode: a hard link to it
+    /// keeps the old bytes, and no temporary file is left.
     #[test]
     fn an_atomic_write_replaces_the_entry_and_not_the_inode() {
         let scratch = Scratch::new("atomic");
@@ -961,5 +998,34 @@ mod tests {
         assert_eq!(read(&file), b"new");
         assert_eq!(read(&link), b"old", "the write went into the inode");
         assert_eq!(scratch.names(), ["link.md", "out.md"]);
+    }
+
+    /// One file under two names is one file — its own name, a road through
+    /// `..`, a hard link — on every platform: what keeps `-o`, the queue
+    /// and Compare's save off the source. Another file with the same bytes
+    /// is not it, and a name with nothing behind it is nothing to write
+    /// over. On Windows a hard link has another canonical path: compare
+    /// paths there, as before, and the hard link is not the file: red.
+    #[test]
+    fn one_file_under_two_names_is_one_file() {
+        let scratch = Scratch::new("same-file");
+        let file = scratch.0.join("note.md");
+        std::fs::write(&file, b"the source").expect("write");
+        std::fs::create_dir(scratch.0.join("sub")).expect("a folder");
+        let hard = scratch.0.join("hard.md");
+        std::fs::hard_link(&file, &hard).expect("a hard link");
+        let twin = scratch.0.join("twin.md");
+        std::fs::write(&twin, b"the source").expect("write");
+
+        assert!(same_file(&file, &file), "its own name");
+        assert!(
+            same_file(&file, &scratch.0.join("sub/../note.md")),
+            "through .."
+        );
+        assert!(same_file(&file, &hard), "a hard link");
+        assert!(same_file(&hard, &file), "a hard link, the other way");
+        assert!(!same_file(&file, &twin), "another file with its bytes");
+        assert!(!same_file(&file, &scratch.0.join("absent.md")));
+        assert!(!same_file(&scratch.0.join("absent.md"), &file));
     }
 }

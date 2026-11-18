@@ -26,7 +26,7 @@
 //!    command line wrote too — so the spelling lives here, where both
 //!    applications can reach it, and not in either of them.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::format::Format;
 
@@ -257,6 +257,12 @@ pub fn of(name: &str) -> Option<Format> {
 /// `notes.txt` as a *file* loses the document, while failing to notice
 /// a path only means the user drops the file itself instead.
 ///
+/// The root is this platform's: on Windows a drive's (`C:\…`, `C:/…`) or a
+/// share's (`\\server\share\…`), the paths [`Path::is_absolute`] calls
+/// absolute there. One pair of double quotes around the whole line is
+/// taken off first, on every platform — Explorer's *Copy as path* puts
+/// them there, and the same characters name the same file everywhere.
+///
 /// Whether the path exists is not asked here. That is a question with
 /// I/O in it, and this module answers from the string alone.
 pub fn path_in(text: &str) -> Option<PathBuf> {
@@ -264,6 +270,13 @@ pub fn path_in(text: &str) -> Option<PathBuf> {
     if line.is_empty() || line.lines().count() > 1 {
         return None;
     }
+    let line = match line
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+    {
+        Some(quoted) if !quoted.is_empty() && !quoted.contains('"') => quoted,
+        _ => line,
+    };
 
     if let Some(rest) = line.strip_prefix("file://") {
         // `file://localhost/x` and `file:///x` both name `/x`; the
@@ -273,13 +286,24 @@ pub fn path_in(text: &str) -> Option<PathBuf> {
         if !rest.starts_with('/') {
             return None;
         }
-        return Some(PathBuf::from(unescape(rest)));
+        let mut path = unescape(rest);
+        // `file:///C:/Users/me/a.png` names `C:/Users/me/a.png` on
+        // Windows; elsewhere `/C:` is a folder like any other.
+        if cfg!(windows) && is_drive(&path[1..]) {
+            path.remove(0);
+        }
+        return Some(PathBuf::from(path));
     }
 
-    if line.starts_with('/') || line.starts_with("~/") {
+    if line.starts_with('/') || line.starts_with("~/") || Path::new(line).is_absolute() {
         return Some(PathBuf::from(line));
     }
     None
+}
+
+/// Whether `text` begins with a drive, `C:`.
+fn is_drive(text: &str) -> bool {
+    matches!(text.as_bytes(), [letter, b':', ..] if letter.is_ascii_alphabetic())
 }
 
 /// Percent-decoding, which is the only part of URL syntax a `file:` URL
@@ -476,6 +500,63 @@ mod tests {
         assert_eq!(
             path_in("file://localhost/tmp/a.png"),
             Some(PathBuf::from("/tmp/a.png"))
+        );
+    }
+
+    /// A path in one pair of double quotes — what Explorer's *Copy as
+    /// path* puts on the clipboard — is the path, on every platform, so the
+    /// same characters name the same file everywhere. Quotes that are part
+    /// of a sentence are not a pair around a path. Take the quotes off
+    /// nowhere and the first line is prose: red.
+    #[test]
+    fn a_path_in_double_quotes_is_the_path() {
+        assert_eq!(
+            path_in("\"/Users/me/my notes.txt\"\n"),
+            Some(PathBuf::from("/Users/me/my notes.txt"))
+        );
+        assert_eq!(
+            path_in("\"file:///tmp/a.png\""),
+            Some(PathBuf::from("/tmp/a.png"))
+        );
+        assert_eq!(path_in("\"/tmp/a\" and \"/tmp/b\""), None);
+        assert_eq!(path_in("\"/tmp/a.png"), None);
+        assert_eq!(path_in("\"\""), None);
+    }
+
+    /// A Windows path is a path on Windows: a drive's, with either slash,
+    /// quoted as Explorer copies it, a share's, and a `file:` URL with a
+    /// drive in it. A drive with no root after it is relative to that
+    /// drive's working folder, and is not. Recognise only `/` as a root
+    /// and every one of them is prose: red.
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_path_is_recognised_on_windows() {
+        for (line, path) in [
+            (r"C:\Users\me\notes.txt", r"C:\Users\me\notes.txt"),
+            ("C:/Users/me/notes.txt", r"C:\Users\me\notes.txt"),
+            (r#""C:\Users\me\my notes.txt""#, r"C:\Users\me\my notes.txt"),
+            (r"\\server\share\a.png", r"\\server\share\a.png"),
+            (
+                "file:///C:/Users/me/my%20notes.txt",
+                r"C:\Users\me\my notes.txt",
+            ),
+        ] {
+            assert_eq!(path_in(line), Some(PathBuf::from(path)), "{line}");
+        }
+        assert_eq!(path_in("C:notes.txt"), None);
+        assert_eq!(path_in(r"notes\a.txt"), None);
+    }
+
+    /// Off Windows a drive letter is the start of a relative name, and the
+    /// path has to begin at the root.
+    #[cfg(unix)]
+    #[test]
+    fn a_drive_letter_is_not_a_root_off_windows() {
+        assert_eq!(path_in(r"C:\Users\me\notes.txt"), None);
+        assert_eq!(path_in("C:/Users/me/notes.txt"), None);
+        assert_eq!(
+            path_in("file:///C:/notes.txt"),
+            Some(PathBuf::from("/C:/notes.txt"))
         );
     }
 

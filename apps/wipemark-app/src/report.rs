@@ -53,6 +53,7 @@ use wipemark_pixels::{
 
 use crate::clean::{Outcome, Report};
 use crate::dialog::{self, Answer, Dismiss, Next, Previous};
+use crate::spot::spot;
 use crate::wording::{self, Say};
 
 /// One line of a shelf, and how far it is indented under the one before.
@@ -82,6 +83,16 @@ pub struct Sheet {
     pub best_effort: Vec<Line>,
     pub not_established: Vec<Line>,
 }
+
+/// The sections' names, in [`Sheet::sections`]' order: what the footage
+/// tests call each one's rectangles (`crate::spot`).
+pub const SECTIONS: [&str; 5] = [
+    "arrived",
+    "happened",
+    "verifiable",
+    "best-effort",
+    "not-established",
+];
 
 impl Sheet {
     /// The sections, titled, in the order they are shown.
@@ -263,16 +274,31 @@ fn text_shelves(say: Say, report: &CleanReport) -> (Vec<Line>, Vec<Line>) {
     let mut best_effort = Vec::new();
     for finding in &report.kept {
         best_effort.push(Line::top(finding_line(say, finding)));
-        best_effort.push(Line::under(say(
-            if finding.class == UnicodeClass::Homoglyph {
-                Message::WindowReportKeptHomoglyph
-            } else {
-                Message::WindowReportKeptInPlace
-            },
-            &none(),
-        )));
+        best_effort.push(Line::under(say(kept_reason(finding.class), &none())));
     }
     (verifiable, best_effort)
+}
+
+/// Why a kept character of `class` was kept. A window cleans at the
+/// default `Options`, which keep two classes whole — a letter from
+/// another script and a space other than U+0020 — and remove every
+/// other, so a row of any other class is in `kept` only where context
+/// kept it (`dev/architecture/layer-a.md`). Exhaustive, so a twelfth
+/// class does not compile here until it has a reason.
+fn kept_reason(class: UnicodeClass) -> Message {
+    match class {
+        UnicodeClass::Homoglyph => Message::WindowReportKeptHomoglyph,
+        UnicodeClass::ExoticSpace => Message::WindowReportKeptSpace,
+        UnicodeClass::ZeroWidth
+        | UnicodeClass::ZeroWidthJoiner
+        | UnicodeClass::BidiControl
+        | UnicodeClass::TagCharacter
+        | UnicodeClass::VariationSelector
+        | UnicodeClass::SoftHyphen
+        | UnicodeClass::Noncharacter
+        | UnicodeClass::PrivateUse
+        | UnicodeClass::DefaultIgnorable => Message::WindowReportKeptInPlace,
+    }
 }
 
 /// "U+200B ZERO WIDTH SPACE · zero-width character · confirmed · 3 times".
@@ -836,24 +862,33 @@ impl Render for ReportView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let copied = SharedString::from(wording::window(Message::WindowReportCopied, &none()));
-        let sections = self.sheet.sections().map(|(title, lines)| {
-            v_flex()
-                .gap_1()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_semibold()
-                        .text_color(theme.foreground)
-                        .child(SharedString::from(wording::window(title, &none()))),
-                )
-                .children(lines.iter().map(|line| {
-                    div()
-                        .pl(px(12.0 * line.depth as f32))
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(SharedString::from(line.text.clone()))
-                }))
-        });
+        let sections =
+            self.sheet
+                .sections()
+                .into_iter()
+                .zip(SECTIONS)
+                .map(|((title, lines), section)| {
+                    v_flex()
+                        .gap_1()
+                        .child(spot(
+                            || format!("report-heading-{section}"),
+                            div()
+                                .text_xs()
+                                .font_semibold()
+                                .text_color(theme.foreground)
+                                .child(SharedString::from(wording::window(title, &none()))),
+                        ))
+                        .children(lines.iter().enumerate().map(|(at, line)| {
+                            spot(
+                                move || format!("report-line-{section}-{at}"),
+                                div()
+                                    .pl(px(12.0 * line.depth as f32))
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child(SharedString::from(line.text.clone())),
+                            )
+                        }))
+                });
 
         dialog::backdrop(cx)
             .id("report-backdrop")
@@ -877,7 +912,8 @@ impl Render for ReportView {
                 cx.stop_propagation();
                 view.close(cx);
             }))
-            .child(
+            .child(spot(
+                || "report-panel".to_owned(),
                 v_flex()
                     .id("report-panel")
                     .track_focus(&self.focus)
@@ -894,13 +930,18 @@ impl Render for ReportView {
                     .text_color(theme.popover_foreground)
                     .shadow_lg()
                     .on_click(|_: &ClickEvent, _, cx| cx.stop_propagation())
-                    .child(div().text_sm().font_semibold().child(SharedString::from(
-                        wording::window(
-                            Message::WindowReportTitle,
-                            &args!("name" => self.sheet.title.clone()),
-                        ),
-                    )))
-                    .child(
+                    .child(spot(
+                        || "report-title".to_owned(),
+                        div()
+                            .text_sm()
+                            .font_semibold()
+                            .child(SharedString::from(wording::window(
+                                Message::WindowReportTitle,
+                                &args!("name" => self.sheet.title.clone()),
+                            ))),
+                    ))
+                    .child(spot(
+                        || "report-body".to_owned(),
                         v_flex()
                             .id("report-body")
                             .flex_1()
@@ -908,8 +949,9 @@ impl Render for ReportView {
                             .overflow_y_scroll()
                             .gap_3()
                             .children(sections),
-                    )
-                    .child(
+                    ))
+                    .child(spot(
+                        || "report-buttons".to_owned(),
                         h_flex()
                             .w_full()
                             .gap_2()
@@ -959,10 +1001,13 @@ impl Render for ReportView {
                                     )))
                                     .on_click(cx.listener(|view, _, _, cx| view.close(cx))),
                             ),
-                    ),
-            )
+                    )),
+            ))
     }
 }
+
+#[cfg(test)]
+mod footage_tests;
 
 #[cfg(test)]
 mod tests {
@@ -971,6 +1016,7 @@ mod tests {
     use chrono::{TimeZone as _, Utc};
     use gpui::prelude::*;
     use gpui::{Entity, TestAppContext, VisualTestContext};
+    use wipemark_core::{Confidence, UnicodeClass};
     use wipemark_i18n::{available_languages, FluentArgs, Localizer, Message, Rendering};
     use wipemark_intake::Handed;
 
@@ -1131,6 +1177,188 @@ mod tests {
         );
     }
 
+    /// One of everything a window's clean finds and keeps: spaces other
+    /// than U+0020 and a Cyrillic a, kept because that is what the default
+    /// settings do with them, and what context keeps — the joiners of a
+    /// family, a heart's VS16, a flag's tags, a Hangul filler, the
+    /// non-joiner of a Persian word and a Hebrew paragraph's mark.
+    const KEPT: &str = concat!(
+        "# Kept\n\n",
+        "A no-break\u{00A0}space, a narrow\u{202F}one, a zero\u{200B}width space, ",
+        "and \u{0430} Cyrillic a.\n\n",
+        "A family \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}, a heart \u{2764}\u{FE0F}, ",
+        "a flag \u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F} ",
+        "and a syllable \u{1100}\u{1160}\u{11A8}.\n\n",
+        "\u{0645}\u{06CC}\u{200C}\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}\n\n",
+        "\u{05E9}\u{05DC}\u{05D5}\u{05DD}\u{200F}!\n",
+    );
+
+    /// Every kept character is told its own reason. "Where it does a job"
+    /// is said of what context kept — the rows Layer A marks as likely not
+    /// a mark — and of nothing else: a no-break space is inside no emoji
+    /// and no script needs it, so a space has a sentence of its own, as a
+    /// letter from another script has.
+    #[test]
+    fn a_kept_character_is_said_to_do_a_job_only_where_context_kept_it() {
+        let scratch = Scratch::new("kept");
+        let (arrival, outcome) = cleaned(&scratch, "kept.md", KEPT.as_bytes());
+        let Some(Report::Text(report)) = &outcome.report else {
+            panic!("{:?}", outcome.verdict);
+        };
+        let classes: Vec<UnicodeClass> = report.kept.iter().map(|row| row.class).collect();
+        for class in [
+            UnicodeClass::ZeroWidth,
+            UnicodeClass::ZeroWidthJoiner,
+            UnicodeClass::BidiControl,
+            UnicodeClass::TagCharacter,
+            UnicodeClass::VariationSelector,
+            UnicodeClass::ExoticSpace,
+            UnicodeClass::DefaultIgnorable,
+            UnicodeClass::Homoglyph,
+        ] {
+            assert!(classes.contains(&class), "no kept {class:?}: {classes:?}");
+        }
+
+        let localizer = english();
+        let say = |message: Message, args: &FluentArgs| localizer.format_args(message, args);
+        let sheet = sheet(&say, &arrival.intake, &outcome);
+        let in_place = say(Message::WindowReportKeptInPlace, &FluentArgs::new());
+        let homoglyph = say(Message::WindowReportKeptHomoglyph, &FluentArgs::new());
+        let space = say(Message::WindowReportKeptSpace, &FluentArgs::new());
+        assert_eq!(
+            sheet.best_effort.len(),
+            report.kept.len() * 2,
+            "{:?}",
+            sheet.best_effort
+        );
+        for (row, lines) in report.kept.iter().zip(sheet.best_effort.chunks(2)) {
+            let (character, reason) = (&lines[0], &lines[1]);
+            let codepoint = format!("U+{:04X} ", u32::from(row.codepoint));
+            assert!(
+                character.depth == 0 && character.text.starts_with(&codepoint),
+                "{codepoint}: {character:?}"
+            );
+            assert_eq!(reason.depth, 1, "{codepoint}: {reason:?}");
+            assert_eq!(
+                reason.text == in_place,
+                row.confidence == Confidence::LikelyFalsePositive,
+                "{codepoint}{:?}, {:?}: {}",
+                row.class,
+                row.confidence,
+                reason.text
+            );
+            assert_eq!(
+                reason.text == homoglyph,
+                row.class == UnicodeClass::Homoglyph,
+                "{codepoint}{:?}: {}",
+                row.class,
+                reason.text
+            );
+            assert_eq!(
+                reason.text == space,
+                row.class == UnicodeClass::ExoticSpace,
+                "{codepoint}{:?}: {}",
+                row.class,
+                reason.text
+            );
+        }
+    }
+
+    /// `fixtures/demo/reply.txt`, the text feature video's demo text, as the
+    /// video shows it: what `inspect` would do and `clean` does, at which
+    /// bytes, the row's verdict and the count it says, and the Report's
+    /// lines — each removed character on the verifiable shelf, each kept
+    /// one on the best-effort shelf with its own reason under it.
+    #[test]
+    fn the_demo_reply_is_said_as_the_video_shows_it() {
+        use wipemark_core::{Options, UnicodeFinding};
+        use Confidence::{Confirmed, Informational, LikelyFalsePositive, Probable};
+        use UnicodeClass::{ExoticSpace, Homoglyph, SoftHyphen, ZeroWidth, ZeroWidthJoiner};
+
+        let bytes = std::fs::read(format!(
+            "{}/../../fixtures/demo/reply.txt",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect("fixture");
+        let text = std::str::from_utf8(&bytes).expect("UTF-8");
+        let row = |codepoint, class, confidence, at: usize| UnicodeFinding {
+            codepoint,
+            class,
+            count: 1,
+            positions: vec![at],
+            confidence,
+        };
+        // By class, in `UnicodeClass::ALL`'s order, then by code point.
+        let removed = vec![
+            row('\u{200B}', ZeroWidth, Confirmed, 6),
+            row('\u{2060}', ZeroWidth, Confirmed, 139),
+            row('\u{AD}', SoftHyphen, Informational, 73),
+        ];
+        let kept = vec![
+            row('\u{200D}', ZeroWidthJoiner, LikelyFalsePositive, 84),
+            row('\u{A0}', ExoticSpace, Informational, 44),
+            row('\u{430}', Homoglyph, Probable, 112),
+        ];
+        let looked = wipemark_core::inspect(text, &Options::default());
+        assert_eq!(looked.findings, removed, "inspect: what would go");
+        assert_eq!(looked.kept, kept, "inspect: what would stay");
+        let done = wipemark_core::clean(text, &Options::default());
+        assert_eq!(done.report.findings, removed, "clean: what went");
+        assert_eq!(done.report.kept, kept, "clean: what stayed");
+        assert_eq!(
+            done.text,
+            text.replace(['\u{200B}', '\u{AD}', '\u{2060}'], ""),
+            "clean: anything but the three moved"
+        );
+
+        let scratch = Scratch::new("demo-reply");
+        let (arrival, outcome) = cleaned(&scratch, "reply.txt", &bytes);
+        assert_eq!(outcome.verdict.id(), "cleaned");
+        let localizer = english();
+        let say = |message: Message, args: &FluentArgs| localizer.format_args(message, args);
+        let sheet = sheet(&say, &arrival.intake, &outcome);
+        assert_eq!(
+            sheet.happened[0].text,
+            "3 characters were removed or replaced."
+        );
+        let lines = |shelf: &[super::Line]| -> Vec<(usize, String)> {
+            shelf.iter().map(|l| (l.depth, l.text.clone())).collect()
+        };
+        let top = |text: &str| (0, text.to_owned());
+        let under = |message: Message| (1, say(message, &FluentArgs::new()));
+        assert_eq!(
+            lines(&sheet.verifiable),
+            [
+                top("U+200B ZERO WIDTH SPACE · zero-width character · confirmed · once"),
+                top("U+2060 WORD JOINER · zero-width character · confirmed · once"),
+                top("U+00AD SOFT HYPHEN · soft hyphen · for information · once"),
+                top(&format!(
+                    "Checked against Unicode {}.",
+                    done.report.unicode_version
+                )),
+            ]
+        );
+        assert_eq!(
+            lines(&sheet.best_effort),
+            [
+                top("U+200D ZERO WIDTH JOINER · zero-width joiner · likely not a mark · once"),
+                under(Message::WindowReportKeptInPlace),
+                top("U+00A0 NO-BREAK SPACE · unusual space · for information · once"),
+                under(Message::WindowReportKeptSpace),
+                top(
+                    "U+0430 CYRILLIC SMALL LETTER A · letter from another script · probable · once"
+                ),
+                under(Message::WindowReportKeptHomoglyph),
+            ]
+        );
+        assert_eq!(
+            sheet.not_established.len(),
+            3,
+            "{:?}",
+            sheet.not_established
+        );
+    }
+
     /// The Markdown copy in every language: no isolate, nothing Layer A
     /// would remove, all five titles — over every ending.
     #[test]
@@ -1265,15 +1493,16 @@ mod tests {
     }
 
     /// The Markdown copy spells what nobody wrote for Markdown: a file
-    /// named with a U+200B and Markdown's characters, in every language,
-    /// leaves no character Layer A would remove in the copy, and reads
-    /// back as its own name with the invisible character spelled.
+    /// named with a U+200B and Markdown's characters — those a name carries
+    /// on every platform — in every language, leaves no character Layer A
+    /// would remove in the copy, and reads back as its own name with the
+    /// invisible character spelled.
     #[test]
     fn the_markdown_copy_spells_and_escapes_a_name() {
         let scratch = Scratch::new("named");
-        let name = "a\u{200B}b*c_d`e[f]#g.md";
+        let name = "a\u{200B}b_c`d[e]#f.md";
         let (arrival, outcome) = cleaned(&scratch, name, MARKED.as_bytes());
-        let spelled = "aU+200Bb*c_d`e[f]#g";
+        let spelled = "aU+200Bb_c`d[e]#f";
         for language in available_languages() {
             let localizer =
                 Localizer::for_languages(std::slice::from_ref(&language.id), Rendering::PlainText);
@@ -1287,7 +1516,7 @@ mod tests {
                 found.findings
             );
             assert!(
-                copy.contains("aU+200Bb\\*c\\_d\\`e\\[f\\]\\#g"),
+                copy.contains("aU+200Bb\\_c\\`d\\[e\\]\\#f"),
                 "{}: the name is not escaped: {copy}",
                 language.id
             );
@@ -1301,12 +1530,13 @@ mod tests {
         }
     }
 
-    /// `|`, `<` and `>` are Markdown too — a table's cell, an HTML tag — and
-    /// no file name carries them on every platform, so the line is spelled
-    /// here directly (X6).
+    /// `|`, `<`, `>` and `*` are Markdown too — a table's cell, an HTML
+    /// tag, emphasis — and no file name carries them on every platform (a
+    /// Windows one carries none of them), so the line is spelled here
+    /// directly (X6).
     #[test]
     fn the_markdown_copy_escapes_what_a_name_cannot_carry() {
-        assert_eq!(super::spelled("a|b<c>d\\e"), "a\\|b\\<c\\>d\\\\e");
+        assert_eq!(super::spelled("a|b<c>d\\e*f"), "a\\|b\\<c\\>d\\\\e\\*f");
     }
 
     /// A ZWJ Layer A keeps inside an emoji is not spelled because the same

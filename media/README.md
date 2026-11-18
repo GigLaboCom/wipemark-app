@@ -13,6 +13,7 @@ regenerated").
 | [`screenshots/`](screenshots/README.md) | the stills and the short clips, from a release build run on a demo folder, captured window by window | `media/out/screenshots/`, `media/out/clips/` |
 | `video/` | the intro video, its poster, a short loop and its captions, composed from the clips and stills | `media/out/video/` |
 | `site-images/` | the website's favicon, touch icon, header logo, glyph sprite and Open Graph picture, from the application's own icon and glyphs | `media/out/site/` |
+| `footage/` | a feature video's real-product frames, drawn headless by GPUI's own renderer from ignored tests (no window, no screen capture), with each clip's marks, named rectangles and pointer track, and the command line's JSON for the same text | `media/out/_takes/<video>/` |
 
 `scripts/site/build.sh` puts the website's pages (`site/`) and these outputs
 together in `site/dist/`.

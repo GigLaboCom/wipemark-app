@@ -76,7 +76,9 @@ fn read(path: &Path) -> (Raster, bool) {
         let buf = &buf[..info.buffer_size()];
         let sixteen = info.bit_depth == png::BitDepth::Sixteen;
         let values: Vec<u16> = if sixteen {
-            buf.chunks_exact(2)
+            buf.as_chunks::<2>()
+                .0
+                .iter()
                 .map(|b| u16::from_be_bytes([b[0], b[1]]))
                 .collect()
         } else {

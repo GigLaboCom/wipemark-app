@@ -2160,7 +2160,7 @@ mod prompt_rows_tests {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use wipemark_i18n::LanguagePreference;
@@ -2211,6 +2211,17 @@ mod tests {
         ));
         fs::create_dir_all(&dir).expect("scratch dir");
         dir
+    }
+
+    /// `unix` as an absolute path on this platform: itself, and on Windows
+    /// on drive C, where a path with no drive is not absolute and a row
+    /// holding one reads as the default.
+    fn absolute(unix: &str) -> PathBuf {
+        if cfg!(windows) {
+            PathBuf::from(format!("C:{}", unix.replace('/', "\\")))
+        } else {
+            PathBuf::from(unix)
+        }
     }
 
     fn store() -> Store {
@@ -2594,14 +2605,12 @@ mod tests {
             None,
             "a first launch uses the default"
         );
-        write_models_dir(&store, Some(Path::new("/Volumes/Big/models"))).expect("write");
+        let folder = absolute("/Volumes/Big/models");
+        write_models_dir(&store, Some(&folder)).expect("write");
         drop(store);
 
         let store = Store::open(&path).expect("reopen");
-        assert_eq!(
-            read_models_dir(&store),
-            Some(PathBuf::from("/Volumes/Big/models"))
-        );
+        assert_eq!(read_models_dir(&store), Some(folder));
 
         // Back to the default is a row that says so, not a deleted one:
         // every key in `PERSISTED` exists once it has been touched.
@@ -2668,7 +2677,8 @@ mod tests {
 
         let store = Store::open(&path).expect("open");
         write_results_destination(&store, Destination::Replace).expect("destination");
-        write_results_folder(&store, Some(Path::new("/Volumes/Work/cleaned"))).expect("folder");
+        let folder = absolute("/Volumes/Work/cleaned");
+        write_results_folder(&store, Some(&folder)).expect("folder");
         write_keep_originals(&store, true).expect("originals");
         write_keep_results(&store, true).expect("results");
         write_keep_for(&store, Period::Quarter).expect("period");
@@ -2679,7 +2689,7 @@ mod tests {
             read_retention(&store),
             Retention {
                 destination: Destination::Replace,
-                folder: Some(PathBuf::from("/Volumes/Work/cleaned")),
+                folder: Some(folder),
                 keep_originals: true,
                 keep_results: true,
                 keep_for: Period::Quarter,
@@ -3394,7 +3404,7 @@ mod tests {
                 name: name.to_owned(),
                 roles: vec![Role::Rewrite],
                 ctx: 8192,
-                path: std::path::PathBuf::from("/models/theirs/m.gguf"),
+                path: absolute("/models/theirs/m.gguf"),
                 size_bytes: 11,
                 sha256: "0".repeat(64),
                 identity: "11:1:2:3".to_owned(),

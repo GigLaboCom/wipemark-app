@@ -27,8 +27,11 @@ pub const PIN: &str = "ggml-0.22.0+llama-0eadefe";
 /// pinned llama.cpp commit, built with this crate's configuration.
 pub const PREBUILT_REPO: &str = "https://github.com/GigLaboCom/llama-cpp-prebuilt";
 /// The release of [`PREBUILT_REPO`] that carries [`LLAMA_COMMIT`]. The
-/// producer tags a release with the llama.cpp tag it builds.
-pub const PREBUILT_TAG: &str = "b10731";
+/// producer tags a pin's first build with the llama.cpp tag and a later
+/// build of the same llama.cpp with that tag and a build number:
+/// `b10731-2` is Windows with the static C runtime, no OpenMP and its one
+/// patch (`vendor/patches/`), the other targets built again unchanged.
+pub const PREBUILT_TAG: &str = "b10731-2";
 
 /// The sha256 of `llama-cpp-<PREBUILT_TAG>-<target>.tar.gz` for every
 /// target the release publishes, read off the downloaded archives — not
@@ -39,19 +42,19 @@ pub const PREBUILT_TAG: &str = "b10731";
 pub const PREBUILT_SHA256: [(&str, &str); 4] = [
     (
         "x86_64-unknown-linux-gnu",
-        "0352d4924d84d634278a4ee14cd8429ad7bd9cfab6e5fbc49572754f1463df45",
+        "4621ccb45a2af78f3ce60d0ff66d765d75c77b44611693fe7b449ee32401dc60",
     ),
     (
         "aarch64-unknown-linux-gnu",
-        "731d0e26d8d2a9f4d7822386a4af0c4b6dc693b9b105e00583c9dd0c59db050b",
+        "989d8a6e9fb6a42a43afa0e4c14e2f136da2ae551ab19f71070a95734049881f",
     ),
     (
         "x86_64-pc-windows-msvc",
-        "3a62da8b3f451add07c26163f08dc5ae4f029e360974356a7b8d8d4ee1db74cc",
+        "031a5b0017e26c6f29b87ad0076c6770453403d36c54633144cf5637f92e0d1c",
     ),
     (
         "aarch64-apple-darwin",
-        "5686acb21e5e87c9a5ab1df870e4d6d110332ed7f9da6be10590ca0912fac919",
+        "d6bc9a72e4c248ca50d66acdc9810e19d1a9f0e17c5d994497d83a202ca5adb7",
     ),
 ];
 

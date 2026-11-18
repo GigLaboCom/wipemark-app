@@ -193,6 +193,7 @@ use crate::journal::{self, Work, Writer, Written};
 use crate::preview::{Excerpt, Picture, Preview};
 use crate::previews::Source;
 use crate::settings::Preferences;
+use crate::spot::spot;
 use crate::wording::{self, Badge, Tone};
 
 /// How tall a row is.
@@ -1183,6 +1184,18 @@ pub fn arrived_label(at: DateTime<Local>, now: DateTime<Local>) -> String {
     }
 }
 
+/// The local time now — when a row arrives, and what Arrived is said
+/// against. A footage test holds it still (`footage_tests::hold_clock`),
+/// so a frame reads the same time on every run. Compare's *Saved hh:mm*
+/// reads it too.
+pub(crate) fn local_now() -> DateTime<Local> {
+    #[cfg(test)]
+    if let Some(held) = footage_tests::HELD_CLOCK.with(std::cell::Cell::get) {
+        return held;
+    }
+    Local::now()
+}
+
 /// The rows, and the drop target that fills them.
 pub struct Queue {
     /// In arrival order, always; the order on screen is [`Order`]'s.
@@ -1550,7 +1563,7 @@ impl Queue {
         // One number per thing across the windows (D280): the panel's
         // cleans draw from the same counter, so a gap is a clean there.
         let ids: Vec<u64> = arrivals.iter().map(|_| clean::number()).collect();
-        let now = Local::now();
+        let now = local_now();
         let arrived_ms = journal::now_ms();
         for (arrival, &id) in arrivals.iter().zip(&ids) {
             // Handed over on the panel, named on the application's command
@@ -2176,6 +2189,10 @@ fn holds(row: &Row, work: Option<&Work>, action: Action, home: &Home) -> bool {
 #[cfg(test)]
 mod across_tests;
 #[cfg(test)]
+mod footage_agents_tests;
+#[cfg(test)]
+pub(crate) mod footage_tests;
+#[cfg(test)]
 mod origin_tests;
 #[cfg(test)]
 mod preview_tests;
@@ -2619,9 +2636,13 @@ fn then_edited(row: &Row, sentence: String) -> String {
 fn status_cell(row: &Row, notes: Vec<String>, held: bool) -> AnyElement {
     let (tag, word, sentence) = status_said(row, notes, held);
     let sentence = SharedString::from(sentence);
+    let id = row.id;
     div()
         .id(("queue-status", row.id))
-        .child(tag.small().child(SharedString::from(word)))
+        .child(spot(
+            || format!("queue-status-{id}"),
+            tag.small().child(SharedString::from(word)),
+        ))
         .tip(sentence)
         .into_any_element()
 }
@@ -2733,7 +2754,10 @@ fn copyable(id: (&'static str, u64), value: Option<String>, cx: &App) -> AnyElem
     h_flex()
         .gap_1()
         .min_w(px(0.0))
-        .child(div().text_sm().truncate().child(shown))
+        .child(spot(
+            || format!("queue-{}-value-{}", id.0, id.1),
+            div().text_sm().truncate().child(shown),
+        ))
         // The tooltip on a frame of our own around the button rather than
         // the button's own, which gpui-component keeps up after the button
         // has gone (D796).
@@ -2768,35 +2792,46 @@ fn name_cell(row: &Row, cx: &App) -> AnyElement {
             .and_then(|arrival| wording::evidence_note(&arrival.intake)),
     };
 
+    let id = row.id;
     v_flex()
         .w_full()
         .min_w(px(0.0))
         .gap_0p5()
-        .child(
+        .child(spot(
+            || format!("queue-title-{id}"),
             div()
                 .text_sm()
                 .font_semibold()
                 .truncate()
                 .child(SharedString::from(row.look.title.clone())),
-        )
+        ))
         .children(folder.map(|folder| {
-            div()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .truncate()
-                .child(SharedString::from(folder))
+            spot(
+                || format!("queue-folder-{id}"),
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .truncate()
+                    .child(SharedString::from(folder)),
+            )
         }))
         .children(note.map(|(note, tone)| {
-            h_flex()
-                .gap_1()
-                .items_center()
-                .text_xs()
-                .text_color(match tone {
-                    Tone::Warning => theme.warning,
-                    Tone::Muted => theme.muted_foreground,
-                })
-                .child(Icon::new(IconName::CircleInfo).small())
-                .child(div().truncate().child(SharedString::from(note)))
+            spot(
+                || format!("queue-note-{id}"),
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .text_xs()
+                    .text_color(match tone {
+                        Tone::Warning => theme.warning,
+                        Tone::Muted => theme.muted_foreground,
+                    })
+                    .child(Icon::new(IconName::CircleInfo).small())
+                    .child(spot(
+                        || format!("queue-note-text-{id}"),
+                        div().truncate().child(SharedString::from(note)),
+                    )),
+            )
         }))
         .into_any_element()
 }
@@ -2843,21 +2878,24 @@ fn process_cell(
         |label: Message, icon: IconName, key: &'static str, why: Option<String>, run: Step| {
             let queue = queue.clone();
             let tooltip = SharedString::from(why.clone().unwrap_or_else(|| t(label)));
-            div()
-                .id((key, id))
-                .debug_selector(move || format!("{key}-{id}"))
-                .tip(tooltip)
-                .child(
-                    Button::new((key, id))
-                        .xsmall()
-                        .outline()
-                        .icon(icon)
-                        .label(SharedString::from(t(label)))
-                        .disabled(why.is_some())
-                        .on_click(move |_, _, cx| {
-                            queue.update(cx, |queue, cx| run(queue, cx));
-                        }),
-                )
+            spot(
+                move || format!("{key}-{id}"),
+                div()
+                    .id((key, id))
+                    .debug_selector(move || format!("{key}-{id}"))
+                    .tip(tooltip)
+                    .child(
+                        Button::new((key, id))
+                            .xsmall()
+                            .outline()
+                            .icon(icon)
+                            .label(SharedString::from(t(label)))
+                            .disabled(why.is_some())
+                            .on_click(move |_, _, cx| {
+                                queue.update(cx, |queue, cx| run(queue, cx));
+                            }),
+                    ),
+            )
         };
     h_flex()
         .gap_1()
@@ -3468,22 +3506,33 @@ impl Queue {
             move |window: &mut Window, cx: &mut App| compare_row(id, queue.clone(), window, cx)
         });
 
-        row_frame(row.id, open)
+        let id = row.id;
+        let row_element = row_frame(row.id, open)
             .border_b_1()
             .border_color(theme.table_row_border)
             .hover(|row| row.bg(theme.table_hover))
-            .child(Column::Preview.cell().child(preview_cell(row, lines, cx)))
-            .child(Column::Id.cell().child(copyable(
-                ("copy-id", row.id),
-                row.entry.map(|entry| entry.to_string()),
-                cx,
+            .child(Column::Preview.cell().child(spot(
+                || format!("queue-preview-{id}"),
+                preview_cell(row, lines, cx),
             )))
+            .child(spot(
+                || format!("queue-id-{id}"),
+                Column::Id.cell().child(copyable(
+                    ("copy-id", row.id),
+                    row.entry.map(|entry| entry.to_string()),
+                    cx,
+                )),
+            ))
             .child(Column::Keyword.cell().child(copyable(
                 ("copy-keyword", row.id),
                 row.keyword.clone(),
                 cx,
             )))
-            .child(Column::Name.cell().child(name_cell(row, cx)))
+            .child(
+                Column::Name
+                    .cell()
+                    .child(spot(|| format!("queue-name-{id}"), name_cell(row, cx))),
+            )
             .child(Column::Kind.cell().child(kind_tag(row.look.kind)))
             .child(Column::Status.cell().child(status_cell(
                 row,
@@ -3512,15 +3561,14 @@ impl Queue {
                     .text_color(theme.muted_foreground)
                     .child(SharedString::from(arrived_label(
                         row.arrived_at,
-                        Local::now(),
+                        local_now(),
                     ))),
             )
-            .child(
-                Column::Actions
-                    .cell()
-                    .child(actions_cell(self.actions_for(row, rewrite), cx.entity())),
-            )
-            .into_any_element()
+            .child(Column::Actions.cell().child(spot(
+                || format!("queue-actions-{id}"),
+                actions_cell(self.actions_for(row, rewrite), cx.entity()),
+            )));
+        spot(|| format!("queue-row-{id}"), row_element).into_any_element()
     }
 
     /// What `row`'s Actions menu offers, and why each greyed item is

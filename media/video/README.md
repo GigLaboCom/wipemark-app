@@ -53,7 +53,7 @@ third-party logo (client names appear as words, as the MCP page shows them).
 | 51.9–55.7 s | the command line | `cli.png` |
 | 55.5–63.7 s | agents over MCP: a `clean` call and its answer, the row it leaves (*From an agent*), then Settings › MCP, the address, the Claude Code snippet and the five tools | drawn, in the application's own words |
 | 63.5–67.9 s | private by default | drawn |
-| 67.7–72 s | the end card: version, platforms, the repository, the licence | icon |
+| 67.7–72 s | the end card: the platforms (macOS on Apple Silicon, Linux and Windows on x86_64, as of 2026-11-15; no version), the repository, the licence | icon |
 
 The MCP scene's cards are drawn, not captured: there is no screenshot of an
 agent's row or of Settings › MCP. Their words are the application's —

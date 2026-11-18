@@ -35,6 +35,12 @@
 //! background executor: the rule is the rule, and `config.toml` may sit
 //! on a network home directory.
 
+// A release build on Windows is a GUI program: started from Explorer or
+// the Start menu it opens no console window behind its own. A debug build
+// keeps the console, where its log goes. `wipemark-cli` is the program for
+// a terminal.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod assets;
 mod chrome;
 mod clean;
@@ -50,6 +56,10 @@ mod drop;
 mod duty;
 mod engine;
 mod engine_host;
+// The windows drawn as pictures with no display, for the screenshot and
+// footage tests (D848).
+#[cfg(test)]
+mod footage;
 // GNOME's own custom keyboard shortcuts, as the system-wide shortcut's
 // registrar on GNOME (D641).
 mod gnome;
@@ -93,6 +103,9 @@ mod setup;
 // SIGTERM, SIGINT and SIGHUP quit the way the tray's Quit does (D717).
 #[cfg(unix)]
 mod signals;
+// The rectangles the footage tests read off a frame; the element itself
+// outside tests.
+mod spot;
 mod theme;
 mod title;
 mod tray;

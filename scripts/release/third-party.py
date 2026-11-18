@@ -16,7 +16,8 @@ What it does
 1. Runs `cargo metadata --locked` with the release's features
    (wipemark-app/llama-native, wipemark-cli/llama-native) for the release's
    target: x86_64-unknown-linux-gnu, or the one --target names
-   (aarch64-apple-darwin for the macOS bundle, D779).
+   (aarch64-apple-darwin for the macOS bundle, D779; x86_64-pc-windows-msvc
+   for the Windows package, E10).
 2. Walks the resolve graph from `wipemark-app` and `wipemark-cli` through
    normal and build dependencies (never dev-dependencies): what a release
    build compiles.
@@ -38,7 +39,8 @@ How to run
 
 From the repository root, with the registry populated (a build has run, or
 `cargo fetch --locked`). scripts/release/linux/build.sh runs it, and
-scripts/release/macos/bundle.sh with --target aarch64-apple-darwin.
+scripts/release/macos/bundle.sh with --target aarch64-apple-darwin, and
+scripts/release/windows/package.sh with --target x86_64-pc-windows-msvc.
 
 Needs
 -----
@@ -63,6 +65,7 @@ TARGET = "x86_64-unknown-linux-gnu"
 BACKENDS = {
     "x86_64-unknown-linux-gnu": "`libggml-cpu-*` and `libggml-vulkan`",
     "aarch64-apple-darwin": "`libggml-cpu`, `libggml-metal` and `libggml-blas`",
+    "x86_64-pc-windows-msvc": "`ggml-cpu-*` and `ggml-vulkan`",
 }
 FEATURES = "wipemark-app/llama-native,wipemark-cli/llama-native"
 ROOTS = ("wipemark-app", "wipemark-cli")
@@ -75,7 +78,8 @@ def metadata(repo, target):
         "--filter-platform", target, "--features", FEATURES,
     ]
     try:
-        out = subprocess.run(cmd, cwd=repo, check=True, capture_output=True, text=True)
+        out = subprocess.run(cmd, cwd=repo, check=True, capture_output=True, text=True,
+                             encoding="utf-8")
     except subprocess.CalledProcessError as e:
         sys.stderr.write(e.stderr)
         sys.exit(2)
