@@ -119,8 +119,12 @@ use crate::queue::{Queue, Standing, Table};
 use crate::retention::Plan;
 use crate::screen::{self, Screen};
 use crate::settings::Preferences;
+use crate::spot::spot;
 use crate::tray::Platform;
 use crate::wording::{self, would_happen, Badge, Tone};
+
+#[cfg(test)]
+mod footage_tests;
 
 actions!(wipemark, [ClosePanel]);
 
@@ -1522,12 +1526,15 @@ impl PanelView {
                         Some((_, Standing::Cleaned(outcome))) => Some(outcome.as_ref()),
                         _ => None,
                     };
-                    caught_row(
-                        intake,
-                        &plan,
-                        held.and_then(|held| held.found.get(index)?.as_ref()),
-                        done,
-                        cx,
+                    spot(
+                        || format!("panel-row-{index}"),
+                        caught_row(
+                            intake,
+                            &plan,
+                            held.and_then(|held| held.found.get(index)?.as_ref()),
+                            done,
+                            cx,
+                        ),
                     )
                 }),
         )
@@ -1689,7 +1696,7 @@ impl Render for PanelView {
                             .content(|_, _, cx| help(cx)),
                     ),
             )
-            .child(self.landing(cx))
+            .child(spot(|| "panel-landing".to_owned(), self.landing(cx)))
             .child(
                 h_flex()
                     .items_center()
@@ -1703,7 +1710,10 @@ impl Render for PanelView {
                             .text_color(muted)
                             .child(SharedString::from(t(Message::PanelDismiss))),
                     )
-                    .children(self.clean_button(cx)),
+                    .children(
+                        self.clean_button(cx)
+                            .map(|button| spot(|| "panel-clean".to_owned(), button)),
+                    ),
             )
     }
 }

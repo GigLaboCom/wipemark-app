@@ -34,6 +34,8 @@
 #![forbid(unsafe_code)]
 
 mod exif;
+#[cfg(test)]
+mod footage_tests;
 mod jpeg;
 mod json;
 mod png;

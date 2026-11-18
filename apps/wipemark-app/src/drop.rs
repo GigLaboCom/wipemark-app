@@ -362,7 +362,8 @@ pub fn overlay(catcher: &Entity<Catcher>, cx: &App) -> AnyElement {
                 tell(Road::ExternalPaths, &handed);
                 landing.update(cx, |catcher, cx| catcher.land(handed, cx));
             })
-            .child(
+            .child(crate::spot::spot(
+                || "drop-overlay-card".to_owned(),
                 div()
                     .invisible()
                     .group_drag_over::<ExternalPaths>(OVERLAY_GROUP, |style| style.visible())
@@ -380,7 +381,7 @@ pub fn overlay(catcher: &Entity<Catcher>, cx: &App) -> AnyElement {
                     .shadow_lg()
                     .child(Icon::new(IconName::FileImport).large())
                     .child(t(Message::DropOverlayRelease)),
-            ),
+            )),
     )
     .with_priority(crate::dialog::MODAL_PRIORITY - 1)
     .into_any_element()
