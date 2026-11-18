@@ -1,4 +1,4 @@
-// Modified by GigLabo and Denis Esakov, 2026-10-12 and 2026-10-16: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; the offer's types are ranked by name; a picture written to the clipboard is offered as that picture (vendor/gpui-pre-linux.patch).
+// Modified by GigLabo and Denis Esakov, 2026-10-12, 2026-10-16 and 2026-11-18: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; the offer's types are ranked by name; a picture written to the clipboard is offered as that picture; the desktop's button layout reaches the windows outside the client's borrow (vendor/gpui-pre-linux.patch).
 use std::{
     cell::{RefCell, RefMut},
     hash::Hash,
@@ -1225,10 +1225,12 @@ impl WaylandConnection {
                             let layout = WindowButtonLayout::parse(&layout_str)
                                 .log_err()
                                 .unwrap_or_else(WindowButtonLayout::linux_default);
-                            let mut client = client.borrow_mut();
-                            client.common.borrow_mut().button_layout = layout;
-
-                            for window in client.windows.values_mut() {
+                            let windows: Vec<_> = {
+                                let client = client.borrow();
+                                client.common.borrow_mut().button_layout = layout;
+                                client.windows.values().cloned().collect()
+                            };
+                            for window in windows {
                                 window.set_button_layout();
                             }
                         }

@@ -65,9 +65,13 @@
 #           deferral keeps that from drawing — and borrowing the client
 #           again — inside the borrow. A snapshot that drops it brings
 #           `RefCell already mutably borrowed` back;
-#        C. the other arm of that loop, the button layout, still calls back
-#           synchronously, and is harmless only while nothing observes it:
-#           no `observe_button_layout_changed` in apps/, crates/ or the
+#        C. the other arm of that loop, the button layout, calls the
+#           windows back synchronously. It is safe when the resolved
+#           gpui-pre-linux hands the layout to the windows outside the
+#           client's borrow, in its X11 and its Wayland client (the carried
+#           patch does, since 2026-11-18: gpui-kit's TitleBar observes it,
+#           #4018), or while nothing observes it: no
+#           `observe_button_layout_changed` in apps/, crates/ or the
 #           vendored component.
 #      A snapshot bump that drops any of the three fails here. With the
 #      carried crate the resolved gpui-pre-linux is vendor/gpui-pre-linux,
@@ -442,8 +446,26 @@ elif "foreground_executor" not in body or not 0 <= spawn_at < update_at:
         )
     )
 
-# C: nothing of ours, or of the component's, observes the button layout,
-# whose callback still runs synchronously under that same borrow.
+# C: the button layout reaches the windows outside the client's borrow in
+# both backends, or nothing of ours, or of the component's, observes it.
+def button_layout_arm(relative):
+    text = read(linux, relative)
+    start = text.find("XDPEvent::ButtonLayout(")
+    end = text.find("XDPEvent::", start + 1)
+    return text[start:end] if start >= 0 and end > start else ""
+
+
+inside_borrow = []
+for relative in ("src/linux/x11/client.rs", "src/linux/wayland/client.rs"):
+    arm = button_layout_arm(relative)
+    calls_outside = (
+        "set_button_layout()" in arm
+        and "windows.values_mut()" not in arm
+        and "client.borrow_mut()" not in arm
+        and re.search(r"for window in windows \{\s*window\.set_button_layout\(\);", arm)
+    )
+    if not calls_outside:
+        inside_borrow.append(relative)
 root = meta["workspace_root"]
 for top in ("apps", "crates", "vendor/gpui-component"):
     for directory, subdirs, files in os.walk(os.path.join(root, top)):
@@ -454,10 +476,11 @@ for top in ("apps", "crates", "vendor/gpui-component"):
             path = os.path.join(directory, name)
             with open(path, encoding="utf-8", errors="replace") as f:
                 for number, line in enumerate(f, 1):
-                    if "observe_button_layout_changed" in line:
+                    if "observe_button_layout_changed" in line and inside_borrow:
                         problems.append(
                             f"C: {os.path.relpath(path, root)}:{number} observes the button "
-                            "layout, whose X11 callback runs under the client's borrow_mut()"
+                            "layout, which gpui-pre-linux hands to the windows under the "
+                            "client's borrow in " + " and ".join(inside_borrow)
                         )
 
 if problems:
@@ -467,6 +490,10 @@ if problems:
 print(
     f"x11 fixes ok in {where} and gpui-pre-linux {linux['version']}: x11rb's queue "
     "drained after each runnable (A), the appearance callback deferred (B), the "
-    "button layout observed by nothing (C)"
+    + (
+        "button layout observed by nothing (C)"
+        if inside_borrow
+        else "button layout handed to the windows outside the client's borrow (C)"
+    )
 )
 X11
