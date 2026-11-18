@@ -258,7 +258,9 @@ pub fn forward(cx: &App) -> Forward {
 /// release.
 #[cfg(test)]
 pub(crate) fn press_and_let_go(window: &mut gpui::VisualTestContext, keys: &str) {
-    let keystroke = gpui::Keystroke::parse(keys).unwrap_or_else(|error| panic!("{keys}: {error}"));
+    let os = window.update(|_, cx| cx.platform_info().os);
+    let keystroke =
+        gpui::Keystroke::parse_with_os(keys, os).unwrap_or_else(|error| panic!("{keys}: {error}"));
     let handle = window.window_handle();
     window.dispatch_keystroke(handle, keystroke.clone());
     assert!(

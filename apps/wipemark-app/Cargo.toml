@@ -133,6 +133,12 @@ gpui_platform = { workspace = true, features = ["test-support"] }
 # ships carries it.
 wipemark-update = { workspace = true, features = ["test-support"] }
 
+# The text system of the headless frames on macOS (src/footage.rs, D840):
+# CoreText through gpui-pre-apple, which `MacPlatform` builds only on the
+# main thread, built on the test's thread instead.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+gpui_apple = { workspace = true, features = ["font-kit"] }
+
 # macOS-only, and these are affordances rather than features: the Dock
 # icon of an unbundled dev build (src/dock_icon.rs), the window moves and
 # the drop target. gpui already pulls the objc2 crates in at these exact

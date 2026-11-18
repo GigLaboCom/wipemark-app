@@ -12,8 +12,8 @@ use std::path::PathBuf;
 
 use gpui::{
     point, px, Bounds, Entity, ExternalPaths, FileDropEvent, Modifiers, MouseButton,
-    MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent, Size,
-    TestAppContext, VisualTestContext,
+    MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollDelta, ScrollEvent, Size, TestAppContext,
+    VisualTestContext,
 };
 
 use super::tests::{queue_with, Scratch};
@@ -97,7 +97,7 @@ fn actions(id: u64, cx: &mut VisualTestContext) -> (Bounds<Pixels>, Bounds<Pixel
 
 /// The wheel turned at `at`.
 fn wheel(at: Point<Pixels>, delta: ScrollDelta, modifiers: Modifiers, cx: &mut VisualTestContext) {
-    cx.simulate_event(ScrollWheelEvent {
+    cx.simulate_event(ScrollEvent {
         position: at,
         delta,
         modifiers,

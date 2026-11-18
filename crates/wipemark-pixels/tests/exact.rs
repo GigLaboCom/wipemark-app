@@ -285,7 +285,12 @@ fn the_alpha_channel_is_never_written() {
     let report = clean(&mut marked, &catalogue, &lossless());
     assert_eq!(report.restored.len(), 1, "{:#?}", report.found);
     let alpha = |r: &wipemark_pixels::Raster| -> Vec<u16> {
-        r.samples().chunks_exact(4).map(|p| p[3]).collect()
+        r.samples()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| p[3])
+            .collect()
     };
     assert_eq!(alpha(&marked), alpha(&original));
 }
@@ -603,8 +608,10 @@ fn a_canonical_composite_comes_back_exact() {
             assert!(max_error(&marked, &original) <= 1, "{name}");
             for (i, (m, o)) in marked
                 .samples()
-                .chunks_exact(3)
-                .zip(original.samples().chunks_exact(3))
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .zip(original.samples().as_chunks::<3>().0.iter())
                 .enumerate()
             {
                 let (x, y) = (i as u32 % side, i as u32 / side);

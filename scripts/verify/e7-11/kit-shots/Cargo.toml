@@ -12,5 +12,5 @@ publish = false
 
 [dependencies]
 gpui-kit = { path = "../../../../vendor/gpui-component/crates/kit", features = ["test-support", "tree-sitter-rust"] }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "x11", "wayland", "runtime_shaders", "test-support"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "x11", "wayland", "runtime_shaders", "test-support"] }
 png = "0.17"

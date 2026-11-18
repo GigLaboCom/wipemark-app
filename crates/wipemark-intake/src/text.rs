@@ -148,7 +148,7 @@ fn utf16_without_a_mark(head: &[u8]) -> Option<Encoding> {
     let usable = &head[..pairs * 2];
 
     for (nul, encoding) in [(1, Encoding::Utf16Le), (0, Encoding::Utf16Be)] {
-        let holds = usable.chunks_exact(2).all(|pair| {
+        let holds = usable.as_chunks::<2>().0.iter().all(|pair| {
             pair[nul] == 0
                 && pair[1 - nul] != 0
                 && (!pair[1 - nul].is_ascii_control() || is_ordinary_control(pair[1 - nul]))
@@ -226,7 +226,7 @@ pub fn decode(bytes: &[u8], encoding: Encoding) -> Result<String, usize> {
             .map_err(|error| error.valid_up_to()),
         Encoding::Utf16Le | Encoding::Utf16Be => {
             let big = encoding == Encoding::Utf16Be;
-            let units = bytes.chunks_exact(2).map(|pair| {
+            let units = bytes.as_chunks::<2>().0.iter().map(|pair| {
                 let pair = [pair[0], pair[1]];
                 if big {
                     u16::from_be_bytes(pair)
@@ -253,7 +253,7 @@ pub fn decode(bytes: &[u8], encoding: Encoding) -> Result<String, usize> {
         Encoding::Utf32Le | Encoding::Utf32Be => {
             let big = encoding == Encoding::Utf32Be;
             let mut text = String::with_capacity(bytes.len() / 4);
-            for (index, quad) in bytes.chunks_exact(4).enumerate() {
+            for (index, quad) in bytes.as_chunks::<4>().0.iter().enumerate() {
                 let quad = [quad[0], quad[1], quad[2], quad[3]];
                 let value = if big {
                     u32::from_be_bytes(quad)

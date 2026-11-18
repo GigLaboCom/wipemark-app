@@ -44,15 +44,16 @@ installed it only warns; CI scans the whole history with the same config
 either way.
 
 `sync` matters because the URL has moved more than once. Today it points at
-upstream **`longbridge/gpui-kit`**, branch `next`, which holds every pull
-request of ours; nothing is carried. While a pull request we need waits
-upstream, the submodule may point at a personal fork for a while.
+the owner's fork **`glani/gpui-component`**, at the head of gpui-kit pull
+request #3969 (upstream `main` plus every pull request of ours), on a branch
+that is never rewritten, until upstream merges it; then it goes back to
+**`longbridge/gpui-kit`**. Nothing of ours is carried in it.
 [dev/architecture/gpui-pin.md](dev/architecture/gpui-pin.md) has every
 move and why.
 
 **GPUI itself** comes from crates.io: the **`gpui-pre`** snapshots of Zed's
 GPUI crates that gpui-kit's maintainer publishes, at **exactly** the version
-the component's manifest pins (`=0.3.8` today). The root `Cargo.toml` pins
+the component's manifest pins (`=0.3.12` today). The root `Cargo.toml` pins
 the same exact versions, so the graph holds one GPUI by construction.
 `scripts/check-gpui-pin.sh` is the gate, and CI runs it: exact pins, equal
 to the component's, one copy of each `gpui-pre*` crate in the lock, no zed
@@ -124,7 +125,7 @@ the same comment density, the same naming, the same idiom.
 
 ### System dependencies
 
-The toolchain is pinned in `rust-toolchain.toml` (stable 1.95.0, with
+The toolchain is pinned in `rust-toolchain.toml` (stable 1.98.0, with
 clippy and rustfmt). The formatting gate needs a nightly rustfmt once:
 
 ```sh

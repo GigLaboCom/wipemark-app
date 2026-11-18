@@ -192,9 +192,8 @@ use std::time::Duration;
 use gpui::prelude::*;
 use gpui::{
     actions, canvas, deferred, div, px, size, Anchor, AnyElement, AnyWindowHandle, App, Bounds,
-    ClickEvent, Context, Entity, FocusHandle, Focusable, Global, Hsla, KeyBinding, Pixels, Rgba,
-    SharedString, Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
-    WindowOptions,
+    ClickEvent, Context, Entity, FocusHandle, Focusable, Global, Hsla, Pixels, Rgba, SharedString,
+    Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{
@@ -446,8 +445,8 @@ impl Global for Opened {}
 /// `gpui_component::init`.
 pub fn init(cx: &mut App) {
     cx.bind_keys([
-        KeyBinding::new("secondary-w", CloseCompare, Some(CONTEXT)),
-        KeyBinding::new("secondary-s", SaveCompare, Some(CONTEXT)),
+        crate::keys::binding("secondary-w", CloseCompare, Some(CONTEXT), cx),
+        crate::keys::binding("secondary-s", SaveCompare, Some(CONTEXT), cx),
     ]);
 }
 
@@ -5196,7 +5195,7 @@ mod tests {
             let editor = view.read(cx).editor(side, cx);
             editor.read(cx).input_bounds().center()
         });
-        cx.simulate_event(gpui::ScrollWheelEvent {
+        cx.simulate_event(gpui::ScrollEvent {
             position: over,
             delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(pixels))),
             ..Default::default()
@@ -5348,7 +5347,7 @@ mod tests {
                     gpui::MouseButton::Left,
                     gpui::Modifiers::default(),
                 ),
-                Some(over) => cx.simulate_event(gpui::ScrollWheelEvent {
+                Some(over) => cx.simulate_event(gpui::ScrollEvent {
                     position: over,
                     delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-1.5 * height))),
                     ..Default::default()
@@ -6235,7 +6234,7 @@ mod tests {
         };
         let (right, left) = (over(Side::Result, cx), over(Side::Original, cx));
         let turn = |at: gpui::Point<Pixels>, pixels: f32| {
-            gpui::ScrollWheelEvent {
+            gpui::ScrollEvent {
                 position: at,
                 delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(pixels))),
                 ..Default::default()
@@ -6264,8 +6263,9 @@ mod tests {
     /// `unwrapped.png`, `result-wrapped.png` and `padded.png`, at the top and
     /// then with the original scrolled `WIPEMARK_COMPARE_SCROLL` lines down and
     /// the result placed by the window's own scrolling together, into the
-    /// folder `WIPEMARK_COMPARE_SHOTS` names. `scripts/verify/e7-11/shots.sh`
-    /// runs it.
+    /// folder `WIPEMARK_COMPARE_SHOTS` names; in the dark theme with
+    /// `WIPEMARK_COMPARE_DARK` set. `scripts/verify/e7-11/shots.sh` runs it, on
+    /// Linux and on macOS (`crate::footage`, D840).
     #[test]
     #[ignore]
     fn compare_screenshots() {
@@ -6278,6 +6278,7 @@ mod tests {
             .ok()
             .and_then(|lines| lines.parse().ok())
             .unwrap_or(40.0);
+        let dark = std::env::var_os("WIPEMARK_COMPARE_DARK").is_some();
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/compare/long-paragraphs");
         let original = std::fs::read_to_string(fixture.join("original.txt")).expect("original");
@@ -6289,11 +6290,7 @@ mod tests {
             ("result-wrapped", true, false),
             ("padded", true, true),
         ] {
-            let mut cx = HeadlessAppContext::with_platform(
-                gpui_platform::current_platform(true).text_system(),
-                Arc::new(crate::assets::WipemarkAssets),
-                gpui_platform::current_headless_renderer,
-            );
+            let mut cx = crate::footage::context();
             cx.update(gpui_component::init);
             let comparison = Comparison {
                 wrap: padded,
@@ -6307,6 +6304,9 @@ mod tests {
             let subject = of(Handed::Text(original.clone()));
             let window = cx
                 .open_window(size(px(1400.0), px(820.0)), move |window, cx| {
+                    if dark {
+                        crate::theme::ThemePreference::Dark.apply(Some(window), cx);
+                    }
                     let view = cx.new(|cx| {
                         CompareView::new(subject, comparison, None, None, None, window, cx)
                     });

@@ -343,8 +343,10 @@ fn no_procedural_negative_is_ever_restored() {
             let bare = picture(kind, WORD_SIDE, WORD_SIDE, n + 10_000, Layout::Rgb8);
             let drawn = bare
                 .samples()
-                .chunks_exact(3)
-                .zip(original.samples().chunks_exact(3))
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .zip(original.samples().as_chunks::<3>().0.iter())
                 .filter(|(a, b)| a != b)
                 .count();
             assert!(

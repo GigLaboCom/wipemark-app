@@ -1462,7 +1462,13 @@ mod tests {
     #[test]
     fn the_template_is_ink_on_transparency() {
         let image = tray_image().expect("the embedded tray template decodes");
-        let alpha: Vec<u8> = image.rgba.chunks_exact(4).map(|pixel| pixel[3]).collect();
+        let alpha: Vec<u8> = image
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| pixel[3])
+            .collect();
 
         // A rasterisation that silently produced an empty canvas, or a
         // solid square, both decode fine and both are invisible or
@@ -1482,7 +1488,9 @@ mod tests {
     fn standing_out(image: &TrayImage, ground: u32, step: u32) -> usize {
         image
             .rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| {
                 let alpha = u32::from(pixel[3]);
                 // The glyph is grey (r = g = b), so luma is any channel.
@@ -1502,7 +1510,9 @@ mod tests {
         let template = tray_image().expect("the embedded tray template decodes");
         let ink = template
             .rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| pixel[3] > 128)
             .count();
         let drawn = panel_image(&template);
@@ -1526,8 +1536,10 @@ mod tests {
         let drawn = panel_image(&template);
         for (inked, shown) in template
             .rgba
-            .chunks_exact(4)
-            .zip(drawn.rgba.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(drawn.rgba.as_chunks::<4>().0.iter())
         {
             if inked[3] == 255 {
                 assert_eq!(shown[3], 255, "solid ink stays solid");
@@ -1541,12 +1553,19 @@ mod tests {
         assert!(
             drawn
                 .rgba
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[3] > 150 && pixel[0] < 40),
             "there is no dark outline at all"
         );
         assert!(
-            drawn.rgba.chunks_exact(4).any(|pixel| pixel[3] == 0),
+            drawn
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] == 0),
             "the outline filled the whole square"
         );
     }

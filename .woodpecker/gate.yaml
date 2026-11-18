@@ -35,7 +35,7 @@ labels:
   platform: linux/arm64
 
 variables:
-  - &rust_image rust:1.95-trixie
+  - &rust_image rust:1.98-trixie
   - &ci_env
     CARGO_TERM_COLOR: always
     # Keeps the dependency cache without the bulky incremental/ dir.

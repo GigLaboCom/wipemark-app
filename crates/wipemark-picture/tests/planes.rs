@@ -127,8 +127,10 @@ fn differences(a: &Raster, b: &Raster) -> (Vec<(u32, u32)>, u16) {
     let mut most = 0;
     for (i, (pa, pb)) in a
         .samples()
-        .chunks_exact(3)
-        .zip(b.samples().chunks_exact(3))
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(b.samples().as_chunks::<3>().0.iter())
         .enumerate()
     {
         let d = pa
@@ -310,7 +312,7 @@ fn header(bytes: &[u8]) -> Header {
             }
             0xC0..=0xC2 => {
                 h.sof = marker - 0xC0;
-                for c in body[6..].chunks_exact(3) {
+                for c in body[6..].as_chunks::<3>().0.iter() {
                     h.components.push((c[0], c[1] >> 4, c[1] & 0x0F, c[2]));
                 }
             }

@@ -1,4 +1,4 @@
-// Modified by GigLabo and Denis Esakov, 2026-10-12 and 2026-10-16: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; a refused type falls back to the next, and the drop is placed where XdndPosition says; a picture written to the clipboard is offered as that picture (vendor/gpui-pre-linux.patch).
+// Modified by GigLabo and Denis Esakov, 2026-10-12, 2026-10-16 and 2026-11-18: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; a refused type falls back to the next, and the drop is placed where XdndPosition says; a picture written to the clipboard is offered as that picture; the desktop's button layout reaches the windows outside the client's borrow (vendor/gpui-pre-linux.patch).
 use anyhow::{Context as _, anyhow};
 use ashpd::WindowIdentifier;
 use calloop::{
@@ -760,8 +760,15 @@ impl X11Client {
                                 .log_err()
                                 .unwrap_or_else(WindowButtonLayout::linux_default);
                             client.with_common(|common| common.button_layout = layout);
-                            for window in client.0.borrow_mut().windows.values_mut() {
-                                window.window.set_button_layout();
+                            let windows: Vec<_> = client
+                                .0
+                                .borrow()
+                                .windows
+                                .values()
+                                .map(|window| window.window.clone())
+                                .collect();
+                            for window in windows {
+                                window.set_button_layout();
                             }
                         }
                         XDPEvent::CursorTheme(_) | XDPEvent::CursorSize(_) => {
@@ -1652,9 +1659,11 @@ impl X11Client {
                                 ScrollDirection::Left => Point::new(SCROLL_LINES, 0.0),
                                 ScrollDirection::Right => Point::new(-SCROLL_LINES, 0.0),
                             };
-                            window.handle_input(PlatformInput::ScrollWheel(
-                                make_scroll_wheel_event(position, scroll_delta, modifiers),
-                            ));
+                            window.handle_input(PlatformInput::Scroll(make_scroll_wheel_event(
+                                position,
+                                scroll_delta,
+                                modifiers,
+                            )));
                         }
                     }
                     None => {
@@ -1740,7 +1749,7 @@ impl X11Client {
                     let scroll_delta = get_scroll_delta_and_update_state(pointer, &event);
                     drop(state);
                     if let Some(scroll_delta) = scroll_delta {
-                        window.handle_input(PlatformInput::ScrollWheel(make_scroll_wheel_event(
+                        window.handle_input(PlatformInput::Scroll(make_scroll_wheel_event(
                             position,
                             scroll_delta,
                             modifiers,
@@ -2948,7 +2957,7 @@ fn make_scroll_wheel_event(
     position: Point<Pixels>,
     scroll_delta: Point<f32>,
     modifiers: Modifiers,
-) -> gpui::ScrollWheelEvent {
+) -> gpui::ScrollEvent {
     // When shift is held down, vertical scrolling turns into horizontal scrolling.
     let delta = if modifiers.shift {
         Point {
@@ -2958,11 +2967,12 @@ fn make_scroll_wheel_event(
     } else {
         scroll_delta
     };
-    gpui::ScrollWheelEvent {
+    gpui::ScrollEvent {
         position,
         delta: ScrollDelta::Lines(delta),
         modifiers,
         touch_phase: TouchPhase::default(),
+        source: gpui::ScrollSource::Pointer,
     }
 }
 

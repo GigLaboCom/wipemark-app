@@ -27,7 +27,13 @@
 #      version, and nothing — there or in any [patch] table — is taken
 #      from a zed git repository. The one `[patch]` entry on a snapshot
 #      crate allowed is the carried one, `[patch.crates-io] gpui-pre-linux
-#      = { path = "vendor/gpui-pre-linux" }`.
+#      = { path = "vendor/gpui-pre-linux" }`. The snapshot crates named
+#      there are `gpui-pre` and `gpui-pre-platform`, and `gpui-pre-apple`,
+#      whose text system the app's headless frames build on macOS off the
+#      main thread (apps/wipemark-app/src/footage.rs); any other is a
+#      problem. Every workspace member's manifest takes a `gpui-pre*`
+#      package through `workspace = true` only, so each requirement is one
+#      of those exact pins.
 #   2. Reads vendor/gpui-component/Cargo.toml the same way and requires
 #      the same version (its `gpui-pre-reqwest` is a hand-published fork
 #      with its own version line and is left out, as gpui-kit's own
@@ -59,9 +65,13 @@
 #           deferral keeps that from drawing — and borrowing the client
 #           again — inside the borrow. A snapshot that drops it brings
 #           `RefCell already mutably borrowed` back;
-#        C. the other arm of that loop, the button layout, still calls back
-#           synchronously, and is harmless only while nothing observes it:
-#           no `observe_button_layout_changed` in apps/, crates/ or the
+#        C. the other arm of that loop, the button layout, calls the
+#           windows back synchronously. It is safe when the resolved
+#           gpui-pre-linux hands the layout to the windows outside the
+#           client's borrow, in its X11 and its Wayland client (the carried
+#           patch does, since 2026-11-18: gpui-kit's TitleBar observes it,
+#           #4018), or while nothing observes it: no
+#           `observe_button_layout_changed` in apps/, crates/ or the
 #           vendored component.
 #      A snapshot bump that drops any of the three fails here. With the
 #      carried crate the resolved gpui-pre-linux is vendor/gpui-pre-linux,
@@ -108,6 +118,11 @@ LOCK = os.environ["LOCKFILE"]
 OWN_LINE = {"gpui-pre-reqwest"}
 # The one snapshot crate carried in this repository, and where (D620–D623).
 CARRIED = {"gpui-pre-linux": "vendor/gpui-pre-linux"}
+# The snapshot crates this workspace names itself: GPUI and its platform,
+# and gpui-pre-apple, whose `AppleTextSystem` the headless frames build on
+# macOS, where `MacPlatform` refuses any thread but the main one (footage.rs).
+# Every other snapshot crate comes in through these, at their version.
+DIRECT = {"gpui-pre", "gpui-pre-platform", "gpui-pre-apple"}
 EXACT = re.compile(r"^=\d+\.\d+\.\d+$")
 
 problems = []
@@ -146,6 +161,31 @@ root_manifest, ours = snapshot_requirements(ROOT)
 for key, spec in root_manifest.get("workspace", {}).get("dependencies", {}).items():
     if isinstance(spec, dict) and re.search(r"github\.com/[^/]+/zed(\.git)?$", spec.get("git", "")):
         problems.append(f"{ROOT}: {key} is taken from a zed git repository ({spec['git']})")
+for package in sorted(set(ours) - DIRECT):
+    problems.append(
+        f"{ROOT}: {package} is named in [workspace.dependencies]; this workspace names "
+        f"{', '.join(sorted(DIRECT))} and takes the rest through them"
+    )
+
+# A member names a snapshot crate only through the workspace's exact pins.
+TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
+for member in root_manifest.get("workspace", {}).get("members", []):
+    path = os.path.join(os.path.dirname(ROOT), member, "Cargo.toml")
+    with open(path, "rb") as f:
+        manifest = tomllib.load(f)
+    tables = [manifest.get(table, {}) for table in TABLES]
+    for target in manifest.get("target", {}).values():
+        tables += [target.get(table, {}) for table in TABLES]
+    for deps in tables:
+        for key, spec in deps.items():
+            package = spec.get("package", key) if isinstance(spec, dict) else key
+            direct = not (isinstance(spec, dict) and spec.get("workspace") is True)
+            if package.startswith("gpui-pre") and direct:
+                problems.append(
+                    f"{path}: {key} names {package} itself; take it through "
+                    "[workspace.dependencies] (`workspace = true`)"
+                )
+
 _, theirs = snapshot_requirements(COMPONENT)
 if not ours:
     problems.append(f"{ROOT}: no gpui-pre requirement at all")
@@ -231,10 +271,11 @@ import tomllib
 import urllib.request
 
 NAME = "gpui-pre-linux"
-# The sha256 of the published gpui-pre-linux-0.3.8.crate — what crates.io's
-# index and our Cargo.lock held for it before it was carried (D621). A bump
-# of the snapshot moves the carried crate or drops it; it never moves alone.
-PUBLISHED = {"0.3.8": "b1131746fad5c87b5de74dc9c73105655b0c820a2dd4bb247586573e7cf5720e"}
+# The sha256 of the published gpui-pre-linux-0.3.12.crate — what crates.io's
+# index holds for it (D621; 0.3.8's, b1131746…720e, until the bump to 0.3.12).
+# A bump of the snapshot moves the carried crate or drops it; it never moves
+# alone.
+PUBLISHED = {"0.3.12": "54bab418d0b7c027af9495f278619b46887362b3bd6446e246c87c5b0fa167df"}
 
 ROOT = os.environ["ROOT_MANIFEST"]
 DIR = os.environ["CARRIED_DIR"]
@@ -405,8 +446,26 @@ elif "foreground_executor" not in body or not 0 <= spawn_at < update_at:
         )
     )
 
-# C: nothing of ours, or of the component's, observes the button layout,
-# whose callback still runs synchronously under that same borrow.
+# C: the button layout reaches the windows outside the client's borrow in
+# both backends, or nothing of ours, or of the component's, observes it.
+def button_layout_arm(relative):
+    text = read(linux, relative)
+    start = text.find("XDPEvent::ButtonLayout(")
+    end = text.find("XDPEvent::", start + 1)
+    return text[start:end] if start >= 0 and end > start else ""
+
+
+inside_borrow = []
+for relative in ("src/linux/x11/client.rs", "src/linux/wayland/client.rs"):
+    arm = button_layout_arm(relative)
+    calls_outside = (
+        "set_button_layout()" in arm
+        and "windows.values_mut()" not in arm
+        and "client.borrow_mut()" not in arm
+        and re.search(r"for window in windows \{\s*window\.set_button_layout\(\);", arm)
+    )
+    if not calls_outside:
+        inside_borrow.append(relative)
 root = meta["workspace_root"]
 for top in ("apps", "crates", "vendor/gpui-component"):
     for directory, subdirs, files in os.walk(os.path.join(root, top)):
@@ -417,10 +476,11 @@ for top in ("apps", "crates", "vendor/gpui-component"):
             path = os.path.join(directory, name)
             with open(path, encoding="utf-8", errors="replace") as f:
                 for number, line in enumerate(f, 1):
-                    if "observe_button_layout_changed" in line:
+                    if "observe_button_layout_changed" in line and inside_borrow:
                         problems.append(
                             f"C: {os.path.relpath(path, root)}:{number} observes the button "
-                            "layout, whose X11 callback runs under the client's borrow_mut()"
+                            "layout, which gpui-pre-linux hands to the windows under the "
+                            "client's borrow in " + " and ".join(inside_borrow)
                         )
 
 if problems:
@@ -430,6 +490,10 @@ if problems:
 print(
     f"x11 fixes ok in {where} and gpui-pre-linux {linux['version']}: x11rb's queue "
     "drained after each runnable (A), the appearance callback deferred (B), the "
-    "button layout observed by nothing (C)"
+    + (
+        "button layout observed by nothing (C)"
+        if inside_borrow
+        else "button layout handed to the windows outside the client's borrow (C)"
+    )
 )
 X11

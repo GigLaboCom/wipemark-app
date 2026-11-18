@@ -25,7 +25,9 @@ fn jpeg_of(raster: &Raster, grey: bool) -> Vec<u8> {
         (
             raster
                 .samples()
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .map(|p| p[0] as u8)
                 .collect(),
             image::ExtendedColorType::L8,
@@ -97,8 +99,10 @@ fn psnr_outside(a: &Raster, b: &Raster, rect: PixelRect) -> f64 {
     let (mut sum, mut n) = (0f64, 0f64);
     for (p, (x, y)) in a
         .samples()
-        .chunks_exact(3)
-        .zip(b.samples().chunks_exact(3))
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(b.samples().as_chunks::<3>().0.iter())
         .enumerate()
     {
         let (px, py) = (p as u32 % W, p as u32 / W);
@@ -494,8 +498,10 @@ fn nothing_outside_the_mark_moved() {
         for (p, (a, b)) in d
             .raster
             .samples()
-            .chunks_exact(3)
-            .zip(restored.samples().chunks_exact(3))
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(restored.samples().as_chunks::<3>().0.iter())
             .enumerate()
         {
             if a == b {

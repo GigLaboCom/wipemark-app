@@ -2176,6 +2176,8 @@ fn holds(row: &Row, work: Option<&Work>, action: Action, home: &Home) -> bool {
 #[cfg(test)]
 mod across_tests;
 #[cfg(test)]
+mod footage_tests;
+#[cfg(test)]
 mod origin_tests;
 #[cfg(test)]
 mod preview_tests;

@@ -25,7 +25,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # build time, so the image's name changes when the pin does: image-ref.sh
 # hashes this file, and scripts/release/linux/build.sh refuses an image whose
 # rustc is not the one rust-toolchain.toml names.
-ARG RUST_VERSION=1.95.0
+ARG RUST_VERSION=1.98.0
 
 # System packages.
 #   build          build-essential pkg-config git curl ca-certificates file
