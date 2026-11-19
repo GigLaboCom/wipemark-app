@@ -317,6 +317,14 @@ fn the_fingerprint_moves_with_the_rules() {
             },
             ..RULES
         },
+        // D862: a sequence's steps have a threshold of their own.
+        Rules {
+            order: wipemark_core::OrderGuard {
+                max_step_words: RULES.order.max_step_words + 1,
+                ..RULES.order
+            },
+            ..RULES
+        },
         Rules {
             permutation: wipemark_core::PermutationGuard {
                 min_words: RULES.permutation.min_words + 1,

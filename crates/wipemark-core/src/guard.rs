@@ -1168,7 +1168,7 @@ ops@example.com.";
             OrderGuard::default(),
             OrderGuard {
                 max_item_words: 6,
-                min_items: 3
+                max_step_words: 12
             }
         );
         assert_eq!(

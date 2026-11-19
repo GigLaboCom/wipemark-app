@@ -1,5 +1,5 @@
-//! What every guard passed on 2026-11-19, and the guards of D856–D860 now
-//! refuse. Ten technical articles were rewritten under Keep voice by a
+//! What every guard passed on 2026-11-19, and the guards of D856–D860 and
+//! D862 now refuse. Ten technical articles were rewritten under Keep voice by a
 //! 12B model and every changed block judged; these are the answers the
 //! judge — or a person — caught, word for word as the model gave them,
 //! each against its chunk as `prepare` makes it from the source around it
@@ -162,17 +162,36 @@ fn a_command_s_parts_named_backwards_are_refused() {
 }
 
 /// Article 19: three groups of tools, named in the order the article then
-/// walks through them, came back backwards.
+/// walks through them, came back backwards. No word of the sentence says
+/// the order is meant — it is the document's, three sections later — so
+/// the order guard lets it through since D862, as it lets "a route, a
+/// fixture, a dev flag" through; the templates' rule to keep every list's
+/// order is what asks for it (D863).
 #[test]
-fn tool_groups_listed_backwards_are_refused() {
+fn tool_groups_listed_backwards_pass_the_order_guard() {
     let source = "We sort the tools into three groups: **Capture** (take a picture), **Manage** (find, name and remove pictures in the library) and **Markers** (draw on them). The protocol has no notion of a tool group. The grouping lives in the documentation and the naming, and it gives a model, and the human reading the tool list, a three-item map before a twenty-item one.\n";
     let chunk = chunk(source, 0, source.trim_end());
     let answer = "The tools are organized into 3 categories: **Markers** (draw on them), **Manage** (find, name and remove pictures in the library), and **Capture** (take a picture). Because the protocol lacks a concept for tool groups, this categorization exists solely within the naming and documentation. This provides both a human reading the tool list and a model with a 3-item map rather than a 20-item one.";
+    assert_eq!(alone(&chunk, answer, "order"), GuardOutcome::Pass);
+}
+
+/// Article 15, under the guards of D856–D861: a quoted instruction of two
+/// steps came back with its steps the other way round, and passed — a list
+/// had to have three items. A sequence said in words has two (D862).
+#[test]
+fn a_two_step_instruction_turned_around_is_refused() {
+    let source = "From then on the agent calls `list_presets`, finds `orders-admin-map`, and uses `apply_preset` on a fresh capture of the same page. Markers are applied as a fork, so the raw frame stays untouched and the annotated copy sits next to it. The instruction \"set the range in region 2, then export from region 3\" is now unambiguous.\n";
+    let chunk = chunk(
+        source,
+        0,
+        "From then on the agent calls \u{27E6}1\u{27E7}, finds \u{27E6}2\u{27E7}, and uses \u{27E6}3\u{27E7} on a fresh capture of the same page. Markers are applied as a fork, so the raw frame stays untouched and the annotated copy sits next to it. The instruction \"set the range in region 2, then export from region 3\" is now unambiguous.",
+    );
+    let answer = "Starting from that point, \u{27E6}3\u{27E7} is utilized by the agent on a new screenshot of the identical page, after they locate \u{27E6}2\u{27E7} and call \u{27E6}1\u{27E7}. Because markers function as a fork, the original frame remains unchanged while the copy with annotations is placed beside it. The command to \"export from region 3, then set the range in region 2\" is now perfectly clear.";
     assert_eq!(
         refused_by(&chunk, answer, "order"),
         RejectReason::OrderReversed {
-            first: "Capture".to_owned(),
-            last: "Markers".to_owned()
+            first: "set".to_owned(),
+            last: "export".to_owned()
         }
     );
 }
