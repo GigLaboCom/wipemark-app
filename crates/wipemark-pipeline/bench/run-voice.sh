@@ -59,8 +59,10 @@
 #   export WIPEMARK_BENCH_GGUF_QWEN38_27B=/path/Qwen3.8-27B-UD-IQ3_S.gguf
 #   export WIPEMARK_BENCH_GGUF_JUDGE=/path/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
 #   export WIPEMARK_BENCH_JUDGE_NAME=gemma4-12b-judge
+#   # optional, a model outside the default four, asked for by its parts only:
+#   export WIPEMARK_BENCH_GGUF_NEMOTRON_BOLT=/path/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf
 #   # optional, per model: WIPEMARK_BENCH_GPU_LAYERS_<QWEN3_4B|GEMMA3_12B|
-#   # GEMMA4_12B|QWEN38_27B|JUDGE>, default -1 (every layer on the GPU)
+#   # GEMMA4_12B|QWEN38_27B|NEMOTRON_BOLT|JUDGE>, default -1 (every layer on the GPU)
 #   crates/wipemark-pipeline/bench/run-voice.sh --dry-run    # the commands; nothing runs
 #   crates/wipemark-pipeline/bench/run-voice.sh --estimate   # build and plan; no model
 #   crates/wipemark-pipeline/bench/run-voice.sh              # all of it
@@ -68,6 +70,10 @@
 #   [--out DIR]   default crates/wipemark-pipeline/bench/results/voice-<today>
 #   Parts, in order: qwen3-4b qwen3-4b+voice gemma3-12b gemma3-12b+voice
 #   gemma4-12b gemma4-12b+voice qwen38-27b qwen38-27b+voice judge report.
+#   Named only, never in the default set: nemotron-bolt, nemotron-bolt+voice
+#   (the catalogue's experimental Nemotron 3.5 Bolt E4B, D830: experimental
+#   until the bench has measured it against the stable entries) — its run
+#   records are judged and reported with the others under the same --out.
 #
 # What it needs
 #   bash (3.2 is enough), awk, sed, cargo, rustc; the four GGUFs and the judge's,
@@ -99,6 +105,8 @@ VARIANT=keep-voice
 GRID='paraphrase:light,moderate,strong:4;humanize:moderate,strong:2'
 EVERY=3
 MODELS="qwen3-4b gemma3-12b gemma4-12b qwen38-27b"
+# Every model a part may name: the default four and those run only when named.
+KNOWN="$MODELS nemotron-bolt"
 # The judge's time per call: E4-5's, "about 30 minutes for 8 500
 # judgements" (dev/architecture/prompt-bench.md, "How to rerun").
 JUDGE_SECS=0.21
@@ -120,6 +128,7 @@ var_of() { # <model id> → the suffix of its variables
     gemma3-12b) echo GEMMA3_12B ;;
     gemma4-12b) echo GEMMA4_12B ;;
     qwen38-27b) echo QWEN38_27B ;;
+    nemotron-bolt) echo NEMOTRON_BOLT ;;
     *) return 1 ;;
   esac
 }
@@ -156,7 +165,7 @@ for part in "${PARTS[@]}"; do
     judge) names="WIPEMARK_BENCH_GGUF_JUDGE WIPEMARK_BENCH_JUDGE_NAME" ;;
     report) names="" ;;
     *)
-      var=$(var_of "${part%+voice}") || die "unknown part $part (parts: $MODELS, each also as <id>+voice, judge, report)"
+      var=$(var_of "${part%+voice}") || die "unknown part $part (parts: $KNOWN, each also as <id>+voice, judge, report)"
       names="WIPEMARK_BENCH_GGUF_$var"
       ;;
   esac
@@ -184,11 +193,14 @@ if [ -n "$absent" ]; then
 fi
 
 # The seconds per call E4-5 measured for a model on this host, from the
-# summary's "speed" section.
+# summary's "speed" section; "?" for a model E4-5 did not run (nemotron-bolt),
+# which the estimate counts as nothing — never a refusal under pipefail.
 e45_secs() { # <model id>
-  awk '/"speed": \[/ { inside = 1; next } inside && /^  \]/ { inside = 0 } inside' \
+  local secs
+  secs=$(awk '/"speed": \[/ { inside = 1; next } inside && /^  \]/ { inside = 0 } inside' \
     "$BENCH_DIR/results/summary.json" |
-    grep "\"model\":\"$1\"," | sed -n 's/.*"secs_per_attempt":\([0-9.]*\).*/\1/p' | head -n 1
+    { grep "\"model\":\"$1\"," || true; } | sed -n 's/.*"secs_per_attempt":\([0-9.]*\).*/\1/p' | head -n 1)
+  printf '%s' "${secs:-?}"
 }
 
 minutes() { # <calls> <seconds per call>
@@ -217,7 +229,7 @@ flags_of() { # <part> → the run's flags, one per line
 
 runs_present() { # the run records the judge and the report read, comma-joined
   local list="" m f
-  for m in $MODELS; do
+  for m in $KNOWN; do
     for f in "$OUT/runs/$m.jsonl" "$OUT/runs/$m+voice.jsonl"; do
       if [ "$MODE" = dry ] || [ -f "$f" ]; then list="$list,$f"; fi
     done
