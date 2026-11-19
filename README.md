@@ -409,9 +409,19 @@ catalogue records, and resumes if it is interrupted.
 | model | download | memory, about | licence |
 |---|---|---|---|
 | Qwen3 4B Instruct 2507 | 2.5 GB | 4.5 GB | Apache-2.0 |
-| Gemma 4 12B Instruct (QAT) | 6.7 GB | 8.5 GB | Gemma terms |
+| Gemma 4 E2B Instruct (QAT) | 2.6 GB | 3.75 GB | Apache-2.0 |
+| Gemma 4 E4B Instruct (QAT) | 4.2 GB | 5.5 GB | Apache-2.0 |
+| Nemotron 3.5 Bolt E4B | 5.1 GB | 6.5 GB | OpenMDW-1.1 |
+| Gemma 4 12B Instruct (QAT) | 6.7 GB | 8.5 GB | Apache-2.0 |
 | Gemma 3 12B Instruct (QAT) | 7.4 GB | 9 GB | Gemma terms |
 | Qwen3.8 27B | 12 GB | 14 GB | Apache-2.0 |
+
+The recommendation follows our own bench, which counts how often a rewrite
+changed the meaning: Gemma 4 12B wherever it has room; Gemma 4 E4B where it
+does not, such as a 16 GB Mac or a 12 GB graphics card; Gemma 4 E2B on an
+8 GB Mac or an 8 GB card. Nemotron 3.5 Bolt E4B rewrote Russian best of the
+small models and is yours to choose. Qwen3 4B, recommended before, changed
+the meaning most often and stays in the list for those who have it.
 
 You can also **add a GGUF model of your own** on the Models page or with
 `wipemark-cli models add <file>`. Wipemark never deletes a model file it
@@ -437,7 +447,7 @@ wipemark-cli inspect draft.md                 # what would be removed; exit 1 if
 wipemark-cli clean draft.md                   # writes draft.cleaned.md beside it
 wipemark-cli clean picture.png                # metadata and proved visible marks; writes picture.cleaned.png
 wipemark-cli audit . --sarif > wipemark.sarif # every file under a folder, for CI
-wipemark-cli models pull qwen3-4b-instruct-2507-ud-q4
+wipemark-cli models pull gemma-4-e2b-it-qat-ud-q4
 wipemark-cli rewrite draft.md                 # writes draft.rewritten.md
 ```
 
@@ -469,7 +479,7 @@ through an endpoint needs the application.
 - A rewrite is best-effort. A broken or cut-off word can get through the
   checks; it was seen with Qwen3.8 27B on a Russian text. Read a rewrite
   before you use it.
-- On a graphics card with 8 GB, the larger models do not fit; Qwen3 4B
+- On a graphics card with 8 GB, the larger models do not fit; Gemma 4 E2B
   does.
 - A rewrite shows when it is finished; you do not see it being written.
 

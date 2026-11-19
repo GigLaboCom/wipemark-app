@@ -515,7 +515,8 @@ impl Manifest {
         self.models.iter().find(|entry| entry.id == id)
     }
 
-    /// Every stable entry serving `role`, best first.
+    /// Every stable entry serving `role`, best first — and of two of one
+    /// tier, the one that needs less memory first (D854).
     #[must_use]
     pub fn for_role(&self, role: Role) -> Vec<&ModelEntry> {
         let mut found: Vec<&ModelEntry> = self
@@ -523,7 +524,7 @@ impl Manifest {
             .iter()
             .filter(|entry| entry.status == Status::Stable && entry.serves(role))
             .collect();
-        found.sort_by(|a, b| b.quality_tier.cmp(&a.quality_tier).then(a.id.cmp(&b.id)));
+        found.sort_by(|a, b| best_first(a, b));
         found
     }
 
@@ -543,11 +544,20 @@ impl Manifest {
         found.sort_by(|a, b| {
             (a.status == Status::Experimental)
                 .cmp(&(b.status == Status::Experimental))
-                .then(b.quality_tier.cmp(&a.quality_tier))
-                .then(a.id.cmp(&b.id))
+                .then_with(|| best_first(a, b))
         });
         found
     }
+}
+
+/// The catalogue's order within a role: the higher tier first; of one
+/// tier, the smaller memory floor first — the same quality for less
+/// (D854); then the id, so the order never depends on the file's.
+fn best_first(a: &ModelEntry, b: &ModelEntry) -> std::cmp::Ordering {
+    b.quality_tier
+        .cmp(&a.quality_tier)
+        .then(a.mem.min_ram_mb.cmp(&b.mem.min_ram_mb))
+        .then(a.id.cmp(&b.id))
 }
 
 /// A single path segment that is safe to join onto a directory: no
@@ -713,17 +723,97 @@ mod tests {
         assert_eq!(offered, ["plain"]);
     }
 
-    /// D829: Nemotron 3.5 Bolt E4B ships as an experimental rewriter.
+    /// D852: Nemotron 3.5 Bolt E4B, measured against the stable entries on
+    /// the whole corpus (D830's condition), is a stable rewriter — and,
+    /// tied with Gemma 4 E4B, it comes after it.
     #[test]
-    fn the_shipped_bolt_is_an_experimental_rewriter() {
+    fn the_shipped_bolt_is_a_stable_rewriter_after_gemma_4_e4b() {
         let manifest = Manifest::embedded().expect("embedded manifest");
         let bolt = manifest
             .get("nemotron-3.5-bolt-e4b-ud-q4")
             .expect("the entry");
-        assert_eq!(bolt.status, Status::Experimental);
+        assert_eq!(bolt.status, Status::Stable);
         assert!(bolt.serves(Role::Rewrite));
-        assert!(manifest.listed_for(Role::Rewrite).contains(&bolt));
-        assert!(!manifest.for_role(Role::Rewrite).contains(&bolt));
+        let e4b = manifest.get("gemma-4-e4b-it-qat-ud-q4").expect("E4B");
+        assert_eq!(bolt.quality_tier, e4b.quality_tier, "the bench ties them");
+        for listing in [
+            manifest.for_role(Role::Rewrite),
+            manifest.listed_for(Role::Rewrite),
+        ] {
+            let at = |id: &str| listing.iter().position(|entry| entry.id == id);
+            assert!(at(&bolt.id).is_some(), "{listing:?}");
+            assert!(at(&e4b.id) < at(&bolt.id), "E4B is the smaller of two");
+        }
+    }
+
+    /// D851: Gemma 4 E4B and E2B are pinned to the files the bench of
+    /// 2026-11-19 measured — unsloth's QAT UD-Q4_K_XL at the last commit
+    /// before the repositories' chat-template update, as the 12B is.
+    #[test]
+    fn the_small_gemma_4s_are_pinned_to_the_measured_files() {
+        let manifest = Manifest::embedded().expect("embedded manifest");
+        for (id, url, sha256, size_bytes) in [
+            (
+                "gemma-4-e4b-it-qat-ud-q4",
+                "hf://unsloth/gemma-4-E4B-it-qat-GGUF@e4a9ed86f935b06e87808789db3c56bba24cbd49/gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
+                "b3052f962d6449b4eb2075733c068bdec1c51eadb7b237e6c3157bfbb7b1dae0",
+                4_215_693_760,
+            ),
+            (
+                "gemma-4-e2b-it-qat-ud-q4",
+                "hf://unsloth/gemma-4-E2B-it-qat-GGUF@2ea637031baa8dc847d64b5dbb7011fd6a445849/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
+                "cd4526493dccbfd6791bee8822e37e30340074d1d4d9aada52ce09afefd6a33a",
+                2_620_368_960,
+            ),
+        ] {
+            let entry = manifest.get(id).expect("the entry");
+            assert_eq!(entry.status, Status::Stable, "{id}");
+            assert_eq!(entry.roles, [Role::Rewrite], "{id}");
+            assert_eq!(entry.files.len(), 1, "{id}");
+            let file = &entry.files[0];
+            assert_eq!(file.url, url);
+            assert_eq!(file.sha256.as_deref(), Some(sha256));
+            assert_eq!(file.size_bytes, size_bytes);
+            assert_eq!(entry.ctx_default, 8192, "{id}");
+            assert_eq!(entry.license, "apache-2.0", "{id}");
+        }
+    }
+
+    /// D853: the tiers follow the bench — Gemma 4 12B above Qwen3.8 27B
+    /// (October: fewer meanings changed, more passed, twice the speed);
+    /// among the small ones Gemma 4 E4B and Bolt tied, above E2B, above
+    /// Qwen3 4B (2026-11-19).
+    #[test]
+    fn the_tiers_follow_the_bench() {
+        let manifest = Manifest::embedded().expect("embedded manifest");
+        let tier = |id: &str| manifest.get(id).expect(id).quality_tier;
+        assert!(tier("gemma-4-12b-it-qat-ud-q4") > tier("qwen3.8-27b-ud-iq3s"));
+        assert_eq!(
+            tier("gemma-4-e4b-it-qat-ud-q4"),
+            tier("nemotron-3.5-bolt-e4b-ud-q4")
+        );
+        assert!(tier("nemotron-3.5-bolt-e4b-ud-q4") > tier("gemma-4-e2b-it-qat-ud-q4"));
+        assert!(tier("gemma-4-e2b-it-qat-ud-q4") > tier("qwen3-4b-instruct-2507-ud-q4"));
+    }
+
+    /// D854: of two entries of one tier the smaller is offered first,
+    /// whatever their ids — the same quality for less memory.
+    #[test]
+    fn at_one_tier_the_smaller_entry_comes_first() {
+        let sized = |id: &str, mb: u64| {
+            entry(id).replace(
+                r#""min_ram_mb": 1024, "min_vram_mb": 1024"#,
+                &format!(r#""min_ram_mb": {mb}, "min_vram_mb": {mb}"#),
+            )
+        };
+        let manifest = catalogue(&[sized("a-big", 2048), sized("b-small", 1024)]).expect("valid");
+        for listing in [
+            manifest.for_role(Role::Rewrite),
+            manifest.listed_for(Role::Rewrite),
+        ] {
+            let ids: Vec<&str> = listing.iter().map(|entry| entry.id.as_str()).collect();
+            assert_eq!(ids, ["b-small", "a-big"]);
+        }
     }
 
     /// D484: the shipped draft is Qwen3.8 27B's, it serves `draft` and

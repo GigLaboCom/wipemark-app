@@ -1925,12 +1925,15 @@ fn models_sizes_are_spelled_in_the_languages_decimals() {
     }
 }
 
-/// D830: an experimental entry says so on its line and in its JSON; a
-/// stable one says nothing on its line.
+/// D852: Nemotron 3.5 Bolt E4B left "experimental" once the bench had
+/// measured it on the whole corpus, and the two small Gemma 4s came in
+/// stable — so no shipped entry's line says "experimental", and every
+/// entry's JSON says `"stable"`. (D830's line for an experimental entry is
+/// `an_experimental_entry_says_so_on_its_line`.)
 #[test]
-fn models_list_says_which_entry_is_experimental() {
+fn models_list_says_no_shipped_entry_is_experimental() {
     const BOLT: &str = "nemotron-3.5-bolt-e4b-ud-q4";
-    let scratch = Scratch::new("models-experimental");
+    let scratch = Scratch::new("models-status");
     let output = scratch.run(&["models", "list"]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     let text = stdout(&output);
@@ -1940,17 +1943,24 @@ fn models_list_says_which_entry_is_experimental() {
             .unwrap_or_else(|| panic!("{id} is not listed:\n{text}"))
             .to_owned()
     };
-    assert!(
-        line(BOLT).contains("experimental, never offered by default"),
-        "{text}"
-    );
-    assert!(!line(SMALL).contains("experimental"), "{text}");
+    for id in [
+        BOLT,
+        SMALL,
+        "gemma-4-e4b-it-qat-ud-q4",
+        "gemma-4-e2b-it-qat-ud-q4",
+    ] {
+        assert!(!line(id).contains("experimental"), "{text}");
+    }
+    assert!(!text.contains("experimental"), "{text}");
 
     let output = scratch.run(&["models", "list", "--json"]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     let answer = json(&output);
-    assert_eq!(model(&answer, BOLT)["status"], "experimental", "{answer}");
-    assert_eq!(model(&answer, SMALL)["status"], "stable", "{answer}");
+    assert_eq!(model(&answer, BOLT)["status"], "stable", "{answer}");
+    let models = answer["models"].as_array().expect("models");
+    for entry in models.iter().filter(|entry| entry["source"] == "catalogue") {
+        assert_eq!(entry["status"], "stable", "{entry}");
+    }
 }
 
 /// E2-dflash2 (D488): Qwen3.8's draft is listed under the model it drafts

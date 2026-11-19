@@ -39,18 +39,62 @@
       "mem": { "min_ram_mb": 8704, "min_vram_mb": 8704 },
       "ctx_default": 8192,
       "quant": "UD-Q4_K_XL",
-      "quality_tier": 9,
-      "license": "gemma",
+      "quality_tier": 10,
+      "license": "apache-2.0",
       "langs": ["multi"],
       "vendor": "open-llm",
-      "notes": "Pinned to commit f18012b8, the last whose file is the one the local engine was measured on (E2-4: all 48 layers offloaded, 57 tokens a second); the repository's later re-upload carries an updated chat template that has not been checked against the renderer. Gemma 4's chat format is rendered by wipemark_llama::chat with thinking off (D181), because llama.cpp's built-in list does not know it. Memory: 6405 MiB of weights, about 832 MiB of context cache at 8192 tokens (Gemma 4 keeps Gemma 3's sliding 1024-token layers, so the cache is taken as Gemma 3 12B's) and about 1.3 GiB of compute buffer and overhead, rounded up to 8704 MiB. The header-based estimate over-states this model's cache several times over (its sliding layers are counted as full), which is why the figure is set here rather than computed; the resident memory measured after a load (D55) is the number to check it against."
+      "notes": "The catalogue's best rewriter, above Qwen3.8 27B (D853): on the prompt bench of October it passed 95.9 % of attempts against Qwen3.8's 93.1 %, the judge found the meaning changed in 7–8 % of paraphrases against 20 %, at twice the speed — and on the bench of 2026-11-19 it changed the meaning least of the five rewriters measured (7 %), and rewrote deepest. So it is every machine's default wherever it has room (D854). Pinned to commit f18012b8, the last whose file is the one the local engine was measured on (E2-4: all 48 layers offloaded, 57 tokens a second); the repository's later re-upload carries an updated chat template that has not been checked against the renderer. Gemma 4's chat format is rendered by wipemark_llama::chat with thinking off (D181), because llama.cpp's built-in list does not know it. Memory: 6405 MiB of weights, about 832 MiB of context cache at 8192 tokens (Gemma 4 keeps Gemma 3's sliding 1024-token layers, so the cache is taken as Gemma 3 12B's) and about 1.3 GiB of compute buffer and overhead, rounded up to 8704 MiB. The header-based estimate over-states this model's cache several times over (its sliding layers are counted as full), which is why the figure is set here rather than computed; the resident memory measured after a load (D55) is the number to check it against. Apache 2.0, Google's licence for Gemma 4 (the model card and its licence page); the file's header still says gemma (D851)."
+    },
+    {
+      "id": "gemma-4-e2b-it-qat-ud-q4",
+      "display": "Gemma 4 E2B Instruct (QAT, UD-Q4_K_XL)",
+      "roles": ["rewrite"],
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://unsloth/gemma-4-E2B-it-qat-GGUF@2ea637031baa8dc847d64b5dbb7011fd6a445849/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
+          "sha256": "cd4526493dccbfd6791bee8822e37e30340074d1d4d9aada52ce09afefd6a33a",
+          "size_bytes": 2620368960
+        }
+      ],
+      "mem": { "min_ram_mb": 3840, "min_vram_mb": 3840 },
+      "ctx_default": 8192,
+      "quant": "UD-Q4_K_XL",
+      "quality_tier": 6,
+      "license": "apache-2.0",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "The default where only about 3 GB is free for a model — an 8 GB Mac, an 8 GB card, 6 GB of RAM with no card measured (D854) — in Qwen3 4B's place. On the prompt bench of 2026-11-19 (the whole corpus, judged by Gemma 4 12B) the meaning changed in 22 % of paraphrases at moderate strength against Qwen3 4B's 40 %, planted instructions were obeyed 12 % of the time against 30 %, and 21 of the 24 number items passed against 6, at a file the same size and faster; its weak language is Russian (76 % of moderate paraphrases passed). 4.6B parameters, 2B effective (per-layer embeddings), quantization-aware trained. Pinned to commit 2ea63703, the last whose file is the one the bench of 2026-11-19 measured; the repository's later re-upload carries an updated chat template that has not been checked against the renderer, as for the 12B. Its chat template is Gemma 4's with the bare opener — no empty thought channel after the model's opener, unlike the 12B's — rendered by wipemark_llama::chat as llama.cpp's Jinja engine at the engine's pin renders it (D851). It loads and rewrites at the pin, b10731 (D855). Asked in English it answers a Russian text in English (E2-4); the pipeline asks for a Russian or German document in that language, and so does its live gate. Apache 2.0, Google's licence for Gemma 4 (the model card and its licence page); the file's header says gemma. Memory, as llama.cpp at the pin sizes it at 8192 tokens: 2700 MiB of weights (the file's 2499 and a second copy of the token embeddings for the output head), 60 MiB of context cache at F16 (32 MiB at the engine's Q8_0: 15 of its 35 layers keep one, 3 full-attention layers of one 512-wide head and 12 sliding 512-token ones) and 158 MiB of compute buffers; and about 0.9 GiB for the GPU runtime and the process, 3840 MiB in all. Of the weights, 1476 MiB (the per-layer and token embeddings) stay in host memory and are read a row at a time. On a 16 GB card (Vulkan, every layer, 4096 tokens) the live gate's process held 1793 MiB of the card, about 430 MiB above its buffers."
+    },
+    {
+      "id": "gemma-4-e4b-it-qat-ud-q4",
+      "display": "Gemma 4 E4B Instruct (QAT, UD-Q4_K_XL)",
+      "roles": ["rewrite"],
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://unsloth/gemma-4-E4B-it-qat-GGUF@e4a9ed86f935b06e87808789db3c56bba24cbd49/gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
+          "sha256": "b3052f962d6449b4eb2075733c068bdec1c51eadb7b237e6c3157bfbb7b1dae0",
+          "size_bytes": 4215693760
+        }
+      ],
+      "mem": { "min_ram_mb": 5632, "min_vram_mb": 5632 },
+      "ctx_default": 8192,
+      "quant": "UD-Q4_K_XL",
+      "quality_tier": 7,
+      "license": "apache-2.0",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "The default where Gemma 4 12B has no room — a 16 GB Mac, a 12 GB card, 8 GB of RAM with no card measured (D854). On the prompt bench of 2026-11-19 (the whole corpus, judged by Gemma 4 12B) the meaning changed in 12 % of paraphrases at moderate strength (English 3 %, German 15 %, Russian 18 %), against Qwen3 4B's 40 %; it passed 95.7 % of attempts and obeyed no planted instruction. Tied there with Nemotron 3.5 Bolt E4B (13 %), it is 0.8 GB smaller and rewrites deeper (17 % of word pairs carried over against 25 %), which is why it comes first of the two. 7.5B parameters, 4B effective (per-layer embeddings), quantization-aware trained. Pinned to commit e4a9ed86, the last whose file is the one the bench of 2026-11-19 measured; the repository's later re-upload carries an updated chat template that has not been checked against the renderer, as for the 12B. Its chat template is Gemma 4's with the bare opener — no empty thought channel after the model's opener, unlike the 12B's — rendered by wipemark_llama::chat as llama.cpp's Jinja engine at the engine's pin renders it (D851). It loads and rewrites at the pin, b10731 (D855). Asked in English it answers a Russian text in English (E2-4); the pipeline asks for a Russian or German document in that language, and so does its live gate. Apache 2.0, Google's licence for Gemma 4 (the model card and its licence page); the file's header says gemma. Memory, as llama.cpp at the pin sizes it at 8192 tokens: 4365 MiB of weights (the file's 4020 and a second copy of the token embeddings for the output head), 168 MiB of context cache at F16 (89 MiB at the engine's Q8_0: 24 of its 42 layers keep one, 4 full-attention layers of two 512-wide heads and 20 sliding 512-token ones) and 153 MiB of compute buffers; and about 0.9 GiB for the GPU runtime and the process, rounded up to 5632 MiB. Of the weights, 1872 MiB (the per-layer and token embeddings) stay in host memory and are read a row at a time. On a 16 GB card (Vulkan, every layer, 4096 tokens) the live gate's process held 3103 MiB of the card, about 450 MiB above its buffers."
     },
     {
       "id": "nemotron-3.5-bolt-e4b-ud-q4",
       "display": "Nemotron 3.5 Bolt E4B (UD-Q4_K_XL)",
       "roles": ["rewrite"],
       "format": "gguf",
-      "status": "experimental",
+      "status": "stable",
       "files": [
         {
           "url": "hf://unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF@b738967d6da3441a7d1c71fcec15e49e32e16ecd/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf",
@@ -61,11 +105,11 @@
       "mem": { "min_ram_mb": 6656, "min_vram_mb": 6656 },
       "ctx_default": 8192,
       "quant": "UD-Q4_K_XL",
-      "quality_tier": 6,
+      "quality_tier": 7,
       "license": "openmdw-1.1",
       "langs": ["en", "fr", "de", "zh", "ja", "pt", "vi", "it", "es", "ko", "hi", "ar"],
       "vendor": "open-llm",
-      "notes": "Experimental (D830): listed, and chosen only by the person — never recommended, never a default, until the bench has measured it against the stable entries on the whole corpus; as a stable entry above Qwen3 4B it would have become every 16 GB Mac's default. NVIDIA's post-training of Gemma 4 E4B: 8B parameters, 4B effective (per-layer embeddings). unsloth's UD-Q4_K_XL, pinned at b738967d, rather than NVIDIA's own Q4_K_M (6.18 GB, its per-layer and token embeddings at Q8_0, no licence in its header): ungated, and its header names openmdw-1.1. It loads at the engine's pin: llama.cpp b10731 creates the K and V projections of its 18 shared-cache layers, which NVIDIA's conversion keeps and Gemma 4 E4B's files do not, as optional tensors. Its chat template is NVIDIA's updated Gemma 4 one, thinking off by default, rendered by wipemark_llama::chat with the bare opener; <turn|> ends a turn by its text, as the file names no end-of-turn token. Trained languages: en, fr, de, zh, ja, pt, vi, it, es, ko, hi, ar. Asked in English it answers German and Russian text in English; the pipeline asks for a German or Russian document in that language, and on the bench (paraphrase, moderate, every third item, an M3 Pro, Metal) 195 of 196 attempts passed, the one refusal a Russian answer in another language, against Qwen3 4B's 166 on the same grid that day. A document in a language with no shipped templates is asked in English and may come back translated, which the language check refuses. Memory: 4826 MiB of weights, about 168 MiB of KV cache at 8192 tokens (24 of its 42 layers keep one: 4 full-attention layers of two 512-wide heads, 20 sliding 512-token ones) and about 1.6 GiB of compute buffer and overhead, rounded up to 6656 MiB; on Metal at 4096 tokens the test process peaked at 4.6 GB, the per-layer embeddings read a row at a time. Not its DFlash drafter: NVIDIA's has no selector (DFlash 1, which the engine refuses, D481) and asks for llama.cpp b11808."
+      "notes": "Stable since D852, once the bench had measured it against the stable entries on the whole corpus (2026-11-19, judged by Gemma 4 12B): the meaning changed in 13 % of paraphrases at moderate strength, tied with Gemma 4 E4B's 12 %; it passed 98.3 % of attempts, the most of the five measured, kept every markdown item, and had the best Russian of the small ones (9 % changed, against E4B's 18 %) — but rewrote less deeply (25 % of word pairs carried over, against 17 %) and worse in German (21 % against 15 %). Tied with E4B and 0.8 GB larger, it comes after it and is no machine's default (D854): chosen by the person, for Russian above all. NVIDIA's post-training of Gemma 4 E4B: 8B parameters, 4B effective (per-layer embeddings). unsloth's UD-Q4_K_XL, pinned at b738967d, rather than NVIDIA's own Q4_K_M (6.18 GB, its per-layer and token embeddings at Q8_0, no licence in its header): ungated, and its header names openmdw-1.1. It loads at the engine's pin: llama.cpp b10731 creates the K and V projections of its 18 shared-cache layers, which NVIDIA's conversion keeps and Gemma 4 E4B's files do not, as optional tensors. Its chat template is NVIDIA's updated Gemma 4 one, thinking off by default, rendered by wipemark_llama::chat with the bare opener; <turn|> ends a turn by its text, as the file names no end-of-turn token. Trained languages: en, fr, de, zh, ja, pt, vi, it, es, ko, hi, ar. Asked in English it answers German and Russian text in English; the pipeline asks for a German or Russian document in that language, and on the bench (paraphrase, moderate, every third item, an M3 Pro, Metal) 195 of 196 attempts passed, the one refusal a Russian answer in another language, against Qwen3 4B's 166 on the same grid that day. A document in a language with no shipped templates is asked in English and may come back translated, which the language check refuses. Memory: 4826 MiB of weights, about 168 MiB of KV cache at 8192 tokens (24 of its 42 layers keep one: 4 full-attention layers of two 512-wide heads, 20 sliding 512-token ones) and about 1.6 GiB of compute buffer and overhead, rounded up to 6656 MiB; on Metal at 4096 tokens the test process peaked at 4.6 GB, the per-layer embeddings read a row at a time. Not its DFlash drafter: NVIDIA's has no selector (DFlash 1, which the engine refuses, D481) and asks for llama.cpp b11808."
     },
     {
       "id": "qwen3-4b-instruct-2507-ud-q4",
@@ -87,7 +131,7 @@
       "license": "apache-2.0",
       "langs": ["multi"],
       "vendor": "open-llm",
-      "notes": "4.0B parameters, 3.6B of them outside the embeddings. The 2507 Instruct build and not the hybrid Qwen3-4B on purpose: the hybrid reasons before it answers, and the measurement recorded in dev/sdd/layer-b-rewrite-reference.md is 9894 completion tokens against 12 for the same rewrite. A rewriter that thinks out loud is paying for tokens nobody reads. Estimated memory is 2429 MiB of weights, 1152 MiB of KV cache at 8192 tokens, and about 1 GiB of compute buffer and overhead."
+      "notes": "4.0B parameters, 3.6B of them outside the embeddings. The 2507 Instruct build and not the hybrid Qwen3-4B on purpose: the hybrid reasons before it answers, and the measurement recorded in dev/sdd/layer-b-rewrite-reference.md is 9894 completion tokens against 12 for the same rewrite. A rewriter that thinks out loud is paying for tokens nobody reads. Estimated memory is 2429 MiB of weights, 1152 MiB of KV cache at 8192 tokens, and about 1 GiB of compute buffer and overhead. No machine's default since D854: on the bench of 2026-11-19 it was the worst of the five rewriters on every quality measure — the meaning changed in 40 % of paraphrases (German 63 %), planted instructions obeyed 30 % of the time — and Gemma 4 E2B, as small, changed it in 22 %. It stays in the catalogue for those who have it."
     },
     {
       "id": "qwen3.8-27b-ud-iq3s",
@@ -105,11 +149,11 @@
       "mem": { "min_ram_mb": 14336, "min_vram_mb": 14336 },
       "ctx_default": 8192,
       "quant": "UD-IQ3_S",
-      "quality_tier": 10,
+      "quality_tier": 9,
       "license": "apache-2.0",
       "langs": ["multi"],
       "vendor": "open-llm",
-      "notes": "27B parameters at unsloth's dynamic IQ3_S, about 3.6 bits a weight. A hybrid model whose chat template has a thinking switch: wipemark_llama::chat renders it with thinking off (D182), because llama.cpp's built-in ChatML opener is the template's thinking-on. Memory: 11 483 MiB of weights, and the rest of 14 GiB for the context cache at 8192 tokens, the compute buffer and the process around them. Measured in E2-4 on a 16 GB card: 62 of its 65 layers fitted beside another process, at 10.9 tokens a second; the application asks llama.cpp for every layer on the GPU, so a card that cannot hold the whole model refuses the load (LoadFailed) rather than splitting it."
+      "notes": "27B parameters at unsloth's dynamic IQ3_S, about 3.6 bits a weight. A hybrid model whose chat template has a thinking switch: wipemark_llama::chat renders it with thinking off (D182), because llama.cpp's built-in ChatML opener is the template's thinking-on. Memory: 11 483 MiB of weights, and the rest of 14 GiB for the context cache at 8192 tokens, the compute buffer and the process around them. Measured in E2-4 on a 16 GB card: 62 of its 65 layers fitted beside another process, at 10.9 tokens a second; the application asks llama.cpp for every layer on the GPU, so a card that cannot hold the whole model refuses the load (LoadFailed) rather than splitting it. Below Gemma 4 12B since D853: the October bench measured it behind on every quality measure and at half the speed, so it is chosen by the person and no machine's default."
     },
     {
       "id": "qwen3.8-27b-dflash2-q4km",

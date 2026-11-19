@@ -74,9 +74,9 @@
 #   Parts, in order: qwen3-4b qwen3-4b+voice gemma3-12b gemma3-12b+voice
 #   gemma4-12b gemma4-12b+voice qwen38-27b qwen38-27b+voice judge report.
 #   Named only, never in the default set: nemotron-bolt (the catalogue's
-#   experimental Nemotron 3.5 Bolt E4B, D830: experimental until the bench
-#   has measured it against the stable entries), gemma4-e4b and gemma4-e2b
-#   (Google's small Gemma 4, not in the catalogue; E4B is the model Bolt is
+#   Nemotron 3.5 Bolt E4B, experimental until this bench measured it on
+#   2026-11-19, stable since D852), gemma4-e4b and gemma4-e2b (Google's small
+#   Gemma 4, in the catalogue since D851; E4B is the model Bolt is
 #   post-trained from), each also as <id>+voice — their run records are judged
 #   and reported with the others under the same --out.
 #

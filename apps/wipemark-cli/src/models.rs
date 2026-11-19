@@ -567,9 +567,9 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                     "fit" => fit,
                 ),
             );
-            if entry.status == Status::Experimental {
+            if let Some(said) = status_said(entry) {
                 line.push_str(" · ");
-                line.push_str(&say(Message::CliModelsExperimental, &FluentArgs::new()));
+                line.push_str(&said);
             }
             if let Some(at) = found_at(entry) {
                 line.push_str(" · ");
@@ -670,6 +670,14 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
         "done"
     );
     exit
+}
+
+/// What a catalogue entry's line says of its status: that it is
+/// experimental and never offered by default (D830), and nothing for a
+/// stable one.
+fn status_said(entry: &ModelEntry) -> Option<String> {
+    (entry.status == Status::Experimental)
+        .then(|| run::say(Message::CliModelsExperimental, &FluentArgs::new()))
 }
 
 /// A fit verdict in the JSON's words.
@@ -1974,7 +1982,31 @@ pub(crate) fn forget(id: &str, io: &mut Io) -> Exit {
 
 #[cfg(test)]
 mod tests {
-    use super::{gigabytes, percent, pull_failed};
+    use super::{gigabytes, percent, pull_failed, status_said};
+
+    /// D830: an experimental entry's line says so, a stable one's says
+    /// nothing. Since D852 the catalogue ships no experimental entry, so
+    /// one of its entries is made one here; `models_list_says_no_shipped_
+    /// entry_is_experimental` holds the listing itself.
+    #[test]
+    fn an_experimental_entry_says_so_on_its_line() {
+        use wipemark_i18n::{FluentArgs, Message};
+        use wipemark_models::{Manifest, Role, Status};
+        let catalogue = Manifest::embedded().expect("the catalogue");
+        let stable = catalogue.for_role(Role::Rewrite)[0].clone();
+        assert_eq!(status_said(&stable), None);
+        let trial = wipemark_models::ModelEntry {
+            status: Status::Experimental,
+            ..stable
+        };
+        assert_eq!(
+            status_said(&trial),
+            Some(crate::run::say(
+                Message::CliModelsExperimental,
+                &FluentArgs::new()
+            ))
+        );
+    }
 
     /// A4: a pull refused because another tool's file holds the place says
     /// so, in every language, and does not promise that running pull again

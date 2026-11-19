@@ -972,10 +972,10 @@ settings-engine-timeout-description = Seconds to wait for one response before gi
 ## The Models section — the weights that live on this machine.
 ##
 ## The Engine page points {-brand-name} at a server; this page fills the
-## machine that server runs on. Two rewriters ship: a 12B that wants
-## roughly nine gigabytes and a 4B that wants under five, so a laptop and
-## a workstation are both offered something rather than the same thing
-## with a warning.
+## machine that server runs on. The rewriters it ships run from a 12B that
+## wants roughly nine gigabytes down to a small one that wants under four,
+## so a laptop and a workstation are both offered something rather than
+## the same thing with a warning.
 ##
 ## Downloading weights does not make {-layer-b} work. The catalogue,
 ## the download and the verification are epic E3; the engine that loads

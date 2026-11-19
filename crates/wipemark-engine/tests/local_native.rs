@@ -432,10 +432,13 @@ fn a_process_that_shuts_its_engine_down_under_a_running_job_exits_cleanly() {
 //   WIPEMARK_TEST_GGUF_QWEN38=/path/to/Qwen3.8-27B-UD-IQ3_S.gguf
 //   WIPEMARK_TEST_GPU_LAYERS_QWEN38=40     # optional; default: all layers
 //
-// Nemotron 3.5 Bolt E4B is in the catalogue as an experimental entry and
-// is held the same way, by a variable of its own (D831):
+// Nemotron 3.5 Bolt E4B is in the catalogue and is held the same way, by a
+// variable of its own (D831), and so are Gemma 4 E4B and E2B, the small
+// rewriters a machine without room for the 12B is offered (D855):
 //
 //   WIPEMARK_TEST_GGUF_BOLT=/path/to/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf
+//   WIPEMARK_TEST_GGUF_GEMMA4_E4B=/path/to/gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf
+//   WIPEMARK_TEST_GGUF_GEMMA4_E2B=/path/to/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf
 // ---------------------------------------------------------------------------
 
 /// A model named by `var`, or `None` (and a line on stderr) when unset.
@@ -505,6 +508,12 @@ const RU_TEXT: &str = "Первая сборка проекта занимает
 const REWRITE_SYSTEM_DE: &str = "Du schreibst Texte um. Sag dasselbe mit anderen Worten, in \
      derselben Sprache wie der Text, und behalte jede Zahl. Gib nur den umgeschriebenen Text aus.";
 
+/// The same instruction in Russian, as the pipeline asks for a Russian
+/// document's rewrite: Gemma 4 E4B and E2B, asked in English, answer the
+/// Russian text in English (E2-4, D855).
+const REWRITE_SYSTEM_RU: &str = "Ты переписываешь тексты. Скажи то же самое другими словами, на \
+     том же языке, что и текст, и сохрани каждое число. Выведи только переписанный текст.";
+
 /// One text a model is asked to rewrite.
 struct Text {
     language: &'static str,
@@ -550,6 +559,11 @@ const RU: Text = Text {
     number: "12",
     script: cyrillic,
     words: None,
+};
+/// The Russian text asked in Russian, as the pipeline asks for it (D855).
+const RU_IN_RUSSIAN: Text = Text {
+    system: REWRITE_SYSTEM_RU,
+    ..RU
 };
 const DE: Text = Text {
     language: "de",
@@ -713,6 +727,35 @@ async fn nemotron_bolt_rewrites_in_english_and_german() {
         "WIPEMARK_TEST_GPU_LAYERS_BOLT",
         "nemotron-3.5-bolt-e4b-ud-q4",
         &[EN, DE],
+    )
+    .await;
+}
+
+/// D855: Gemma 4 E4B, the default where the 12B has no room, rewrites the
+/// three languages the bench measures it in — the German and the Russian
+/// text each asked in its own language, as the pipeline asks.
+#[tokio::test]
+#[ignore = "needs WIPEMARK_TEST_GGUF_GEMMA4_E4B"]
+async fn gemma_4_e4b_rewrites_in_english_german_and_russian() {
+    a_named_model_rewrites(
+        "WIPEMARK_TEST_GGUF_GEMMA4_E4B",
+        "WIPEMARK_TEST_GPU_LAYERS_GEMMA4_E4B",
+        "gemma-4-e4b-it-qat-ud-q4",
+        &[EN, DE, RU_IN_RUSSIAN],
+    )
+    .await;
+}
+
+/// D855: Gemma 4 E2B, the default where only about 3 GB is free for a
+/// model, the same three.
+#[tokio::test]
+#[ignore = "needs WIPEMARK_TEST_GGUF_GEMMA4_E2B"]
+async fn gemma_4_e2b_rewrites_in_english_german_and_russian() {
+    a_named_model_rewrites(
+        "WIPEMARK_TEST_GGUF_GEMMA4_E2B",
+        "WIPEMARK_TEST_GPU_LAYERS_GEMMA4_E2B",
+        "gemma-4-e2b-it-qat-ud-q4",
+        &[EN, DE, RU_IN_RUSSIAN],
     )
     .await;
 }
