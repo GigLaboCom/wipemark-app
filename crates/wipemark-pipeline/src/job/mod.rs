@@ -34,7 +34,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub use attempt::verdict;
+pub use attempt::{verdict, verdict_without};
 pub use plan::{plan, Planned, Rung};
 pub use resume::{Decided, RecordError};
 pub use stored::{OptionsError, OPTIONS_VERSION};

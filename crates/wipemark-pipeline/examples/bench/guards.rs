@@ -1,6 +1,11 @@
-//! `guards`: the guards of 2026-11-19 (D856–D860) replayed over a run's
-//! records, with no model — every candidate that passed the loop's verdict
-//! when it was recorded, judged again by each new guard on its own.
+//! `guards`: the guards of 2026-11-19 (D856–D860, the order guard as D862
+//! reads it) replayed over a run's records, with no model — every candidate
+//! that passed the loop's verdict when it was recorded, judged again by
+//! each new guard on its own. A run made by a build that has the new guards
+//! records some candidates as refused by one of them; one that every other
+//! check lets through (`job::verdict_without`) is replayed as passed, since
+//! that is what it was before them — so two builds' guards can be replayed
+//! over the same records and compared.
 //!
 //! Per guard and per model it reports how many of those candidates the
 //! guard would now refuse — its cost: candidates the loop throws away, and
@@ -12,19 +17,23 @@
 //! prepared again from the corpus, the way the run prepared them, so the
 //! guards that read what a chunk was prepared with — its constructs
 //! (`pairs`), its context (`context-echo`) — get what the run had; a record
-//! whose chunk no longer matches the corpus is counted and skipped.
+//! whose chunk no longer matches the corpus is counted and skipped. The
+//! cells with no candidate that passed the old checks are counted beside
+//! them, so the two add up to every chunk left as its source. `--list
+//! <guard>` prints every candidate that guard refuses, in full.
 //!
 //! ```sh
 //! cargo run -p wipemark-pipeline --features local-llama --example bench -- guards \
-//!     --in runs/a.jsonl,runs/b.jsonl --judge judge.jsonl [--examples 3]
+//!     --in runs/a.jsonl,runs/b.jsonl --judge judge.jsonl [--examples 3] [--list order]
 //! ```
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::path::Path;
 
 use serde_json::Value;
 use wipemark_core::{ContextEchoGuard, Guard, GuardOutcome, OrderGuard, PermutationGuard};
+use wipemark_pipeline::job::verdict_without;
 use wipemark_pipeline::prepare::{prepare, Budget, Chunk, Prepared};
 
 use crate::args::Args;
@@ -77,27 +86,51 @@ pub fn main(args: &Args) {
         .value("--examples")
         .map_or(3, |n| n.parse().unwrap_or(3));
     let echo_at: Option<usize> = args.value("--echo-at").and_then(|n| n.parse().ok());
+    let list = args.value("--list");
     print!(
         "{}",
         replay(
             Path::new(&corpus_dir),
             &records,
             &judgements,
-            examples,
-            echo_at
+            &Show {
+                examples,
+                echo_at,
+                list: list.as_deref(),
+            },
         )
     );
 }
 
-/// The whole replay as Markdown; with `echo_at`, every candidate the
-/// context guard would refuse at that many words is listed too.
+/// What the replay prints besides its tables.
+pub struct Show<'a> {
+    /// How many refused candidates each guard shows, clipped.
+    pub examples: usize,
+    /// With a number, every candidate the context guard would refuse at
+    /// that many words, listed.
+    pub echo_at: Option<usize>,
+    /// With a guard's name, every candidate it refuses, in full.
+    pub list: Option<&'a str>,
+}
+
+/// Whether `record`'s verdict was a refusal by one of the guards of
+/// 2026-11-19 ([`NEW`]) — a record made by a build that has them.
+fn refused_by_new(record: &Value) -> bool {
+    record["verdict"] == "guard"
+        && record["rejection"]["guard"]
+            .as_str()
+            .is_some_and(|guard| NEW.contains(&guard))
+}
+
+/// The whole replay as Markdown.
 pub fn replay(
     corpus_dir: &Path,
     records: &[Value],
     judgements: &[Value],
-    examples: usize,
-    echo_at: Option<usize>,
+    show: &Show<'_>,
 ) -> String {
+    let examples = show.examples;
+    let echo_at = show.echo_at;
     let items: HashMap<String, corpus::Item> = corpus::load(corpus_dir)
         .into_iter()
         .map(|item| (item.id.clone(), item))
@@ -116,10 +149,26 @@ pub fn replay(
         .filter_map(|j| Some((j["of"].as_str()?, j["verdict"].as_str()?)))
         .collect();
 
+    let options = run::options(
+        wipemark_pipeline::prompt::Tactic::Paraphrase,
+        wipemark_pipeline::prompt::Intensity::Moderate,
+    );
     let mut skipped = 0usize;
+    // Records a build with the new guards made, refused by one of them and
+    // let through by every other check: replayed as passed, since that is
+    // what they were before the new guards.
+    let mut refused_new = 0usize;
     let mut passed: Vec<Passed<'_>> = Vec::new();
+    // Every cell a record names, by model: the cells with no candidate
+    // that passed the old checks are those nothing below replays.
+    let mut every_cell: BTreeSet<(String, String)> = BTreeSet::new();
     for r in records {
-        if r["verdict"] != "passed" {
+        if let (Some(model), Some(key)) = (r["model"].as_str(), r["key"].as_str()) {
+            let cell = key.rsplit_once('|').map_or(key, |(cell, _)| cell);
+            every_cell.insert((model.to_owned(), cell.to_owned()));
+        }
+        let by_new = refused_by_new(r);
+        if r["verdict"] != "passed" && !by_new {
             continue;
         }
         let (Some(key), Some(item), Some(index), Some(text), Some(answer)) = (
@@ -140,6 +189,12 @@ pub fn replay(
             skipped += 1;
             continue;
         };
+        if by_new {
+            if verdict_without(&options, chunk, answer, &NEW).is_err() {
+                continue;
+            }
+            refused_new += 1;
+        }
         // The cell: the key without its candidate.
         let cell = key
             .rsplit_once('|')
@@ -154,10 +209,6 @@ pub fn replay(
         });
     }
 
-    let options = run::options(
-        wipemark_pipeline::prompt::Tactic::Paraphrase,
-        wipemark_pipeline::prompt::Intensity::Moderate,
-    );
     let models: Vec<String> = {
         let mut m: Vec<String> = passed.iter().map(|p| p.model.clone()).collect();
         m.sort();
@@ -235,6 +286,12 @@ pub fn replay(
         skipped,
         old_refused
     );
+    if refused_new > 0 {
+        let _ = writeln!(
+            md,
+            "Of them, {refused_new} were refused when recorded by a guard of 2026-11-19 and passed by every other check: replayed as passed.\n"
+        );
+    }
     let _ = writeln!(md, "Each cell: refused / of them CHANGED / of them EQUIVALENT — and the share of the judge's CHANGED among the passed candidates it catches.\n");
     let mut header = String::from("| guard |");
     let mut rule = String::from("|---|");
@@ -319,7 +376,20 @@ pub fn replay(
         lost_all.1 += of_model.len();
         let _ = write!(row, " {lost} of {} |", of_model.len());
     }
-    let _ = writeln!(md, "{row} {} of {} |\n", lost_all.0, lost_all.1);
+    let _ = writeln!(md, "{row} {} of {} |", lost_all.0, lost_all.1);
+    let mut row = String::from("| cells with no candidate before the new guards |");
+    let mut none_all = (0, 0);
+    for m in &models {
+        let of_model = every_cell.iter().filter(|(model, _)| model == m).count();
+        let replayed = cells
+            .keys()
+            .filter(|(model, _)| *model == m.as_str())
+            .count();
+        none_all.0 += of_model - replayed;
+        none_all.1 += of_model;
+        let _ = write!(row, " {} of {of_model} |", of_model - replayed);
+    }
+    let _ = writeln!(md, "{row} {} of {} |\n", none_all.0, none_all.1);
     let _ = writeln!(md, "A cell is one chunk under one tactic and intensity: its candidates are the attempts of one job (2 × 2 for paraphrase, the first round for humanize). Left with none, the chunk keeps its source. With one guard alone added:\n");
     let _ = writeln!(
         md,
@@ -358,6 +428,29 @@ pub fn replay(
                     clip(context),
                     clip(&p.answer)
                 );
+            }
+        }
+        let _ = writeln!(md);
+    }
+
+    if let Some(name) = show.list {
+        let _ = writeln!(md, "### `{name}`: every candidate refused\n");
+        for p in &passed {
+            for guard in options.guards_for(p.chunk) {
+                if guard.name() != name {
+                    continue;
+                }
+                if let GuardOutcome::Reject(reason) = guard.check(&p.chunk.text, &p.answer) {
+                    let _ = writeln!(
+                        md,
+                        "- `{}` `{}` judge {} — {reason}\n  - chunk: {}\n  - answer: {}",
+                        p.model,
+                        p.cell,
+                        p.verdict.as_deref().unwrap_or("–"),
+                        p.chunk.text.replace('\n', " ⏎ "),
+                        p.answer.replace('\n', " ⏎ ")
+                    );
+                }
             }
         }
         let _ = writeln!(md);
@@ -417,6 +510,18 @@ fn sweeps(md: &mut String, passed: &[Passed<'_>]) {
             t.refused, t.changed, t.equivalent
         );
     }
+    for words in [6, 8, 12, 20] {
+        let guard = OrderGuard {
+            max_step_words: words,
+            ..OrderGuard::DEFAULT
+        };
+        let t = count(&|p| !guard.check(&p.chunk.text, &p.answer).is_pass());
+        let _ = writeln!(
+            md,
+            "| `order` | steps of ≤ {words} words | {} | {} | {} |",
+            t.refused, t.changed, t.equivalent
+        );
+    }
     for words in [3, 5, 8, 20] {
         let guard = PermutationGuard { min_words: words };
         let t = count(&|p| !guard.check(&p.chunk.text, &p.answer).is_pass());
@@ -450,7 +555,7 @@ fn clip(text: &str) -> String {
 mod tests {
     use serde_json::{json, Value};
 
-    use super::replay;
+    use super::{replay, Show};
 
     /// A corpus of one English Markdown item of two paragraphs, and nothing
     /// in the other languages, where the test can read it.
@@ -466,7 +571,9 @@ mod tests {
             "=== id: en-md-99 | kind: markdown | format: markdown | source: the test | licence: the test\n\
              Every capture lands in the library with its keyword and its date.\n\
              \n\
-             Report any problem on [the issue tracker](https://example.com/issues).\n",
+             Report any problem on [the issue tracker](https://example.com/issues).\n\
+             \n\
+             Save the file, then close the editor.\n",
         )
         .unwrap();
         std::fs::write(dir.join("ru.txt"), "").unwrap();
@@ -517,7 +624,16 @@ mod tests {
             json!({"of": "m|en-md-99|1|paraphrase|moderate|1", "verdict": "CHANGED"}),
             json!({"of": "m|en-md-99|1|paraphrase|moderate|2", "verdict": "EQUIVALENT"}),
         ];
-        let md = replay(&corpus(), &records, &judgements, 1, None);
+        let md = replay(
+            &corpus(),
+            &records,
+            &judgements,
+            &Show {
+                examples: 1,
+                echo_at: None,
+                list: None,
+            },
+        );
         assert!(
             md.contains("3 passed and replayed (2 with a context, 2 with a construct); 1 skipped"),
             "{md}"
@@ -539,5 +655,63 @@ mod tests {
             md.contains("| cells left with no passed candidate | 1 of 2 | 1 of 2 |"),
             "{md}"
         );
+    }
+
+    /// A record made by a build that has the new guards, refused by one of
+    /// them and let through by every other check, is replayed as what it
+    /// was before them; one an old guard refused is not, and its cell is
+    /// counted as one that had no candidate; `--list` shows every candidate
+    /// the named guard refuses, in full.
+    #[test]
+    fn a_record_a_new_guard_refused_is_replayed_and_a_cell_with_none_is_counted() {
+        let steps = "Save the file, then close the editor.";
+        let mut turned = record(2, steps, "Shut the editor, then store the file.", 1);
+        turned["verdict"] = json!("guard");
+        turned["rejection"] =
+            json!({"kind": "guard", "guard": "order", "reason": "order-reversed"});
+        let kept = record(2, steps, "Store the file, then shut the editor.", 2);
+        let mut long = record(
+            0,
+            "Every capture lands in the library with its keyword and its date.",
+            "Each capture.",
+            1,
+        );
+        long["verdict"] = json!("guard");
+        long["rejection"] = json!({"kind": "guard", "guard": "length-drift"});
+        let judgements =
+            [json!({"of": "m|en-md-99|2|paraphrase|moderate|1", "verdict": "CHANGED"})];
+        let md = replay(
+            &corpus(),
+            &[turned, kept, long],
+            &judgements,
+            &Show {
+                examples: 0,
+                echo_at: None,
+                list: Some("order"),
+            },
+        );
+        assert!(md.contains("3 records; 2 passed and replayed"), "{md}");
+        assert!(
+            md.contains("Of them, 1 were refused when recorded by a guard of 2026-11-19"),
+            "{md}"
+        );
+        assert!(
+            md.contains("| `order` | 1 / 1 / 0 (100.0 % of CHANGED) |"),
+            "{md}"
+        );
+        assert!(
+            md.contains("| cells left with no passed candidate | 0 of 1 | 0 of 1 |"),
+            "{md}"
+        );
+        assert!(
+            md.contains("| cells with no candidate before the new guards | 1 of 2 | 1 of 2 |"),
+            "{md}"
+        );
+        assert!(md.contains("### `order`: every candidate refused"), "{md}");
+        assert!(
+            md.contains("  - answer: Shut the editor, then store the file."),
+            "{md}"
+        );
+        assert!(!md.contains("  - answer: Store the file"), "{md}");
     }
 }

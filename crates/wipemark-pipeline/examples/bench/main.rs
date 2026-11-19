@@ -29,6 +29,7 @@ pub const USAGE: &str = "\
 usage: bench <mode> [--flag value]...
 
   run     --local <gguf> [--draft <gguf>] | --endpoint <base URL> [--reasoning none|off]
+          [--key-file <file holding a bearer key>]
           --name <model id> --out <records.jsonl>
           [--grid <spec>] [--langs en,ru] [--items en-pd-01,...] [--every n] [--ctx 8192]
           [--gpu-layers n] [--corpus <dir>] [--variant <profile id or dir>]
@@ -43,8 +44,9 @@ usage: bench <mode> [--flag value]...
   report  --in <records.jsonl,...> [--judge <judgements.jsonl,...>]
           [--summary bench/results/summary.json] [--examples 3]
   guards  --in <records.jsonl,...> [--judge <judgements.jsonl,...>]
-          [--corpus <dir>] [--examples 3]: the guards of 2026-11-19 replayed
-          over the candidates that passed, and loads no model
+          [--corpus <dir>] [--examples 3] [--list <guard>]: the guards of
+          2026-11-19 replayed over the candidates that passed, and loads no
+          model
   plan    --of run|judge  and that mode's flags: prints
           `attempts=<n> calls=<n> done=<n>` and loads no model
 
