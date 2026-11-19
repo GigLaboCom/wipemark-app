@@ -61,8 +61,11 @@
 #   export WIPEMARK_BENCH_JUDGE_NAME=gemma4-12b-judge
 #   # optional, a model outside the default four, asked for by its parts only:
 #   export WIPEMARK_BENCH_GGUF_NEMOTRON_BOLT=/path/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf
+#   export WIPEMARK_BENCH_GGUF_GEMMA4_E4B=/path/gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf
+#   export WIPEMARK_BENCH_GGUF_GEMMA4_E2B=/path/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf
 #   # optional, per model: WIPEMARK_BENCH_GPU_LAYERS_<QWEN3_4B|GEMMA3_12B|
-#   # GEMMA4_12B|QWEN38_27B|NEMOTRON_BOLT|JUDGE>, default -1 (every layer on the GPU)
+#   # GEMMA4_12B|QWEN38_27B|NEMOTRON_BOLT|GEMMA4_E4B|GEMMA4_E2B|JUDGE>, default -1
+#   # (every layer on the GPU)
 #   crates/wipemark-pipeline/bench/run-voice.sh --dry-run    # the commands; nothing runs
 #   crates/wipemark-pipeline/bench/run-voice.sh --estimate   # build and plan; no model
 #   crates/wipemark-pipeline/bench/run-voice.sh              # all of it
@@ -70,10 +73,12 @@
 #   [--out DIR]   default crates/wipemark-pipeline/bench/results/voice-<today>
 #   Parts, in order: qwen3-4b qwen3-4b+voice gemma3-12b gemma3-12b+voice
 #   gemma4-12b gemma4-12b+voice qwen38-27b qwen38-27b+voice judge report.
-#   Named only, never in the default set: nemotron-bolt, nemotron-bolt+voice
-#   (the catalogue's experimental Nemotron 3.5 Bolt E4B, D830: experimental
-#   until the bench has measured it against the stable entries) — its run
-#   records are judged and reported with the others under the same --out.
+#   Named only, never in the default set: nemotron-bolt (the catalogue's
+#   experimental Nemotron 3.5 Bolt E4B, D830: experimental until the bench
+#   has measured it against the stable entries), gemma4-e4b and gemma4-e2b
+#   (Google's small Gemma 4, not in the catalogue; E4B is the model Bolt is
+#   post-trained from), each also as <id>+voice — their run records are judged
+#   and reported with the others under the same --out.
 #
 # What it needs
 #   bash (3.2 is enough), awk, sed, cargo, rustc; the four GGUFs and the judge's,
@@ -106,7 +111,7 @@ GRID='paraphrase:light,moderate,strong:4;humanize:moderate,strong:2'
 EVERY=3
 MODELS="qwen3-4b gemma3-12b gemma4-12b qwen38-27b"
 # Every model a part may name: the default four and those run only when named.
-KNOWN="$MODELS nemotron-bolt"
+KNOWN="$MODELS nemotron-bolt gemma4-e4b gemma4-e2b"
 # The judge's time per call: E4-5's, "about 30 minutes for 8 500
 # judgements" (dev/architecture/prompt-bench.md, "How to rerun").
 JUDGE_SECS=0.21
@@ -129,6 +134,8 @@ var_of() { # <model id> → the suffix of its variables
     gemma4-12b) echo GEMMA4_12B ;;
     qwen38-27b) echo QWEN38_27B ;;
     nemotron-bolt) echo NEMOTRON_BOLT ;;
+    gemma4-e4b) echo GEMMA4_E4B ;;
+    gemma4-e2b) echo GEMMA4_E2B ;;
     *) return 1 ;;
   esac
 }
@@ -193,7 +200,8 @@ if [ -n "$absent" ]; then
 fi
 
 # The seconds per call E4-5 measured for a model on this host, from the
-# summary's "speed" section; "?" for a model E4-5 did not run (nemotron-bolt),
+# summary's "speed" section; "?" for a model E4-5 did not run (nemotron-bolt,
+# gemma4-e4b, gemma4-e2b),
 # which the estimate counts as nothing — never a refusal under pipefail.
 e45_secs() { # <model id>
   local secs
