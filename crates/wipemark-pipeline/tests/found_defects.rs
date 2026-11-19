@@ -165,8 +165,8 @@ fn a_command_s_parts_named_backwards_are_refused() {
 /// walks through them, came back backwards. No word of the sentence says
 /// the order is meant — it is the document's, three sections later — so
 /// the order guard lets it through since D862, as it lets "a route, a
-/// fixture, a dev flag" through; the templates' rule to keep every list's
-/// order is what asks for it (D863).
+/// fixture, a dev flag" through. A line in the contracts asking the model
+/// to keep every list's order was measured and left out (D863).
 #[test]
 fn tool_groups_listed_backwards_pass_the_order_guard() {
     let source = "We sort the tools into three groups: **Capture** (take a picture), **Manage** (find, name and remove pictures in the library) and **Markers** (draw on them). The protocol has no notion of a tool group. The grouping lives in the documentation and the naming, and it gives a model, and the human reading the tool list, a three-item map before a twenty-item one.\n";

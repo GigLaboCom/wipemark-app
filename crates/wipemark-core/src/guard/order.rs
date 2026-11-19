@@ -293,8 +293,9 @@ enum Cue {
 /// What it cannot see, said: a list whose items are inflected differently
 /// in the candidate (a Russian or German case) has no anchor; an order no
 /// word states — steps written as plain clauses, a list the document then
-/// walks through in order — which the templates ask the model to keep
-/// instead (D863); a sequence across sentences.
+/// walks through in order (a line in the contracts asking the model to keep
+/// every list's order was measured and not shipped: meaning no better,
+/// Keep voice's voice worse, D863); a sequence across sentences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OrderGuard {
     /// The words an item of a labelled list or an announced series has at
