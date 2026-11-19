@@ -123,12 +123,19 @@ pub fn from_args(args: &Args) -> (String, Arc<dyn RewriteEngine>) {
             Some("low") => Reasoning::Low,
             Some(other) => panic!("--reasoning {other}: none, off or low"),
         };
+        // `--key-file <path>`: a bearer key for a server that asks for one,
+        // read from a file so that it is in no command line and no record.
+        let key = args.value("--key-file").map(|path| {
+            std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("--key-file {path}: {e}"))
+                .into()
+        });
         let engine = HttpEngine::new(HttpConfig {
             provider: HttpProvider::OpenAiCompatible,
             endpoint: format!("{base}/v1/chat/completions"),
             origin,
             model: name.clone(),
-            key: None,
+            key,
             reasoning,
             timeout: Duration::from_secs(600),
             on_this_machine: true,

@@ -161,8 +161,11 @@ pub fn ask(
 }
 
 /// The attempts worth judging: an answer that passed every guard but the
-/// length guard, restored, and was not refused by the language check (a
-/// translation can be faithful and is still not a rewrite).
+/// length guard and the guards of 2026-11-19, restored, and was not
+/// refused by the language check (a translation can be faithful and is
+/// still not a rewrite). What a new guard refused is judged so that
+/// `bench guards` can say what it costs in a run made by a build that has
+/// it — a record made before them has none of their names.
 pub fn judgeable(record: &Value) -> bool {
     let Some(guards) = record["guards"].as_object() else {
         return false;
@@ -170,9 +173,9 @@ pub fn judgeable(record: &Value) -> bool {
     record["answer"].is_string()
         && record["restore"].is_null()
         && record["verdict"] != "language"
-        && guards
-            .iter()
-            .all(|(name, v)| name == "length-drift" || v.is_null())
+        && guards.iter().all(|(name, v)| {
+            name == "length-drift" || crate::guards::NEW.contains(&name.as_str()) || v.is_null()
+        })
 }
 
 fn read(paths: &[String]) -> Vec<Value> {
@@ -423,6 +426,21 @@ mod tests {
             1 + VOICE_SWITCHED.len() + 2
         );
         std::fs::remove_file(&path).ok();
+    }
+
+    /// A candidate that only a guard of 2026-11-19 refused is judged, so
+    /// that `bench guards` can say what each refused in a run made by a
+    /// build that has them; one an older guard refused is not.
+    #[test]
+    fn a_candidate_only_a_new_guard_refused_is_judged() {
+        let record = |guards: Value| json!({"answer": "B one.", "restore": null, "verdict": "guard", "guards": guards});
+        let refused = json!({"kind": "guard"});
+        assert!(judgeable(&record(json!({
+            "numbers": null, "length-drift": refused, "order": refused, "paragraphs": refused,
+        }))));
+        assert!(!judgeable(&record(
+            json!({"numbers": refused, "order": null})
+        )));
     }
 
     #[test]

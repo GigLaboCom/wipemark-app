@@ -1105,7 +1105,8 @@ mod tests {
                         second run is much faster because the dependencies are compiled.";
 
     /// Answers the text block with every two neighbouring words of its first
-    /// half swapped — a rewrite the guards accept (`tests/common`'s `swap`).
+    /// half swapped and "also" said after them — a rewrite the guards accept
+    /// (`tests/common`'s `swap`).
     fn engine() -> FakeEngine {
         FakeEngine::answering(|request, _| {
             let begin = "[[[BEGIN TEXT]]]\n";
@@ -1118,6 +1119,7 @@ mod tests {
             for pair in words[..half].chunks_mut(2) {
                 pair.reverse();
             }
+            words.insert(half, "also");
             words.join(" ")
         })
     }

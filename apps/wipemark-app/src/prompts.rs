@@ -304,6 +304,26 @@ pub fn reason_line(reason: &RejectReason) -> Line {
             Message::PromptsReasonIdentifierMissing,
             args!("token" => token.clone()),
         ),
+        RejectReason::PairBroken { open, close } => (
+            Message::PromptsReasonPairBroken,
+            args!("open" => placeholder(open), "close" => placeholder(close)),
+        ),
+        RejectReason::ParagraphsChanged { source, candidate } => (
+            Message::PromptsReasonParagraphsChanged,
+            args!("source" => source.to_string(), "candidate" => candidate.to_string()),
+        ),
+        RejectReason::WordsReordered { words } => (
+            Message::PromptsReasonWordsReordered,
+            args!("words" => words.to_string()),
+        ),
+        RejectReason::OrderReversed { first, last } => (
+            Message::PromptsReasonOrderReversed,
+            args!("first" => first.clone(), "last" => last.clone()),
+        ),
+        RejectReason::ContextEchoed { words, text } => (
+            Message::PromptsReasonContextEchoed,
+            args!("words" => words.to_string(), "text" => text.clone()),
+        ),
     }
 }
 

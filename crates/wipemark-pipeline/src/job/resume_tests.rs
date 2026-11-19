@@ -31,13 +31,15 @@ fn text_of(req: &ChatRequest) -> String {
 }
 
 /// A rewrite the guards accept and the no-op floor does not call a copy:
-/// every two neighbouring words of the first half swapped.
+/// every two neighbouring words of the first half swapped and "also" said
+/// after them (the same words alone in another order are refused, D860).
 fn swap(text: &str) -> String {
     let mut words: Vec<&str> = text.split(' ').collect();
     let half = words.len() / 2;
     for pair in words[..half].chunks_mut(2) {
         pair.reverse();
     }
+    words.insert(half, "also");
     words.join(" ")
 }
 
@@ -297,6 +299,36 @@ fn the_fingerprint_moves_with_the_rules() {
         },
         Rules {
             language_check_words: 0,
+            ..RULES
+        },
+        // D861: the guards of 2026-11-19 — the set, and each threshold.
+        Rules {
+            guards: &RULES.guards[..5],
+            ..RULES
+        },
+        Rules {
+            context_echo_words: RULES.context_echo_words + 1,
+            ..RULES
+        },
+        Rules {
+            order: wipemark_core::OrderGuard {
+                max_item_words: RULES.order.max_item_words + 1,
+                ..RULES.order
+            },
+            ..RULES
+        },
+        // D862: a sequence's steps have a threshold of their own.
+        Rules {
+            order: wipemark_core::OrderGuard {
+                max_step_words: RULES.order.max_step_words + 1,
+                ..RULES.order
+            },
+            ..RULES
+        },
+        Rules {
+            permutation: wipemark_core::PermutationGuard {
+                min_words: RULES.permutation.min_words + 1,
+            },
             ..RULES
         },
     ] {

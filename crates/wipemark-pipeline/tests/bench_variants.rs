@@ -49,11 +49,14 @@ fn every_variant_is_admitted_as_an_edit_would_be() {
     assert_eq!(
         names,
         [
+            "keep-order",
+            "keep-voice-order",
             "numbers-in-digits",
             "reminder-after-text",
             "structural-text-only"
         ],
-        "the walk saw the variants; keep-voice is a built-in profile now (D510)"
+        "the walk saw the variants; keep-voice is a built-in profile now (D510); \
+         the order line of D863, measured and not shipped, is keep-order and keep-voice-order"
     );
 }
 

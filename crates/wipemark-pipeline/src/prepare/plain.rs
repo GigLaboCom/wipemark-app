@@ -27,6 +27,7 @@ pub(super) fn pieces(src: &str, start: usize) -> Vec<Piece> {
                 prefix: String::new(),
                 markdown: false,
                 item: false,
+                pairs: Vec::new(),
             });
         }
     };

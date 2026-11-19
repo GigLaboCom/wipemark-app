@@ -30,8 +30,8 @@
 //! the four knobs, all off by default. Both reports serialise to the
 //! JSON form the CLI and the MCP server print (`to_json`), third shelf
 //! included. Homoglyphs are found always and replaced only under
-//! `aggressive` (E1-4, `homoglyph`); the five guards that judge a rewrite
-//! are [`default_guards`] (E1-5).
+//! `aggressive` (E1-4, `homoglyph`); the guards that judge a rewrite are
+//! [`default_guards`] (E1-5, and D856–D860 beside them).
 
 #![forbid(unsafe_code)]
 
@@ -51,8 +51,9 @@ pub mod vendor;
 
 pub use class::{Action, Confidence, UnicodeClass, UnicodeFinding};
 pub use guard::{
-    default_guards, Guard, GuardOutcome, IdentifierGuard, LengthDriftGuard, NumbersGuard,
-    PlaceholderGuard, RejectReason, ScriptGuard,
+    default_guards, ContextEchoGuard, Guard, GuardOutcome, IdentifierGuard, LengthDriftGuard,
+    NumbersGuard, OrderGuard, PairGuard, ParagraphGuard, PermutationGuard, PlaceholderGuard,
+    RejectReason, ScriptGuard, CONTEXT_ECHO_WORDS,
 };
 pub use name::name_of;
 pub use report::{CleanReport, InspectReport, NormKind, TextStats};

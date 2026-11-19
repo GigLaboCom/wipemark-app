@@ -2118,7 +2118,7 @@ not-rewritten-every = { $reason ->
         [empty] every answer from the engine was empty
         [engine] the engine failed on every request
         [truncated] every answer was cut off at its length limit
-        [guard] a check refused every answer — a number, a name or a protected passage was lost, or the length changed too much
+        [guard] a check refused every answer — a number, a name or a protected passage was lost, the length changed too much, or a link, a list or a paragraph broke, the words were only reordered, or the text before was repeated
         [language] every answer was in another language
         [restore] no answer could be put back into the document
         [no-op] every answer left the text as it was
@@ -2134,7 +2134,7 @@ not-rewritten-most = none of the { $attempts } answers passed the checks, most o
         [empty] the engine's answer was empty
         [engine] the engine failed
         [truncated] the answer was cut off at its length limit
-        [guard] a check found a number, a name or a protected passage lost, or the length changed too much
+        [guard] a check found a number, a name or a protected passage lost, the length changed too much, a link, a list or a paragraph broken, the words only reordered, or the text before repeated
         [language] the answer was in another language
         [restore] the answer could not be put back into the document
         [no-op] the answer left the text as it was
@@ -2376,6 +2376,11 @@ prompts-reason-number-missing = The number { $value } is gone.
 prompts-reason-length-drift = The length moved to { $ratio } of the original, outside { $min } to { $max }.
 prompts-reason-script-drift = The share of { $script } letters moved by { $points } points.
 prompts-reason-identifier-missing = { $token } is gone.
+prompts-reason-pair-broken = { $open } and { $close } open and close one link or element, and came back out of order, crossed or empty.
+prompts-reason-paragraphs-changed = The text had { $source } paragraph breaks; the answer has { $candidate }.
+prompts-reason-words-reordered = The answer is the same { $words } words in another order.
+prompts-reason-order-reversed = The list from “{ $first }” to “{ $last }” came back reversed.
+prompts-reason-context-echoed = The answer repeats { $words } words of the text before it: “{ $text }”.
 prompts-reason-item-broken = A list item came back broken across lines.
 prompts-failure-overflow = the request needed { $used } tokens of { $limit }
 prompts-rejected-engine = Step { $step }: the engine failed. { $reason }

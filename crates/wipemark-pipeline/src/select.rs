@@ -28,7 +28,7 @@
 
 use std::collections::HashSet;
 
-use wipemark_core::LengthDriftGuard;
+use wipemark_core::{LengthDriftGuard, OrderGuard, PermutationGuard, CONTEXT_ECHO_WORDS};
 
 /// Below this bigram-Jaccard divergence a candidate is a no-op and fails
 /// (D95: 0.2 — at 0.05 a near-copy with 97 % of its word pairs left
@@ -69,6 +69,14 @@ pub struct Rules {
     pub no_op_floor: f32,
     pub short_chunk_words: usize,
     pub language_check_words: usize,
+    /// Every guard a candidate faces, by name, in the order they run
+    /// (`Options::guards_for`): a guard added, removed or moved is another
+    /// verdict (D861).
+    pub guards: &'static [&'static str],
+    /// The thresholds of the guards of 2026-11-19 (D856, D857, D860).
+    pub context_echo_words: usize,
+    pub order: OrderGuard,
+    pub permutation: PermutationGuard,
 }
 
 /// The rules this build judges by.
@@ -77,6 +85,21 @@ pub const RULES: Rules = Rules {
     no_op_floor: NO_OP_FLOOR,
     short_chunk_words: SHORT_CHUNK_WORDS,
     language_check_words: LANGUAGE_CHECK_WORDS,
+    guards: &[
+        "placeholder",
+        "numbers",
+        "length-drift",
+        "script",
+        "identifier",
+        "paragraphs",
+        "permutation",
+        "order",
+        "pairs",
+        "context-echo",
+    ],
+    context_echo_words: CONTEXT_ECHO_WORDS,
+    order: OrderGuard::DEFAULT,
+    permutation: PermutationGuard::DEFAULT,
 };
 
 /// The length guard's two windows (D95): a chunk of

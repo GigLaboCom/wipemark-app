@@ -1066,7 +1066,7 @@ fn not_rewritten_said(nothing: &NothingRewritten) -> String {
         "empty" => "the engine's answer had nothing in it",
         "engine" => "the engine failed",
         "truncated" => "the answer was cut at its token limit",
-        "guard" => "a guard found a number, a name or a protected span lost, or the length changed too much",
+        "guard" => "a guard found a number, a name or a protected span lost, the length changed too much, or the answer broke a link, a list's order or a paragraph, only moved the words, or repeated the text before it",
         "language" => "the answer was in another language",
         "restore" => "the answer could not be put back into the document",
         "no-op" => "the answer left the text as it was",
@@ -2336,7 +2336,8 @@ pub(crate) mod tests {
                              already compiled and kept in the target directory.";
 
     /// The text a request asks to rewrite, every two neighbouring words of
-    /// its first half swapped: an answer every guard accepts and the no-op
+    /// its first half swapped and "also" said after them: an answer every
+    /// guard accepts — more than its words reordered (D860) — and the no-op
     /// floor (0.2) does not call a copy.
     pub(crate) fn swapped(req: &wipemark_engine::ChatRequest) -> String {
         const BEGIN: &str = "[[[BEGIN TEXT]]]\n";
@@ -2350,6 +2351,7 @@ pub(crate) mod tests {
         for pair in words[..half].chunks_mut(2) {
             pair.reverse();
         }
+        words.insert(half, "also");
         words.join(" ")
     }
 

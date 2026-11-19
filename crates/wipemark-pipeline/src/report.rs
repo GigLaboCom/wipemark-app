@@ -54,7 +54,9 @@ pub enum Rejection {
     Empty { step: u8 },
     /// A guard of `wipemark-core` rejected the final answer against the
     /// chunk: `guard` is its name (`placeholder`, `numbers`,
-    /// `length-drift`, `script`, `identifier`), `reason` what was lost.
+    /// `length-drift`, `script`, `identifier`, `paragraphs`,
+    /// `permutation`, `order`, `pairs`, `context-echo`), `reason` what was
+    /// lost or broken.
     Guard {
         guard: &'static str,
         reason: RejectReason,
@@ -806,6 +808,30 @@ fn reason_fields(reason: &RejectReason, out: &mut Map<String, Value>) {
         RejectReason::IdentifierMissing { token } => {
             put("reason", json!("identifier-missing"));
             put("token", json!(token));
+        }
+        RejectReason::PairBroken { open, close } => {
+            put("reason", json!("pair-broken"));
+            put("open", json!(open));
+            put("close", json!(close));
+        }
+        RejectReason::ParagraphsChanged { source, candidate } => {
+            put("reason", json!("paragraphs-changed"));
+            put("source", json!(source));
+            put("candidate", json!(candidate));
+        }
+        RejectReason::WordsReordered { words } => {
+            put("reason", json!("words-reordered"));
+            put("words", json!(words));
+        }
+        RejectReason::OrderReversed { first, last } => {
+            put("reason", json!("order-reversed"));
+            put("first", json!(first));
+            put("last", json!(last));
+        }
+        RejectReason::ContextEchoed { words, text } => {
+            put("reason", json!("context-echoed"));
+            put("words", json!(words));
+            put("text", json!(text));
         }
     }
 }

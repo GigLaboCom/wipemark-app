@@ -1361,7 +1361,7 @@ not-rewritten-every = { $reason ->
         [empty] jede Antwort der Engine war leer
         [engine] die Engine scheiterte an jeder Anfrage
         [truncated] jede Antwort wurde an ihrer Längengrenze abgeschnitten
-        [guard] eine Prüfung wies jede Antwort ab — eine Zahl, ein Name oder ein geschützter Abschnitt ging verloren, oder die Länge änderte sich zu stark
+        [guard] eine Prüfung wies jede Antwort ab — eine Zahl, ein Name oder ein geschützter Abschnitt ging verloren, die Länge änderte sich zu stark, ein Link, eine Aufzählung oder ein Absatz zerbrach, die Wörter wurden nur umgestellt, oder der Text davor wurde wiederholt
         [language] jede Antwort war in einer anderen Sprache
         [restore] keine Antwort ließ sich in das Dokument zurücksetzen
         [no-op] jede Antwort ließ den Text, wie er war
@@ -1374,7 +1374,7 @@ not-rewritten-most = keine der { $attempts } Antworten bestand die Prüfungen, a
         [empty] die Antwort der Engine leer war
         [engine] die Engine scheiterte
         [truncated] die Antwort an ihrer Längengrenze abgeschnitten wurde
-        [guard] eine Prüfung eine verlorene Zahl, einen verlorenen Namen oder Abschnitt oder eine zu starke Längenänderung fand
+        [guard] eine Prüfung eine verlorene Zahl, einen verlorenen Namen oder Abschnitt, eine zu starke Längenänderung, einen zerbrochenen Link, eine Aufzählung oder einen Absatz, nur umgestellte Wörter oder den wiederholten Text davor fand
         [language] die Antwort in einer anderen Sprache war
         [restore] sich die Antwort nicht in das Dokument zurücksetzen ließ
         [no-op] die Antwort den Text ließ, wie er war
@@ -1596,6 +1596,11 @@ prompts-reason-number-missing = Die Zahl { $value } fehlt.
 prompts-reason-length-drift = Die Länge liegt bei { $ratio } des Originals, außerhalb von { $min } bis { $max }.
 prompts-reason-script-drift = Der Anteil der Buchstaben der Schrift { $script } hat sich um { $points } Prozentpunkte verschoben.
 prompts-reason-identifier-missing = { $token } fehlt.
+prompts-reason-pair-broken = { $open } und { $close } öffnen und schließen einen Link oder ein Element und kamen vertauscht, überkreuzt oder leer zurück.
+prompts-reason-paragraphs-changed = Der Text hatte { $source } Absatzumbrüche, die Antwort hat { $candidate }.
+prompts-reason-words-reordered = Die Antwort sind dieselben { $words } Wörter in anderer Reihenfolge.
+prompts-reason-order-reversed = Die Aufzählung von „{ $first }“ bis „{ $last }“ kam umgekehrt zurück.
+prompts-reason-context-echoed = Die Antwort wiederholt { $words } Wörter des Textes davor: „{ $text }“.
 prompts-reason-item-broken = Ein Listenpunkt kam auf mehrere Zeilen verteilt zurück.
 prompts-failure-overflow = die Anfrage brauchte { $used } von { $limit } Tokens
 prompts-rejected-engine = Schritt { $step }: Die Engine ist gescheitert. { $reason }

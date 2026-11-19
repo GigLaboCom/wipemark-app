@@ -39,13 +39,15 @@ pub fn text_of(req: &ChatRequest) -> String {
 }
 
 /// A rewrite the guards accept and the no-op floor does not call a copy:
-/// every two neighbouring words of the first half swapped.
+/// every two neighbouring words of the first half swapped and "also" said
+/// after them (the same words alone in another order are refused, D860).
 pub fn swap(text: &str) -> String {
     let mut words: Vec<&str> = text.split(' ').collect();
     let half = words.len() / 2;
     for pair in words[..half].chunks_mut(2) {
         pair.reverse();
     }
+    words.insert(half, "also");
     words.join(" ")
 }
 

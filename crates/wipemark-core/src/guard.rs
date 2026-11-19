@@ -1,5 +1,7 @@
-//! Guards — five predicates over `(source, candidate)` that reject a
-//! rewrite which lost something (A §6, OV §3.3).
+//! Guards — predicates over `(source, candidate)` that reject a rewrite
+//! which lost something (A §6, OV §3.3), or broke what the five of A §6
+//! cannot see (D856–D860): the context echoed, a list reversed, a link's
+//! brackets out of order, a paragraph split, the words only moved.
 //!
 //! A guard answers one question: *did the rewrite quietly destroy
 //! something the user needs?* A model that "improves" a version number,
@@ -23,6 +25,15 @@ use std::fmt;
 
 use crate::stats::letter_shares;
 use crate::tables;
+
+mod echo;
+mod order;
+mod shape;
+mod words;
+
+pub use echo::{ContextEchoGuard, CONTEXT_ECHO_WORDS};
+pub use order::OrderGuard;
+pub use shape::{PairGuard, ParagraphGuard, PermutationGuard};
 
 /// Why a candidate was thrown away.
 ///
@@ -53,6 +64,23 @@ pub enum RejectReason {
     /// An identifier-shaped token (snake_case, CamelCase, path, URL,
     /// e-mail) is gone.
     IdentifierMissing { token: String },
+    /// The placeholders `⟦open⟧` and `⟦close⟧` open and close one construct
+    /// — a link, an image, an inline element — and came back out of order,
+    /// across another, or with nothing between them (D858).
+    PairBroken { open: usize, close: usize },
+    /// The candidate has `candidate` paragraph breaks where the source had
+    /// `source` (D859).
+    ParagraphsChanged { source: usize, candidate: usize },
+    /// The candidate is the source's `words` words in another order and
+    /// nothing else (D860).
+    WordsReordered { words: usize },
+    /// A list, or a "from … to …", came back reversed: `first` led the
+    /// source's sequence and `last` closed it (D857).
+    OrderReversed { first: String, last: String },
+    /// The candidate repeats `words` words in a row of the context it was
+    /// shown that its chunk does not hold; `text` is that stretch of the
+    /// candidate (D856).
+    ContextEchoed { words: usize, text: String },
 }
 
 impl fmt::Display for RejectReason {
@@ -82,6 +110,27 @@ impl fmt::Display for RejectReason {
             }
             RejectReason::IdentifierMissing { token } => {
                 write!(f, "identifier {token:?} was lost")
+            }
+            RejectReason::PairBroken { open, close } => {
+                write!(f, "the construct ⟦{open}⟧…⟦{close}⟧ came back broken")
+            }
+            RejectReason::ParagraphsChanged { source, candidate } => {
+                write!(
+                    f,
+                    "{candidate} paragraph breaks where the text had {source}"
+                )
+            }
+            RejectReason::WordsReordered { words } => {
+                write!(f, "the same {words} words in another order")
+            }
+            RejectReason::OrderReversed { first, last } => {
+                write!(
+                    f,
+                    "the sequence from {first:?} to {last:?} came back reversed"
+                )
+            }
+            RejectReason::ContextEchoed { words, text } => {
+                write!(f, "{words} words of the context repeated: {text:?}")
             }
         }
     }
@@ -332,18 +381,27 @@ impl Guard for IdentifierGuard {
     }
 }
 
-/// The five guards of A §6 in the spec's order, with the spec's
-/// thresholds. E4's selection loop runs them in this order and reports
-/// the first rejection.
+/// Every guard that needs nothing but the two texts: the five of A §6 in
+/// the spec's order, with the spec's thresholds, then the three of
+/// 2026-11-19 — paragraphs (D859), permutation (D860), order (D857). E4's
+/// selection loop runs them in this order, followed by the two that need
+/// what the chunk was prepared with — [`PairGuard`] (its constructs, D858)
+/// and [`ContextEchoGuard`] (its context, D856) — and reports the first
+/// rejection. New guards go after the old, so a candidate an old guard
+/// refused is still reported by it.
 ///
 /// ```
 /// use wipemark_core::{default_guards, Guard, GuardOutcome};
 ///
 /// let names: Vec<&str> = default_guards().iter().map(|g| g.name()).collect();
-/// assert_eq!(names, ["placeholder", "numbers", "length-drift", "script", "identifier"]);
+/// assert_eq!(
+///     names,
+///     ["placeholder", "numbers", "length-drift", "script", "identifier",
+///      "paragraphs", "permutation", "order"]
+/// );
 /// let verdicts: Vec<GuardOutcome> = default_guards()
 ///     .iter()
-///     .map(|g| g.check("Ship 1.94.1 today.", "Today, ship 1.94.1."))
+///     .map(|g| g.check("Ship 1.94.1 today.", "Today, ship 1.94.1 at last."))
 ///     .collect();
 /// assert!(verdicts.iter().all(GuardOutcome::is_pass));
 /// ```
@@ -354,6 +412,9 @@ pub fn default_guards() -> Vec<Box<dyn Guard>> {
         Box::new(LengthDriftGuard::default()),
         Box::new(ScriptGuard::default()),
         Box::new(IdentifierGuard),
+        Box::new(ParagraphGuard),
+        Box::new(PermutationGuard::default()),
+        Box::new(OrderGuard::default()),
     ]
 }
 
@@ -617,8 +678,9 @@ fn first_missing<'s>(source: Vec<&'s str>, candidate: Vec<&str>) -> Option<&'s s
 #[cfg(test)]
 mod tests {
     use super::{
-        default_guards, identifiers, numbers, placeholders, Guard, GuardOutcome, IdentifierGuard,
-        LengthDriftGuard, NumbersGuard, PlaceholderGuard, RejectReason, ScriptGuard,
+        default_guards, identifiers, numbers, placeholders, ContextEchoGuard, Guard, GuardOutcome,
+        IdentifierGuard, LengthDriftGuard, NumbersGuard, OrderGuard, PairGuard, PermutationGuard,
+        PlaceholderGuard, RejectReason, ScriptGuard,
     };
 
     /// The faithful pair (E1-5 §5): every guard passes it. ASCII except
@@ -1084,8 +1146,34 @@ ops@example.com.";
                 "numbers",
                 "length-drift",
                 "script",
-                "identifier"
+                "identifier",
+                "paragraphs",
+                "permutation",
+                "order"
             ]
+        );
+        // The two that need the chunk's preparation are named apart from
+        // these, and from each other.
+        for name in [
+            PairGuard::default().name(),
+            ContextEchoGuard::new("").name(),
+        ] {
+            assert!(!names.contains(&name), "{name}");
+        }
+        assert_ne!(
+            PairGuard::default().name(),
+            ContextEchoGuard::new("").name()
+        );
+        assert_eq!(
+            OrderGuard::default(),
+            OrderGuard {
+                max_item_words: 6,
+                max_step_words: 12
+            }
+        );
+        assert_eq!(
+            PermutationGuard::default(),
+            PermutationGuard { min_words: 3 }
         );
         let mut unique = names.clone();
         unique.sort_unstable();

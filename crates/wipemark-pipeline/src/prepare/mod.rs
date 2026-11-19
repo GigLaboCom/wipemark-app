@@ -144,6 +144,13 @@ pub struct Chunk {
     pub text: String,
     /// `protected[k]` is the original text of `⟦k+1⟧`.
     pub protected: Vec<String>,
+    /// The placeholders that open and close one construct, `(open, close)`
+    /// by number, `open < close`: a Markdown link's or image's opener and
+    /// closer, an inline HTML element's start and end tags — what
+    /// `wipemark_core::PairGuard` keeps in order (D858). Only a construct
+    /// with prose between its two spans is here: one whose spans merged
+    /// into one placeholder has nothing to keep apart.
+    pub pairs: Vec<(usize, usize)>,
     /// `{PREV_CONTEXT}`: the last two sentences of the previous chunk's
     /// **source**, protected spans written back (a marker or a bracket
     /// among them as `…`). `None` for the first chunk.

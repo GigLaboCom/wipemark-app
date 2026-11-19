@@ -99,6 +99,22 @@ pub fn verdict(options: &Options, chunk: &Chunk, answer: &str) -> Result<Scores,
     Judge::of(options, chunk).verdict(chunk, answer)
 }
 
+/// [`verdict`] with the guards named in `without` left out — what the
+/// prompt bench asks of a candidate a newer guard refused, to know whether
+/// everything else would have let it through (`bench guards`).
+pub fn verdict_without(
+    options: &Options,
+    chunk: &Chunk,
+    answer: &str,
+    without: &[&str],
+) -> Result<Scores, Rejection> {
+    let mut judge = Judge::of(options, chunk);
+    judge
+        .guards
+        .retain(|guard| !without.contains(&guard.name()));
+    judge.verdict(chunk, answer)
+}
+
 /// Where one attempt stands at its end.
 pub(super) enum Ended {
     /// The attempt ran to a verdict. `candidate` is the text that passed,
