@@ -2365,14 +2365,26 @@ mod tests {
     /// D830: an experimental entry that is on this machine is in the
     /// selector, after the stable ones; its card says it is experimental;
     /// it is never the recommendation — and a stable card says nothing.
+    /// Since D852 the catalogue ships no experimental entry, so this
+    /// build's catalogue is given one: the best and the smallest there is.
     #[test]
     fn an_experimental_model_on_this_machine_is_offered_and_never_recommended() {
-        let catalogue = catalogue();
-        let trial = catalogue
-            .listed_for(Role::Rewrite)
-            .into_iter()
-            .find(|entry| entry.status == Status::Experimental)
-            .expect("the catalogue ships an experimental rewriter");
+        let mut catalogue = catalogue();
+        assert!(
+            catalogue
+                .models
+                .iter()
+                .all(|entry| entry.status == Status::Stable),
+            "D852: the catalogue ships no experimental entry"
+        );
+        let mut added = catalogue.for_role(Role::Rewrite)[0].clone();
+        added.id = "trial".to_owned();
+        added.status = Status::Experimental;
+        added.quality_tier = u8::MAX;
+        added.mem.min_ram_mb = 1;
+        added.mem.min_vram_mb = 1;
+        catalogue.models.push(added);
+        let trial = catalogue.get("trial").expect("the entry added");
         let stable = catalogue.for_role(Role::Rewrite)[0];
 
         let mut both = BTreeMap::new();

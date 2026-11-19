@@ -42,12 +42,22 @@ fn script() -> PathBuf {
 }
 
 /// A directory that does not exist, for `--out`: the dry run must leave it so.
+///
+/// One per call, by a counter beside the clock: the tests run in parallel in one
+/// process, and macOS's clock moves by the microsecond, so two calls in the same
+/// microsecond once got one path — and a test that writes its `--out` made the
+/// dry run's look written (the macOS lane of PR #12's first run).
 fn nowhere() -> PathBuf {
+    static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("wipemark-run-voice-{}-{nanos}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "wipemark-run-voice-{}-{nanos}-{call}",
+        std::process::id()
+    ))
 }
 
 /// Every model variable, pointing at files that do not exist.
@@ -136,6 +146,55 @@ fn the_dry_run_prints_every_part_in_order_and_writes_nothing() {
         stdout.contains("# not found (a real run refuses):"),
         "the dry run says the files are not there"
     );
+    assert!(!out.exists(), "a dry run writes nothing");
+}
+
+/// A model outside the default four (nemotron-bolt, gemma4-e4b, gemma4-e2b) is run
+/// only when a part names it, and then its records are judged and reported beside
+/// the default four's; one that no part names is never promised.
+#[test]
+fn a_named_model_outside_the_default_four_is_judged_and_reported() {
+    let out = nowhere();
+    let out_s = out.display().to_string();
+    let mut vars = all();
+    vars.push((
+        "WIPEMARK_BENCH_GGUF_NEMOTRON_BOLT".into(),
+        "/models/nemotron-bolt.gguf".into(),
+    ));
+    let done = run(
+        &[
+            "--dry-run",
+            "--out",
+            &out_s,
+            "nemotron-bolt",
+            "judge",
+            "report",
+        ],
+        &vars,
+    );
+    let stdout = text(&done.stdout);
+    assert!(done.status.success(), "{stdout}\n{}", text(&done.stderr));
+    let lines = commands(&stdout);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains(" run --local /models/nemotron-bolt.gguf ")),
+        "{stdout}"
+    );
+    for verb in [" judge ", " report "] {
+        let line = lines
+            .iter()
+            .find(|line| line.contains(verb))
+            .unwrap_or_else(|| panic!("no{verb}line: {stdout}"));
+        assert!(
+            line.contains(&format!("{out_s}/runs/nemotron-bolt.jsonl")),
+            "{verb}reads the named model: {line}"
+        );
+        assert!(
+            !line.contains("gemma4-e4b") && !line.contains("gemma4-e2b"),
+            "{verb}promises no model a part does not name: {line}"
+        );
+    }
     assert!(!out.exists(), "a dry run writes nothing");
 }
 

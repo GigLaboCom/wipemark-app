@@ -622,6 +622,23 @@ mod tests {
     const GEMMA_4_SMALL: &str = "{{- '<|turn>system\\n' -}}{{- '<turn|>\\n' -}}\n\
         {%- if add_generation_prompt -%}{{- '<|turn>model\\n' -}}{%- endif -%}";
 
+    /// The parts of the template of the catalogue's Gemma 4 E4B and E2B
+    /// (`gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf` at `e4a9ed86` and
+    /// `gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf` at `2ea63703`, one template
+    /// byte for byte) the recognition reads: Gemma 4's turns, a thought
+    /// channel written only around a past turn's reasoning, and the bare
+    /// opener (D851).
+    const GEMMA_4_SMALL_QAT: &str = "{{- bos_token -}}\n\
+        {%- if (enable_thinking is defined and enable_thinking) or tools or messages[0]['role'] in ['system', 'developer'] -%}\n\
+        {{- '<|turn>system\\n' -}}\n\
+        {%- if enable_thinking is defined and enable_thinking -%}{{- '<|think|>\\n' -}}{%- endif -%}\n\
+        {{- '<turn|>\\n' -}}\n{%- endif %}\n\
+        {%- if thinking_text and loop.index0 > ns_turn.last_user_idx and message.get('tool_calls') -%}\n\
+        {{- '<|channel>thought\\n' + thinking_text + '\\n<channel|>' -}}\n{%- endif -%}\n\
+        {%- if add_generation_prompt -%}\n\
+        {%- if ns.prev_message_type != 'tool_response' and ns.prev_message_type != 'tool_call' -%}\
+        {{- '<|turn>model\\n' -}}\n{%- endif -%}\n{%- endif -%}";
+
     /// The parts of Nemotron 3.5 Bolt E4B's template (NVIDIA's "updated
     /// Gemma4 chat template", the same in NVIDIA's and unsloth's GGUFs) the
     /// recognition reads: Gemma 4's turns, a thought channel written only
@@ -763,6 +780,37 @@ mod tests {
         assert_eq!(
             render(bolt, Some(" \n"), "x"),
             "<|turn>system\n<turn|>\n<|turn>user\nx<turn|>\n<|turn>model\n"
+        );
+    }
+
+    /// D851: the catalogue's Gemma 4 E4B and E2B as their template renders
+    /// it — the strings llama.cpp's Jinja engine at the pin renders from
+    /// both files (`llama-server --jinja` build 10731, CPU, `POST
+    /// /apply-template` with `enable_thinking: false`), the same for the
+    /// two.
+    #[test]
+    fn the_small_gemma_4s_are_rendered_as_their_template_renders_it() {
+        let small = family_of(GEMMA_4_SMALL_QAT).expect("Gemma 4's family");
+        assert_eq!(
+            render(
+                small,
+                Some("  Rewrite the text.\n"),
+                "The quick brown fox.\n\n"
+            ),
+            "<|turn>system\nRewrite the text.<turn|>\n\
+             <|turn>user\nThe quick brown fox.<turn|>\n<|turn>model\n"
+        );
+        assert_eq!(
+            render(small, None, "Привет."),
+            "<|turn>user\nПривет.<turn|>\n<|turn>model\n"
+        );
+        assert_eq!(
+            render(small, Some(" \n"), "x"),
+            "<|turn>system\n<turn|>\n<|turn>user\nx<turn|>\n<|turn>model\n"
+        );
+        assert_eq!(
+            render(small, Some("Rewrite the text."), "Привет."),
+            "<|turn>system\nRewrite the text.<turn|>\n<|turn>user\nПривет.<turn|>\n<|turn>model\n"
         );
     }
 

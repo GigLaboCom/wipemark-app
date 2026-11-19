@@ -999,19 +999,34 @@ mod tests {
         assert_eq!(advice.serves(), Some(Serves::MachineOnly));
     }
 
-    /// The mnemoria rule, seen from this side: a 16 GB Mac is still
-    /// pointed at itself, and at the smaller entry.
+    /// The mnemoria rule, seen from this side: a 16 GB Mac and a 12 GB card
+    /// are still pointed at themselves, and at an entry smaller than the
+    /// best they could run — Gemma 4 E4B since D854; an 8 GB Mac and an
+    /// 8 GB card at the smallest, Gemma 4 E2B.
     #[test]
     fn a_constrained_machine_is_pointed_at_itself_and_the_small_model() {
         let catalogue = models::catalogue();
-        for host in [mac(16_384), pc(65_536, Some(12_282))] {
+        let cases = [
+            (mac(16_384), "gemma-4-e4b-it-qat-ud-q4"),
+            (pc(65_536, Some(12_282)), "gemma-4-e4b-it-qat-ud-q4"),
+            (mac(8_192), "gemma-4-e2b-it-qat-ud-q4"),
+            (pc(16_384, Some(8_192)), "gemma-4-e2b-it-qat-ud-q4"),
+        ];
+        for (host, expected) in cases {
             let advice = advice(&catalogue, Role::Rewrite, Some(host));
             assert!(
-                matches!(advice, Advice::Here { model, .. } if model.id == smallest(&catalogue).id),
+                matches!(advice, Advice::Here { model, fit: Fit::Fits }
+                    if model.id == expected
+                        && model.mem.min_ram_mb < best(&catalogue).mem.min_ram_mb),
                 "{host:?}: {advice:?}"
             );
             assert_eq!(advice.serves(), Some(Serves::MachineOnly), "{host:?}");
         }
+        assert_eq!(
+            smallest(&catalogue).id,
+            "gemma-4-e2b-it-qat-ud-q4",
+            "the smallest entry is the one shipped for the smallest machines"
+        );
     }
 
     /// A machine with room for nothing is pointed away, and told how

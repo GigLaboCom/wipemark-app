@@ -165,9 +165,11 @@ Two more rules the shipped entries follow:
   against 12 for the same rewrite. Prefer an Instruct build.
 
 The starting list in the spec: Qwen3 8B and 4B, Gemma 3 12B/4B,
-Llama 3.x 8B, Mistral Nemo 12B. Two of them ship today, chosen so that a
-12 GB machine and a workstation are each offered something rather than
-the same thing with a warning beside it — see
+Llama 3.x 8B, Mistral Nemo 12B. What ships today is chosen by the prompt
+bench, so that an 8 GB machine, a 16 GB one and a workstation are each
+offered something rather than the same thing with a warning beside it:
+`quality_tier` follows the bench, and of two entries of one tier the one
+that needs less memory is offered first — see
 `dev/architecture/model-downloads.md`.
 
 # The mark catalogue

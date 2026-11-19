@@ -214,7 +214,7 @@ fn pool(host: Host) -> u64 {
 /// takes anything [`fit`] calls comfortable. A constrained one — see
 /// [`Host::is_constrained`] — also has to hold the entry within
 /// [`CONSTRAINED_SHARE`] of its pool, which is the rule that keeps the
-/// 12B off a 16 GB Mac while the 4B still qualifies. The RAM check is
+/// 12B off a 16 GB Mac while Gemma 4 E4B still qualifies. The RAM check is
 /// kept underneath it, because a default that fits its card and not
 /// its RAM is a default that does not run.
 fn default_material(entry: &ModelEntry, host: Host) -> bool {
@@ -236,6 +236,13 @@ fn default_material(entry: &ModelEntry, host: Host) -> bool {
 /// constrained machine than [`fit`] is: the 12B *runs* on a 16 GB Mac
 /// and is still the wrong thing to point that machine at, and the
 /// smaller entry exists in the catalogue for exactly that machine.
+///
+/// Between the two, an entry the RAM holds only tightly — on a machine
+/// that is **not** constrained. On a constrained one the pool is the
+/// question and the RAM is not: a 4 GB card in a 16 GB box held Qwen3.8
+/// 27B tightly in its RAM and was offered it, where nothing claims half
+/// its card and the smallest entry is the one it comes closest to
+/// (D854).
 #[must_use]
 pub fn default_for_role(manifest: &Manifest, role: Role, host: Host) -> Option<&ModelEntry> {
     let candidates = manifest.for_role(role);
@@ -256,7 +263,7 @@ pub fn default_for_role(manifest: &Manifest, role: Role, host: Host) -> Option<&
         .or_else(|| {
             candidates
                 .iter()
-                .find(|entry| matches!(fit(entry, host), Fit::Tight))
+                .find(|entry| !host.is_constrained() && matches!(fit(entry, host), Fit::Tight))
         })
         .copied()
         .or_else(smallest)
@@ -476,44 +483,49 @@ mod tests {
         assert_eq!(entry.id, smallest.id);
     }
 
-    /// The rule this module took from `mnemoria-lvkb` and, until now,
-    /// applied to nothing: on a machine [`Host::is_constrained`] names,
-    /// the default is not the best entry that would *run* but the best
-    /// one that claims no more than half the pool it competes for. A
-    /// 16 GB Mac holds the 12B by the RAM figure alone — 9216 of 16384
-    /// is under three quarters — and that is exactly the machine the
-    /// smaller entry was shipped for.
+    /// The rule this module took from `mnemoria-lvkb`: on a machine
+    /// [`Host::is_constrained`] names, the default is not the best entry
+    /// that would *run* but the best one that claims no more than half the
+    /// pool it competes for. A 16 GB Mac holds Gemma 4 12B by the RAM figure
+    /// alone — 8704 of 16384 is under three quarters — and is handed the
+    /// best entry within half of it, a smaller one (D854: Gemma 4 E4B).
     #[test]
     fn a_constrained_machine_is_offered_the_small_model() {
         let manifest = Manifest::embedded().expect("embedded manifest");
-        let smallest = manifest
-            .for_role(Role::Rewrite)
-            .into_iter()
-            .min_by_key(|entry| entry.mem.min_ram_mb)
-            .expect("a rewriter");
+        let rewriters = manifest.for_role(Role::Rewrite);
         // A 16 GB Mac, and a 12 GB card in a box with plenty of RAM:
         // the two configurations the thresholds exist for.
-        for host in [mac(16_384), pc(65_536, Some(12_282))] {
+        for (host, pool_mb) in [(mac(16_384), 16_384), (pc(65_536, Some(12_282)), 12_282)] {
             assert!(host.is_constrained(), "{host:?} is the constrained case");
+            let by_ram = rewriters
+                .iter()
+                .find(|entry| fit(entry, host).is_comfortable())
+                .expect("an entry the RAM holds");
+            let within_half = rewriters
+                .iter()
+                .find(|entry| {
+                    fit(entry, host).is_comfortable() && entry.mem.min_ram_mb * 2 <= pool_mb
+                })
+                .expect("an entry within half the pool");
             let offered = default_for_role(&manifest, Role::Rewrite, host).expect("a default");
-            assert_eq!(
-                offered.id, smallest.id,
-                "{host:?} was handed {} rather than the entry shipped for it",
+            assert_eq!(offered.id, within_half.id, "{host:?}");
+            assert!(
+                offered.mem.min_ram_mb < by_ram.mem.min_ram_mb,
+                "{host:?} was handed {}, what its RAM alone would hold",
                 offered.id
             );
         }
         // And the next configuration up on each side is not constrained
         // and gets the best entry it has room for — what `default_for_role`
-        // means. Since E8-1 that is not the catalogue's best on both: an
-        // 18 GB Mac holds Qwen3.8 27B only tightly, and is offered the best
-        // entry below it; a box with 64 GB beside its 16 GB card holds it
-        // comfortably. Either way something larger than the entry shipped
-        // for the constrained machines.
+        // means: on both, since D853, the catalogue's best.
+        let best = rewriters
+            .iter()
+            .max_by_key(|entry| entry.quality_tier)
+            .expect("a rewriter");
         for host in [mac(18_432), pc(65_536, Some(16_376))] {
             assert!(!host.is_constrained(), "{host:?} is the roomy case");
-            let roomiest = manifest
-                .for_role(Role::Rewrite)
-                .into_iter()
+            let roomiest = rewriters
+                .iter()
                 .find(|entry| fit(entry, host).is_comfortable())
                 .expect("an entry this machine has room for");
             let offered = default_for_role(&manifest, Role::Rewrite, host).expect("a default");
@@ -521,49 +533,30 @@ mod tests {
                 offered.id, roomiest.id,
                 "{host:?} should be offered the best entry it has room for"
             );
-            assert_ne!(
-                offered.id, smallest.id,
-                "{host:?} was handed the entry shipped for the constrained machines"
-            );
+            assert_eq!(offered.id, best.id, "{host:?}");
         }
-        let best = manifest
-            .for_role(Role::Rewrite)
-            .into_iter()
-            .max_by_key(|entry| entry.quality_tier)
-            .expect("a rewriter");
-        assert_eq!(
-            default_for_role(&manifest, Role::Rewrite, pc(65_536, Some(16_376)))
-                .expect("a default")
-                .id,
-            best.id,
-            "a machine with room for everything is offered the catalogue's best"
-        );
-        assert_ne!(
-            default_for_role(&manifest, Role::Rewrite, mac(18_432))
-                .expect("a default")
-                .id,
-            best.id,
-            "an 18 GB Mac holds the best entry only tightly"
-        );
     }
 
     /// D830: no machine is pointed at an experimental entry — not the
     /// small Mac it would fit, not the roomy box, not the one too small
-    /// for anything.
+    /// for anything. Since D852 the catalogue ships none, so the rule is
+    /// held over this build's catalogue with one added: the best and the
+    /// smallest there is, and experimental.
     #[test]
     fn no_machine_is_offered_an_experimental_entry() {
-        let manifest = Manifest::embedded().expect("embedded manifest");
-        assert!(
-            manifest
-                .listed_for(Role::Rewrite)
-                .iter()
-                .any(|entry| entry.status == Status::Experimental),
-            "the catalogue ships an experimental rewriter for this to hold of"
-        );
+        let mut manifest = Manifest::embedded().expect("embedded manifest");
+        let mut trial = manifest.for_role(Role::Rewrite)[0].clone();
+        trial.id = "trial".to_owned();
+        trial.status = Status::Experimental;
+        trial.quality_tier = u8::MAX;
+        trial.mem.min_ram_mb = 1;
+        trial.mem.min_vram_mb = 1;
+        manifest.models.push(trial);
         let hosts = [8_192, 16_384, 18_432, 24_576, 36_864, 131_072]
             .into_iter()
             .map(mac)
             .chain([
+                pc(0, None),
                 pc(512, None),
                 pc(16_384, None),
                 pc(16_384, Some(8_192)),
@@ -578,6 +571,84 @@ mod tests {
                 "{host:?} got {}",
                 offered.id
             );
+        }
+    }
+
+    const GEMMA_4_12B: &str = "gemma-4-12b-it-qat-ud-q4";
+    const GEMMA_4_E4B: &str = "gemma-4-e4b-it-qat-ud-q4";
+    const GEMMA_4_E2B: &str = "gemma-4-e2b-it-qat-ud-q4";
+
+    /// D854: the default follows the bench of 2026-11-19 — Gemma 4 12B
+    /// wherever it has room, Gemma 4 E4B where only 4–5 GB does, Gemma 4
+    /// E2B where only about 3 GB does — machine by machine.
+    #[test]
+    fn each_machine_is_offered_the_gemma_4_it_has_room_for() {
+        let manifest = Manifest::embedded().expect("embedded manifest");
+        let cases = [
+            // Unified memory: half the pool on a constrained Mac.
+            (mac(8_192), GEMMA_4_E2B),
+            (mac(16_384), GEMMA_4_E4B),
+            (mac(18_432), GEMMA_4_12B),
+            (mac(36_864), GEMMA_4_12B),
+            (mac(131_072), GEMMA_4_12B),
+            // A measured card: half of it when it is 12 GB or less.
+            (pc(16_384, Some(8_192)), GEMMA_4_E2B),
+            (pc(32_768, Some(12_282)), GEMMA_4_E4B),
+            (pc(65_536, Some(12_288)), GEMMA_4_E4B),
+            (pc(65_536, Some(16_376)), GEMMA_4_12B),
+            (pc(32_768, Some(24_564)), GEMMA_4_12B),
+            // No card measured: three quarters of the RAM.
+            (pc(16_384, None), GEMMA_4_12B),
+            (pc(8_192, None), GEMMA_4_E4B),
+            (pc(6_144, None), GEMMA_4_E2B),
+            // Room for it only tightly, and room for nothing.
+            (pc(4_096, None), GEMMA_4_E2B),
+            (pc(512, None), GEMMA_4_E2B),
+            (pc(0, None), GEMMA_4_E2B),
+        ];
+        for (host, expected) in cases {
+            let offered = default_for_role(&manifest, Role::Rewrite, host).expect("a default");
+            assert_eq!(offered.id, expected, "{host:?}");
+        }
+    }
+
+    /// D854: Qwen3 4B stays in the catalogue for those who have it and is
+    /// no machine's default; Nemotron 3.5 Bolt E4B is offered and chosen by
+    /// the person, never a default (E4B ties it, smaller); and nothing
+    /// larger than the 12B is anyone's default — on any machine, the odd
+    /// ones included.
+    #[test]
+    fn no_machine_is_offered_anything_but_a_gemma_4() {
+        let manifest = Manifest::embedded().expect("embedded manifest");
+        let mut hosts: Vec<Host> = Vec::new();
+        for ram_mb in (0..=40).map(|step| step * 1_024) {
+            hosts.push(mac(ram_mb));
+            hosts.push(pc(ram_mb, None));
+            for vram_mb in [2_048, 4_096, 6_144, 8_192, 10_240, 12_282, 16_376, 24_564] {
+                hosts.push(pc(ram_mb, Some(vram_mb)));
+            }
+        }
+        for host in hosts {
+            let offered = default_for_role(&manifest, Role::Rewrite, host).expect("a default");
+            assert!(
+                [GEMMA_4_12B, GEMMA_4_E4B, GEMMA_4_E2B].contains(&offered.id.as_str()),
+                "{host:?} got {}",
+                offered.id
+            );
+        }
+    }
+
+    /// D854: a machine with a small card is never pointed past half of it
+    /// because its RAM holds a larger entry tightly. Before, a 4 GB card in
+    /// a 16 GB box was offered Qwen3.8 27B — tight in 16 GB of RAM — and a
+    /// 6 GB card in an 8 GB box Nemotron 3.5 Bolt.
+    #[test]
+    fn a_small_card_is_offered_the_smallest_entry_not_a_tight_one() {
+        let manifest = Manifest::embedded().expect("embedded manifest");
+        for host in [pc(16_384, Some(4_096)), pc(8_192, Some(6_144))] {
+            assert!(host.is_constrained(), "{host:?}");
+            let offered = default_for_role(&manifest, Role::Rewrite, host).expect("a default");
+            assert_eq!(offered.id, GEMMA_4_E2B, "{host:?}");
         }
     }
 
