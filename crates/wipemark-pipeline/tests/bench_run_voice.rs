@@ -139,6 +139,55 @@ fn the_dry_run_prints_every_part_in_order_and_writes_nothing() {
     assert!(!out.exists(), "a dry run writes nothing");
 }
 
+/// A model outside the default four (nemotron-bolt, gemma4-e4b, gemma4-e2b) is run
+/// only when a part names it, and then its records are judged and reported beside
+/// the default four's; one that no part names is never promised.
+#[test]
+fn a_named_model_outside_the_default_four_is_judged_and_reported() {
+    let out = nowhere();
+    let out_s = out.display().to_string();
+    let mut vars = all();
+    vars.push((
+        "WIPEMARK_BENCH_GGUF_NEMOTRON_BOLT".into(),
+        "/models/nemotron-bolt.gguf".into(),
+    ));
+    let done = run(
+        &[
+            "--dry-run",
+            "--out",
+            &out_s,
+            "nemotron-bolt",
+            "judge",
+            "report",
+        ],
+        &vars,
+    );
+    let stdout = text(&done.stdout);
+    assert!(done.status.success(), "{stdout}\n{}", text(&done.stderr));
+    let lines = commands(&stdout);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains(" run --local /models/nemotron-bolt.gguf ")),
+        "{stdout}"
+    );
+    for verb in [" judge ", " report "] {
+        let line = lines
+            .iter()
+            .find(|line| line.contains(verb))
+            .unwrap_or_else(|| panic!("no{verb}line: {stdout}"));
+        assert!(
+            line.contains(&format!("{out_s}/runs/nemotron-bolt.jsonl")),
+            "{verb}reads the named model: {line}"
+        );
+        assert!(
+            !line.contains("gemma4-e4b") && !line.contains("gemma4-e2b"),
+            "{verb}promises no model a part does not name: {line}"
+        );
+    }
+    assert!(!out.exists(), "a dry run writes nothing");
+}
+
 #[test]
 fn it_refuses_to_start_without_a_model_variable() {
     for (missing, _) in all() {

@@ -235,11 +235,24 @@ flags_of() { # <part> → the run's flags, one per line
   if [ "$id" != "$1" ]; then printf '%s\n' --variant "$VARIANT"; fi
 }
 
+counted_in_dry_run() { # <model id> → whether a dry run shows its records: one of the
+  # default four, or a model one of the parts names — a model run only when named has
+  # no records the dry run could promise unless this run makes them
+  local part
+  case " $MODELS " in *" $1 "*) return 0 ;; esac
+  for part in "${PARTS[@]}"; do
+    [ "${part%+voice}" = "$1" ] && return 0
+  done
+  return 1
+}
+
 runs_present() { # the run records the judge and the report read, comma-joined
   local list="" m f
   for m in $KNOWN; do
     for f in "$OUT/runs/$m.jsonl" "$OUT/runs/$m+voice.jsonl"; do
-      if [ "$MODE" = dry ] || [ -f "$f" ]; then list="$list,$f"; fi
+      if { [ "$MODE" = dry ] && counted_in_dry_run "$m"; } || [ -f "$f" ]; then
+        list="$list,$f"
+      fi
     done
   done
   printf '%s' "${list#,}"
