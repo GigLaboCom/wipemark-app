@@ -42,12 +42,22 @@ fn script() -> PathBuf {
 }
 
 /// A directory that does not exist, for `--out`: the dry run must leave it so.
+///
+/// One per call, by a counter beside the clock: the tests run in parallel in one
+/// process, and macOS's clock moves by the microsecond, so two calls in the same
+/// microsecond once got one path — and a test that writes its `--out` made the
+/// dry run's look written (the macOS lane of PR #12's first run).
 fn nowhere() -> PathBuf {
+    static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("wipemark-run-voice-{}-{nanos}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "wipemark-run-voice-{}-{nanos}-{call}",
+        std::process::id()
+    ))
 }
 
 /// Every model variable, pointing at files that do not exist.
