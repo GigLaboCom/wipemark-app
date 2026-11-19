@@ -17,6 +17,7 @@ mod analyse;
 mod args;
 mod corpus;
 mod engine;
+mod guards;
 mod judge;
 mod measure;
 mod run;
@@ -41,6 +42,9 @@ usage: bench <mode> [--flag value]...
           --in <records.jsonl> --items <ids>
   report  --in <records.jsonl,...> [--judge <judgements.jsonl,...>]
           [--summary bench/results/summary.json] [--examples 3]
+  guards  --in <records.jsonl,...> [--judge <judgements.jsonl,...>]
+          [--corpus <dir>] [--examples 3]: the guards of 2026-11-19 replayed
+          over the candidates that passed, and loads no model
   plan    --of run|judge  and that mode's flags: prints
           `attempts=<n> calls=<n> done=<n>` and loads no model
 
@@ -55,6 +59,7 @@ fn main() {
         "verify" => verify::main(&args),
         "whole" => whole::main(&args),
         "report" => analyse::main(&args),
+        "guards" => guards::main(&args),
         "plan" => match args.required("--of").as_str() {
             "run" => run::plan_only(&args),
             "judge" => judge::plan_only(&args),

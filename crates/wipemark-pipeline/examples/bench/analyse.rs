@@ -18,12 +18,20 @@ use crate::args::Args;
 use crate::judge;
 use crate::measure::{kept_bigrams, percentile, Voice};
 
-const GUARDS: [&str; 5] = [
+/// Every guard a record may carry: the five of A §6, then those of
+/// 2026-11-19 (D856–D860, `guards::NEW`), which a record made before them
+/// does not have.
+const GUARDS: [&str; 10] = [
     "placeholder",
     "numbers",
     "length-drift",
     "script",
     "identifier",
+    "paragraphs",
+    "permutation",
+    "order",
+    "pairs",
+    "context-echo",
 ];
 
 #[derive(Clone, Copy)]
@@ -277,8 +285,32 @@ fn metrics(rs: &[&Value]) -> Value {
             .filter(|r| !r["guards"][g].is_null())
             .filter(|r| g != "numbers" || r["guards"]["placeholder"].is_null())
             .count();
-        guards.insert(g.into(), ratio(failed, a));
+        // Over the records that ran the guard: one made before it has no
+        // verdict of it, which is not a pass.
+        let ran = answered
+            .iter()
+            .filter(|r| r["guards"].get(g).is_some())
+            .count();
+        guards.insert(g.into(), ratio(failed, ran));
     }
+    // Any guard of 2026-11-19, over the records that ran them.
+    let new_ran: Vec<&&&Value> = answered
+        .iter()
+        .filter(|r| {
+            crate::guards::NEW
+                .iter()
+                .any(|g| r["guards"].get(*g).is_some())
+        })
+        .collect();
+    let new_failed = new_ran
+        .iter()
+        .filter(|r| {
+            crate::guards::NEW
+                .iter()
+                .any(|g| !r["guards"][*g].is_null())
+        })
+        .count();
+    guards.insert("2026-11-19".into(), ratio(new_failed, new_ran.len()));
     let lang_same = answered
         .iter()
         .filter(|r| r["lang_answer"] == r["lang_doc"])
@@ -578,17 +610,17 @@ pub fn tables(
         md,
         "### Attempts: per model, tactic, intensity and language\n"
     );
-    let _ = writeln!(md, "| model | tactic | intensity | lang | n | passed | placeholder ✗ | numbers ✗ | length ✗ | script ✗ | identifier ✗ | restore ✗ | no-op | trunc. | divergence med (p10–p90) | word change med (p10–p90) | pairs carried over med | length ratio med (p10–p90) | lang kept / other | preface (passed) | s/attempt |");
+    let _ = writeln!(md, "| model | tactic | intensity | lang | n | passed | placeholder ✗ | numbers ✗ | length ✗ | script ✗ | identifier ✗ | 2026-11-19 guards ✗ | restore ✗ | no-op | trunc. | divergence med (p10–p90) | word change med (p10–p90) | pairs carried over med | length ratio med (p10–p90) | lang kept / other | preface (passed) | s/attempt |");
     let _ = writeln!(
         md,
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
     );
     for ((m, tactic, intensity, lang), rs) in &cells {
         let x = metrics(rs);
         let g = |name: &str| fmt_ratio(&x["guard_failed"][name]);
         let _ = writeln!(
             md,
-            "| {} | {tactic} | {intensity} | {lang} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} / {} | {} ({}) | {} |",
+            "| {} | {tactic} | {intensity} | {lang} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} / {} | {} ({}) | {} |",
             models[*m],
             x["attempts"],
             fmt_ratio(&x["passed"]),
@@ -597,6 +629,7 @@ pub fn tables(
             g("length-drift"),
             g("script"),
             g("identifier"),
+            g("2026-11-19"),
             fmt_ratio(&x["restore_failed"]),
             fmt_ratio(&x["no_op"]),
             fmt_ratio(&x["truncated"]),
