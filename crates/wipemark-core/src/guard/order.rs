@@ -1361,7 +1361,7 @@ mod tests {
             GuardOutcome::Pass
         );
         // A list the article then walks through in order, with no word
-        // saying so (article 19): the templates ask for its order instead.
+        // saying so (article 19): nothing asks for its order (D863).
         assert_eq!(
             check(
                 "We sort the tools into three groups: **Capture** (take a picture), **Manage** (find, name and remove pictures in the library) and **Markers** (draw on them).",
