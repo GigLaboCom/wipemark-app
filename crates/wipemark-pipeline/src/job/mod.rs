@@ -38,7 +38,7 @@ pub use attempt::verdict;
 pub use plan::{plan, Planned, Rung};
 pub use resume::{Decided, RecordError};
 pub use stored::{OptionsError, OPTIONS_VERSION};
-use wipemark_core::{default_guards, Guard};
+use wipemark_core::{default_guards, ContextEchoGuard, Guard, PairGuard};
 use wipemark_engine::{CancellationToken, EngineError, RewriteEngine, SamplingParams};
 
 use crate::cost::{Effort, Executor};
@@ -135,12 +135,14 @@ impl Options {
         Ok(())
     }
 
-    /// The guards every candidate of `chunk` faces: the five of
-    /// `wipemark-core` in their order, the length guard with the window
-    /// for the chunk's size ([`LengthWindows::for_chunk`]).
+    /// The guards every candidate of `chunk` faces: `wipemark-core`'s
+    /// [`default_guards`] in their order, the length guard with the window
+    /// for the chunk's size ([`LengthWindows::for_chunk`]); then, when the
+    /// chunk has them, the guard of its constructs (`PairGuard`, D858) and
+    /// the guard of its context (`ContextEchoGuard`, D856).
     pub fn guards_for(&self, chunk: &Chunk) -> Vec<Box<dyn Guard>> {
         let length = self.length.for_chunk(&chunk.text);
-        default_guards()
+        let mut guards: Vec<Box<dyn Guard>> = default_guards()
             .into_iter()
             .map(|guard| -> Box<dyn Guard> {
                 if guard.name() == length.name() {
@@ -149,7 +151,16 @@ impl Options {
                     guard
                 }
             })
-            .collect()
+            .collect();
+        if !chunk.pairs.is_empty() {
+            guards.push(Box::new(PairGuard {
+                pairs: chunk.pairs.clone(),
+            }));
+        }
+        if let Some(context) = &chunk.context {
+            guards.push(Box::new(ContextEchoGuard::new(context.as_str())));
+        }
+        guards
     }
 }
 

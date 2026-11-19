@@ -29,7 +29,8 @@ pub(super) const PARAGRAPH: &str =
      directory.\n";
 
 /// The text a request asks to rewrite, every two neighbouring words of its
-/// first half swapped: an answer every guard accepts.
+/// first half swapped and "also" said after them: an answer every guard
+/// accepts (the words alone reordered are refused, D860).
 fn swapped(req: &wipemark_engine::ChatRequest) -> String {
     const BEGIN: &str = "[[[BEGIN TEXT]]]\n";
     const END: &str = "\n[[[END TEXT]]]";
@@ -42,6 +43,7 @@ fn swapped(req: &wipemark_engine::ChatRequest) -> String {
     for pair in words[..half].chunks_mut(2) {
         pair.reverse();
     }
+    words.insert(half, "also");
     words.join(" ")
 }
 

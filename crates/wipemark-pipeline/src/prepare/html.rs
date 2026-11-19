@@ -90,7 +90,7 @@ const BLOCK: &[&str] = &[
 ];
 
 #[derive(Debug, PartialEq, Eq)]
-enum Token {
+pub(super) enum Token {
     Comment,
     /// `<!DOCTYPE …>`, `<![CDATA[…]]>`, `<?…?>`.
     Declaration,
@@ -101,7 +101,7 @@ enum Token {
 }
 
 /// The tag starting at `at` (a `<`), and where it ends.
-fn tag_at(src: &str, at: usize) -> Option<(Token, usize)> {
+pub(super) fn tag_at(src: &str, at: usize) -> Option<(Token, usize)> {
     let rest = &src[at..];
     let bytes = rest.as_bytes();
     if let Some(body) = rest.strip_prefix("<!--") {
@@ -171,11 +171,51 @@ fn element_end(src: &str, from: usize, name: &str) -> usize {
     src.len()
 }
 
+/// Elements that have no end tag: a start tag of one opens nothing.
+const VOID: &[&str] = &[
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
+];
+
+/// Inline elements whose start tag is not matched by an end tag yet: the
+/// name and the start tag's span, innermost last (D858).
+#[derive(Default)]
+pub(super) struct Elements {
+    open: Vec<(String, Range<usize>)>,
+    /// Every start tag matched by its end tag: the two spans.
+    pub pairs: Vec<(Range<usize>, Range<usize>)>,
+}
+
+impl Elements {
+    /// A tag of an inline element, its span `range`: a start tag opens
+    /// (unless the element is void or the tag closes itself), an end tag
+    /// closes the innermost open element of its name and every one opened
+    /// inside it that never closed.
+    pub(super) fn tag(&mut self, src: &str, token: &Token, range: Range<usize>) {
+        match token {
+            Token::Start(name)
+                if !VOID.contains(&name.as_str()) && !src[range.clone()].ends_with("/>") =>
+            {
+                self.open.push((name.clone(), range));
+            }
+            Token::End(name) => {
+                if let Some(at) = self.open.iter().rposition(|(open, _)| open == name) {
+                    let start = self.open[at].1.clone();
+                    self.open.truncate(at);
+                    self.pairs.push((start, range));
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// A piece being collected.
 #[derive(Default)]
 struct Open {
     range: Option<Range<usize>>,
     spans: Vec<Range<usize>>,
+    elements: Elements,
 }
 
 impl Open {
@@ -210,6 +250,7 @@ pub(super) fn pieces(src: &str, start: usize) -> Vec<Piece> {
                 prefix: String::new(),
                 markdown: false,
                 item: false,
+                pairs: taken.elements.pairs,
             });
         }
     };
@@ -236,7 +277,10 @@ pub(super) fn pieces(src: &str, start: usize) -> Vec<Piece> {
                     Token::Start(name) | Token::End(name) if BLOCK.contains(&name.as_str()) => {
                         finish(&mut open, &mut pieces);
                     }
-                    Token::Start(_) | Token::End(_) => open.spans.push(at..end),
+                    token @ (Token::Start(_) | Token::End(_)) => {
+                        open.elements.tag(src, &token, at..end);
+                        open.spans.push(at..end);
+                    }
                 }
                 at = end;
                 continue;

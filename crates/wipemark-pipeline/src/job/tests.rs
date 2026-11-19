@@ -49,25 +49,31 @@ fn text_of(req: &ChatRequest) -> String {
 }
 
 /// A rewrite the guards accept and the no-op floor does not call a copy:
-/// every two neighbouring words of the first half swapped — the same
-/// words, numbers and identifiers, in the same language.
+/// every two neighbouring words of the first half swapped and "also" said
+/// after them — the same numbers and identifiers, in the same language,
+/// and not only the same words in another order, which the permutation
+/// guard refuses (D860).
 fn swap(text: &str) -> String {
     let mut words: Vec<&str> = text.split(' ').collect();
     let half = words.len() / 2;
     for pair in words[..half].chunks_mut(2) {
         pair.reverse();
     }
+    words.insert(half, "also");
     words.join(" ")
 }
 
-/// A near-copy: only the first two words swapped. For a paragraph of
-/// thirty words that is a divergence of about 0.1 — a rewrite the old
-/// floor (0.05) passed and D95's (0.2) does not.
+/// A near-copy: only the first two words swapped, and "also" at the end
+/// (the swap alone is the same words in another order, which the
+/// permutation guard refuses before the floor is asked, D860). For a
+/// paragraph of thirty words that is a divergence of about 0.15 — a
+/// rewrite the old floor (0.05) passed and D95's (0.2) does not.
 fn swap_two(text: &str) -> String {
     let mut words: Vec<&str> = text.split(' ').collect();
     if words.len() > 1 {
         words.swap(0, 1);
     }
+    words.push("also");
     words.join(" ")
 }
 
@@ -519,10 +525,13 @@ fn more_rounds_than_rungs_repeat_the_last_rung() {
     assert_eq!(tactics, [Tactic::Paraphrase; 3]);
 }
 
-/// Every word in reverse order: the same words, numbers and identifiers,
-/// so it passes the guards — and diverges almost entirely.
+/// Every word in reverse order, and "also" after them: the same numbers and
+/// identifiers and more than the words reordered (D860), so it passes the
+/// guards — and diverges almost entirely.
 fn reversed(text: &str) -> String {
-    text.split(' ').rev().collect::<Vec<_>>().join(" ")
+    let mut words: Vec<&str> = text.split(' ').rev().collect();
+    words.push("also");
+    words.join(" ")
 }
 
 #[test]

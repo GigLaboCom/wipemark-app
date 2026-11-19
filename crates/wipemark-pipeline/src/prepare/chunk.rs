@@ -29,6 +29,10 @@ pub(super) struct Piece {
     /// Inside a Markdown list: a line break the model adds would be laid
     /// under the marker's indentation and change the list (D95, D87).
     pub item: bool,
+    /// The structural spans that open and close one construct — a link's
+    /// or image's opener and closer, an inline element's start and end
+    /// tags — as the parser found them, before the merge (D858).
+    pub pairs: Vec<(Range<usize>, Range<usize>)>,
 }
 
 /// The continuation prefix of a piece starting at `at`: its first line up
@@ -157,6 +161,8 @@ fn pack(
 struct Text {
     text: String,
     protected: Vec<String>,
+    /// The source range of every placeholder's span, by its number's order.
+    spans: Vec<Range<usize>>,
     /// Whether any letter is outside the placeholders.
     letters: bool,
 }
@@ -173,6 +179,7 @@ impl Text {
         {
             self.copy(&src[at..span.start], markdown, &mut line_start);
             self.placeholder(&src[span.clone()]);
+            self.spans.push(span.clone());
             line_start = false;
             at = span.end;
         }
@@ -218,6 +225,21 @@ fn make_chunk(
     if !text.letters {
         return None;
     }
+    // A construct's two spans, as the numbers of the placeholders that
+    // hold them in this chunk; both must be here, and apart — a merge that
+    // made them one placeholder left nothing to keep in order.
+    let number_of = |part: &Range<usize>| {
+        text.spans
+            .iter()
+            .position(|span| span.start <= part.start && part.end <= span.end)
+            .map(|i| i + 1)
+    };
+    let pairs = piece
+        .pairs
+        .iter()
+        .filter_map(|(open, close)| Some((number_of(open)?, number_of(close)?)))
+        .filter(|(open, close)| open < close)
+        .collect();
     let source = &src[range.clone()];
     let newline = if source.contains("\r\n") {
         Newline::CrLf
@@ -232,6 +254,7 @@ fn make_chunk(
         est_tokens: estimate_tokens(&text.text),
         text: text.text,
         protected: text.protected,
+        pairs,
         context: None,
         layout: Layout {
             newline,

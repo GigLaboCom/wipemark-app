@@ -1553,13 +1553,15 @@ mod tests {
     }
 
     /// The text a request asks to rewrite, every two neighbouring words of
-    /// its first half swapped: far enough from it for the no-op floor.
+    /// its first half swapped and "also" said after them: far enough from it
+    /// for the no-op floor, and more than its words reordered (D860).
     fn swapped(req: &wipemark_engine::ChatRequest) -> String {
         let mut words: Vec<&str> = asked_text(req).split(' ').collect();
         let half = words.len() / 2;
         for pair in words[..half].chunks_mut(2) {
             pair.reverse();
         }
+        words.insert(half, "also");
         words.join(" ")
     }
 

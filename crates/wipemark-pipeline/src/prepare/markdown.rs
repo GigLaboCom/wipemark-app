@@ -14,6 +14,7 @@ use std::ops::Range;
 use pulldown_cmark::{Event, LinkType, Options, Parser, Tag, TagEnd};
 
 use super::chunk::{continuation_prefix, Piece};
+use super::html::{self, Elements};
 use super::protect::{self, Lexical};
 
 /// The extensions this product reads: GitHub's tables, task lists,
@@ -62,6 +63,11 @@ struct Open {
     range: Option<Range<usize>>,
     spans: Vec<Range<usize>>,
     links: Vec<Link>,
+    /// Every link's or image's opener and closer, when they are two spans
+    /// (D858).
+    pairs: Vec<(Range<usize>, Range<usize>)>,
+    /// Inline HTML's elements: their start and end tags (D858).
+    elements: Elements,
 }
 
 /// A link or image whose closer is not reached yet.
@@ -94,10 +100,20 @@ impl Walker<'_> {
             Event::Text(_) | Event::SoftBreak | Event::HardBreak => {
                 self.inline(range, false);
             }
+            // An inline element's start and end tags are a pair to keep
+            // in order (D858).
+            Event::InlineHtml(_) => {
+                if self.inline(range.clone(), true) {
+                    if let (Some(open), Some((token, _))) =
+                        (&mut self.open, html::tag_at(self.src, range.start))
+                    {
+                        open.elements.tag(self.src, &token, range);
+                    }
+                }
+            }
             // `Html` is inside an HTML block, which is kept; anywhere
             // else it is markup like the rest.
             Event::Code(_)
-            | Event::InlineHtml(_)
             | Event::Html(_)
             | Event::FootnoteReference(_)
             | Event::InlineMath(_)
@@ -240,6 +256,7 @@ impl Walker<'_> {
             (false, Some(first), Some(last)) => {
                 open.spans.push(link.start..first);
                 open.spans.push(last..range.end);
+                open.pairs.push((link.start..first, last..range.end));
             }
             _ => open.spans.push(link.start..range.end),
         }
@@ -273,12 +290,15 @@ impl Walker<'_> {
                 backticks: false,
             },
         );
+        let mut pairs = open.pairs;
+        pairs.extend(open.elements.pairs);
         self.found.push(Piece {
             prefix: continuation_prefix(self.src, range.start, self.floor),
             range,
             spans,
             markdown: true,
             item: self.lists > 0,
+            pairs,
         });
     }
 }

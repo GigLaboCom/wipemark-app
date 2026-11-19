@@ -416,6 +416,106 @@ fn a_piece_with_no_letter_outside_its_placeholders_is_not_a_chunk() {
 }
 
 // ---------------------------------------------------------------------
+// Constructs (D858): the placeholders that open and close one.
+
+fn pairs(text: &str, format: TextFormat) -> Vec<(String, Vec<(usize, usize)>)> {
+    prep(text, format)
+        .chunks()
+        .iter()
+        .map(|chunk| (chunk.text.clone(), chunk.pairs.clone()))
+        .collect()
+}
+
+#[test]
+fn a_links_opener_and_closer_are_a_pair() {
+    assert_eq!(
+        pairs(
+            "Read [the guide](https://example.com/guide) and ![the logo](logo.png) here.\n",
+            TextFormat::Markdown
+        ),
+        [(
+            "Read ⟦1⟧the guide⟦2⟧ and ⟦3⟧the logo⟦4⟧ here.".to_owned(),
+            vec![(1, 2), (3, 4)]
+        )]
+    );
+    // An image inside a link: two pairs, one inside the other — their
+    // openers, `[` and `![`, touch and are one placeholder.
+    assert_eq!(
+        pairs(
+            "Click [![the logo](logo.png) here](https://x.y/) now.\n",
+            TextFormat::Markdown
+        ),
+        [(
+            "Click ⟦1⟧the logo⟦2⟧ here⟦3⟧ now.".to_owned(),
+            vec![(1, 2), (1, 3)]
+        )]
+    );
+    // Code inside a label: the code is not part of the pair.
+    assert_eq!(
+        pairs(
+            "See [the `run` command](https://x.y/run) first.\n",
+            TextFormat::Markdown
+        ),
+        [("See ⟦1⟧the ⟦2⟧ command⟦3⟧ first.".to_owned(), vec![(1, 3)])]
+    );
+}
+
+#[test]
+fn spans_merged_into_one_placeholder_are_no_pair() {
+    // `[` touches the code, the code touches `](…)`: one placeholder, and
+    // nothing between to keep in order.
+    assert_eq!(
+        pairs(
+            "Run [`make`](https://x.y/make) twice.\n",
+            TextFormat::Markdown
+        ),
+        [("Run ⟦1⟧ twice.".to_owned(), vec![])]
+    );
+    // A link whose label a sentence cut leaves its halves in two chunks:
+    // neither chunk has the pair.
+    let prepared = prepare(
+        "Start [one two. Three four](https://x.y/) end.\n",
+        TextFormat::Markdown,
+        Budget { max_tokens: 3 },
+    );
+    assert!(prepared.chunks().len() > 1);
+    assert!(prepared.chunks().iter().all(|chunk| chunk.pairs.is_empty()));
+}
+
+#[test]
+fn an_inline_elements_tags_are_a_pair() {
+    assert_eq!(
+        pairs(
+            "Press <kbd>Ctrl</kbd> and <b>then <i>go</i></b>, or <br> stop.\n",
+            TextFormat::Markdown
+        ),
+        // `</i></b>` touch and are one placeholder, closing both; `<br>`
+        // opens nothing.
+        [(
+            "Press ⟦1⟧Ctrl⟦2⟧ and ⟦3⟧then ⟦4⟧go⟦5⟧, or ⟦6⟧ stop.".to_owned(),
+            vec![(1, 2), (4, 5), (3, 5)]
+        )]
+    );
+    assert_eq!(
+        pairs(
+            "<p>See <a href=\"/x\">the page</a>, then <em>act</em><img src=\"a.png\"/>.</p>\n",
+            TextFormat::Html
+        ),
+        [(
+            // `</em>` and the image that closes itself touch: one
+            // placeholder, and the image opens nothing.
+            "See ⟦1⟧the page⟦2⟧, then ⟦3⟧act⟦4⟧.".to_owned(),
+            vec![(1, 2), (3, 4)]
+        )]
+    );
+    // Plain text has no constructs.
+    assert_eq!(
+        pairs("Read <b>this</b> now.\n", TextFormat::Plain),
+        [("Read <b>this</b> now.".to_owned(), vec![])]
+    );
+}
+
+// ---------------------------------------------------------------------
 // Chunks (D70, the owner's "by paragraph").
 
 #[test]
