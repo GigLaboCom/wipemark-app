@@ -1,4 +1,4 @@
 [submodule "vendor/gpui-component"]
 	path = vendor/gpui-component
 	url = https://github.com/glani/gpui-component.git
-	branch = pin/land-next-2026-11-18
+	branch = pin/land-next-2026-11-22
