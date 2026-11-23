@@ -34,6 +34,13 @@
 //!   Everywhere else the dialog offers a verified **Download…**. The new
 //!   version, once its first window is up, removes the previous copy and the
 //!   downloads ([`tidy`]).
+//! * **Windows (D867).** Released, and installed by hand
+//!   (`wipemark_update::Released::ByHand`): nothing is checked and nothing
+//!   installed there in this version. The General row says to run the next
+//!   installer over this one and opens the releases page instead of Check
+//!   now; its switch is greyed and off; the one-time notice and the
+//!   walk-through's switch are not asked ([`asks_consent`]), so the version
+//!   that updates Windows asks the person then.
 //!
 //! Every request runs on a thread of its own and reports through `flume`,
 //! polled from `cx.spawn`: nothing here blocks the GPUI thread.
@@ -56,7 +63,7 @@ use semver::Version;
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_update::{
     Base, Can, Client, DownloadError, FetchError, Format, InstallRefused, Installation, Keyring,
-    Offer, Platform, Prepared, PublicKey, Refusal, Wanted, Why,
+    Offer, Prepared, PublicKey, Refusal, Released, Wanted, Why, RELEASES_PAGE,
 };
 
 use crate::config::{self, SettingsStore};
@@ -97,6 +104,40 @@ pub fn due(facts: &Schedule) -> bool {
         && facts.since_start >= FIRST_AFTER
         && facts.scanned
         && facts.last_ok.is_none_or(|at| facts.now - at >= DAY)
+}
+
+/// Whether this build asks the person's yes to check on its own — the
+/// walk-through's switch, the General page's and the one-time notice. Not
+/// on Windows: its releases are installed by hand in this version, nothing
+/// would ever check there, and a yes given now would answer a question the
+/// version that updates Windows has still to ask (D867).
+pub fn asks_consent(released: Released) -> bool {
+    released != Released::ByHand
+}
+
+/// One of the buttons on the right of the General page's row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowAct {
+    /// Update… or Download…, while a verified version waits.
+    Open,
+    CheckNow,
+    /// The releases page, in the browser.
+    Releases,
+}
+
+/// The General row's buttons: Update… or Download… while a verified
+/// version waits, then Check now — and on Windows, which checks nothing in
+/// this version, the releases page alone (D867). Pure, so the row is a test.
+pub fn row_acts(released: Released, offer: bool) -> Vec<RowAct> {
+    if released == Released::ByHand {
+        return vec![RowAct::Releases];
+    }
+    let mut acts = Vec::new();
+    if offer {
+        acts.push(RowAct::Open);
+    }
+    acts.push(RowAct::CheckNow);
+    acts
 }
 
 /// What [`due`] decides on.
@@ -208,6 +249,8 @@ pub enum Said {
     NoKeys,
     /// No release is built for this computer.
     NoBuild,
+    /// This computer's releases are installed by hand: Windows (D867).
+    ByHand,
     /// A debug build's `WIPEMARK_UPDATE_BASE` names something other than a
     /// loopback server.
     BadBase(String),
@@ -259,7 +302,9 @@ pub struct Updates {
     running: Version,
     base: Result<Base, String>,
     keyring: Keyring,
-    platform: Option<Platform>,
+    /// How this computer's releases reach it: through the service, by hand
+    /// (Windows), or not at all.
+    released: Released,
     /// Detected off the GPUI thread at start (macOS asks `codesign`).
     installation: Option<Installation>,
     /// `updates.check`.
@@ -369,7 +414,7 @@ impl Updates {
             base: base(),
             notice: !rows.asked && setup_done && !keyring.is_empty(),
             keyring,
-            platform: Platform::this(),
+            released: Released::this(),
             installation: None,
             on: rows.check,
             last_ok: rows
@@ -476,13 +521,21 @@ impl Updates {
     }
 
     /// Whether the one-time notice shows: asked of an install that had been
-    /// through the walk-through, once, and only where a check can run.
+    /// through the walk-through, once, and only where a check can run —
+    /// never on Windows ([`asks_consent`]).
     pub fn asks(&self) -> bool {
         self.notice
+            && asks_consent(self.released)
             && self
                 .installation
                 .as_ref()
                 .is_some_and(Installation::checks_on_its_own)
+    }
+
+    /// Whether the walk-through and the General page offer the switch:
+    /// [`asks_consent`] for this build.
+    pub fn consents(&self) -> bool {
+        asks_consent(self.released)
     }
 
     /// How many times the dialog was asked for.
@@ -515,8 +568,12 @@ impl Updates {
         }
     }
 
-    /// The walk-through's Finish, with its switch (D784).
+    /// The walk-through's Finish, with its switch (D784). Where the switch
+    /// is not offered (Windows, D867) Finish answers nothing, as Skip does.
     pub fn answer_setup(&mut self, on: bool, cx: &mut Context<Self>) {
+        if !self.consents() {
+            return;
+        }
         self.on = on;
         self.answered(cx);
         self.persist(cx, move |store| config::write_updates_check(store, on));
@@ -552,6 +609,12 @@ impl Updates {
         if self.checking {
             return;
         }
+        if self.released == Released::ByHand {
+            // Nothing asked: Windows is updated by hand in this version.
+            self.said = Said::ByHand;
+            cx.notify();
+            return;
+        }
         let base = match &self.base {
             Ok(base) => base.clone(),
             Err(value) => {
@@ -567,7 +630,7 @@ impl Updates {
             return;
         }
         let keyring = self.keyring.clone();
-        let platform = self.platform;
+        let released = self.released;
         let running = self.running.clone();
         let skipped = if asked { None } else { self.skipped.clone() };
         let installation = self.installation.clone();
@@ -576,9 +639,9 @@ impl Updates {
             .name("wipemark-update-check".into())
             .spawn(move || {
                 let installation = installation.unwrap_or_else(Installation::this);
-                let verdict = match installation.wanted(platform) {
-                    None => Err(Refusal::NoBuild),
-                    Some((platform, format)) => wipemark_update::check(
+                let verdict = match released.wanted(&installation) {
+                    Err(refusal) => Err(refusal),
+                    Ok((platform, format)) => wipemark_update::check(
                         &Client::new(base),
                         &keyring,
                         &Wanted {
@@ -618,6 +681,7 @@ impl Updates {
         self.said = match verdict {
             Err(Refusal::NoKeys) => Said::NoKeys,
             Err(Refusal::NoBuild) => Said::NoBuild,
+            Err(Refusal::ByHand) => Said::ByHand,
             Err(Refusal::Fetch(why)) => {
                 tracing::info!(reason = %why, "updates: the check failed");
                 Said::Failed { at, why }
@@ -1036,6 +1100,10 @@ fn megabytes(bytes: u64) -> String {
 /// The General page's status line, and its tone: the last check in one
 /// sentence, and a refused announcement as a second.
 pub fn status_lines(updates: &Updates) -> Vec<String> {
+    // Windows, whatever else holds: nothing checks there in this version.
+    if updates.released == Released::ByHand {
+        return vec![t(Message::SettingsUpdatesWindows)];
+    }
     if updates.checking {
         return vec![t(Message::SettingsUpdatesChecking)];
     }
@@ -1077,6 +1145,7 @@ pub fn status_lines(updates: &Updates) -> Vec<String> {
         )],
         Said::NoKeys => vec![t(Message::SettingsUpdatesNoKeys)],
         Said::NoBuild => vec![t(Message::SettingsUpdatesNoBuild)],
+        Said::ByHand => vec![t(Message::SettingsUpdatesWindows)],
         Said::BadBase(value) => vec![t_args(
             Message::CliUpdateBadBase,
             &args!("value" => value.clone()),
@@ -1088,9 +1157,10 @@ pub fn status_lines(updates: &Updates) -> Vec<String> {
     lines
 }
 
-/// The General page's switch.
+/// The General page's switch — greyed and off where the build asks no
+/// consent (Windows, D867); the line under the row says why.
 pub fn switch(cx: &App) -> AnyElement {
-    let Some(updates) = hosted(cx) else {
+    let Some(updates) = hosted(cx).filter(|updates| updates.read(cx).consents()) else {
         return Switch::new("updates-check")
             .disabled(true)
             .into_any_element();
@@ -1106,19 +1176,51 @@ pub fn switch(cx: &App) -> AnyElement {
 }
 
 /// Under the General page's row: the last check, Check now, and Update… or
-/// Download… while a verified version waits.
+/// Download… while a verified version waits — on Windows, the sentence that
+/// sends the person to the next installer and the releases page.
 pub fn below(cx: &App) -> Option<AnyElement> {
     let updates = hosted(cx)?;
     let state = updates.read(cx);
     let theme = cx.theme();
     let lines = status_lines(state);
-    let offer = state.offer().is_some();
     let installs = state
         .installation
         .as_ref()
         .is_some_and(|installation| installation.can() == Can::Install);
     let checking = state.checking;
-    let (check, open) = (updates.clone(), updates.clone());
+    let buttons = row_acts(state.released, state.offer().is_some())
+        .into_iter()
+        .map(|act| {
+            let updates = updates.clone();
+            match act {
+                RowAct::Open => Button::new("updates-open")
+                    .small()
+                    .primary()
+                    .label(SharedString::from(t(if installs {
+                        Message::SettingsUpdatesOpen
+                    } else {
+                        Message::SettingsUpdatesOpenDownload
+                    })))
+                    .on_click(move |_: &ClickEvent, _, cx| {
+                        updates.update(cx, |updates, cx| updates.open_dialog(cx));
+                    }),
+                RowAct::CheckNow => Button::new("updates-check-now")
+                    .small()
+                    .outline()
+                    .disabled(checking)
+                    .label(SharedString::from(t(Message::SettingsUpdatesCheckNow)))
+                    .on_click(move |_: &ClickEvent, _, cx| {
+                        updates.update(cx, |updates, cx| updates.check_now(cx));
+                    }),
+                RowAct::Releases => Button::new("updates-releases")
+                    .small()
+                    .outline()
+                    .icon(IconName::ArrowUpRightFromSquare)
+                    .label(SharedString::from(t(Message::SettingsUpdatesReleases)))
+                    .on_click(|_: &ClickEvent, _, cx| cx.open_url(RELEASES_PAGE)),
+            }
+        })
+        .collect::<Vec<_>>();
     Some(
         h_flex()
             .w_full()
@@ -1137,31 +1239,7 @@ pub fn below(cx: &App) -> Option<AnyElement> {
                             .map(|line| div().child(SharedString::from(line))),
                     ),
             )
-            .when(offer, |row| {
-                row.child(
-                    Button::new("updates-open")
-                        .small()
-                        .primary()
-                        .label(SharedString::from(t(if installs {
-                            Message::SettingsUpdatesOpen
-                        } else {
-                            Message::SettingsUpdatesOpenDownload
-                        })))
-                        .on_click(move |_: &ClickEvent, _, cx| {
-                            open.update(cx, |updates, cx| updates.open_dialog(cx));
-                        }),
-                )
-            })
-            .child(
-                Button::new("updates-check-now")
-                    .small()
-                    .outline()
-                    .disabled(checking)
-                    .label(SharedString::from(t(Message::SettingsUpdatesCheckNow)))
-                    .on_click(move |_: &ClickEvent, _, cx| {
-                        check.update(cx, |updates, cx| updates.check_now(cx));
-                    }),
-            )
+            .children(buttons)
             .into_any_element(),
     )
 }
@@ -1629,6 +1707,8 @@ impl Render for UpdateDialog {
 
 #[cfg(test)]
 mod tests {
+    use wipemark_update::Platform;
+
     use super::*;
 
     fn bundle() -> Installation {
@@ -1805,17 +1885,17 @@ mod tests {
         );
     }
 
-    /// Every action of the update runs inside its own entity's `update` — a
-    /// button's, a download's end, the quit — and asks there what runs. That
-    /// question once read this entity again through its global, and GPUI
-    /// aborted the application ("cannot read Updates while it is already
-    /// being updated"): the owner pressed Update and restart on 2026-10-19
-    /// and Wipemark ended (D815). Red with `work_now` back in `fetch`,
-    /// `try_restart` or `at_quit`.
-    #[gpui::test]
-    fn the_update_s_actions_run_inside_its_own_update(cx: &mut gpui::TestAppContext) {
+    /// The entity, hosted as `install` hosts it, without the thread that
+    /// looks at the installation: its answer would wake the test's executor
+    /// from outside it, which GPUI's test scheduler refuses. `name` keeps
+    /// each test's scratch folder its own.
+    fn hosted_for_tests<'a>(
+        cx: &'a mut gpui::TestAppContext,
+        name: &str,
+        rows: config::UpdateRows,
+    ) -> (Entity<Updates>, &'a mut gpui::VisualTestContext) {
         let scratch =
-            std::env::temp_dir().join(format!("wipemark-update-acts-{}", std::process::id()));
+            std::env::temp_dir().join(format!("wipemark-update-{name}-{}", std::process::id()));
         let homes = crate::retention::Homes {
             results: scratch.join("results"),
             kept: scratch.join("kept"),
@@ -1834,16 +1914,13 @@ mod tests {
             Holder
         });
         let preferences = slot.take().expect("the window builder ran");
-        // Hosted as `install` hosts it, without the thread that looks at the
-        // installation: its answer would wake this test's executor from
-        // outside it, which GPUI's test scheduler refuses.
         let updates = cx.update(|_, cx| {
             let updates = cx.new(|_| {
                 Updates::idle(
                     preferences,
                     config::open(None),
                     Start {
-                        rows: config::UpdateRows::default(),
+                        rows,
                         setup_done: true,
                         downloads: scratch.join("downloads"),
                         updates_dir: None,
@@ -1853,6 +1930,71 @@ mod tests {
             cx.set_global(Hosted(updates.clone()));
             updates
         });
+        (updates, cx)
+    }
+
+    /// Windows asks no consent and the General row sends the person to the
+    /// releases page instead of Check now (D867); everywhere else the row
+    /// is as it was. Red with `asks_consent` or `row_acts` blind to Windows.
+    #[test]
+    fn windows_offers_the_releases_page_and_asks_nothing() {
+        let linux = Released::Served(Platform::LinuxX64);
+        assert!(!asks_consent(Released::ByHand));
+        assert!(asks_consent(linux));
+        assert!(asks_consent(Released::NoBuild));
+        assert_eq!(row_acts(Released::ByHand, false), [RowAct::Releases]);
+        assert_eq!(row_acts(Released::ByHand, true), [RowAct::Releases]);
+        assert_eq!(row_acts(linux, false), [RowAct::CheckNow]);
+        assert_eq!(row_acts(linux, true), [RowAct::Open, RowAct::CheckNow]);
+        assert_eq!(row_acts(Released::NoBuild, false), [RowAct::CheckNow]);
+    }
+
+    /// The entity on Windows (D867): the one-time notice is not asked, even
+    /// of an installation that checks on its own — the kind an installed
+    /// Windows copy will be read as once the version that updates Windows
+    /// comes, the moment this matters; today it reads as a development
+    /// build, never asked either — while Linux, otherwise the same, is.
+    /// The General line says to run the next installer over this one,
+    /// before any check and after Check now, which asks the service
+    /// nothing. The walk-through's Finish answers nothing, as Skip does, so
+    /// that version still asks. Red with any of the four gates deleted.
+    #[gpui::test]
+    fn windows_is_never_asked_and_is_told_to_run_the_next_installer(cx: &mut gpui::TestAppContext) {
+        let (updates, cx) = hosted_for_tests(cx, "windows", config::UpdateRows::default());
+        let told = vec![t(Message::SettingsUpdatesWindows)];
+        updates.update(cx, |updates, _| {
+            updates.installation = Some(Installation::Deb);
+            updates.released = Released::Served(Platform::LinuxX64);
+            assert!(updates.asks(), "the notice is not asked on Linux");
+            assert_ne!(status_lines(updates), told);
+            updates.released = Released::ByHand;
+            assert!(!updates.asks(), "the notice is asked on Windows");
+            assert!(!updates.consents());
+            assert_eq!(status_lines(updates), told);
+        });
+        updates.update(cx, |updates, cx| updates.check_now(cx));
+        updates.read_with(cx, |updates, _| {
+            assert_eq!(updates.said, Said::ByHand);
+            assert!(!updates.checking, "Check now went looking on Windows");
+            assert_eq!(status_lines(updates), told);
+        });
+        updates.update(cx, |updates, cx| updates.answer_setup(true, cx));
+        updates.read_with(cx, |updates, _| {
+            assert!(!updates.on(), "Finish turned the check on, on Windows");
+            assert!(updates.notice, "Finish answered the question on Windows");
+        });
+    }
+
+    /// Every action of the update runs inside its own entity's `update` — a
+    /// button's, a download's end, the quit — and asks there what runs. That
+    /// question once read this entity again through its global, and GPUI
+    /// aborted the application ("cannot read Updates while it is already
+    /// being updated"): the owner pressed Update and restart on 2026-10-19
+    /// and Wipemark ended (D815). Red with `work_now` back in `fetch`,
+    /// `try_restart` or `at_quit`.
+    #[gpui::test]
+    fn the_update_s_actions_run_inside_its_own_update(cx: &mut gpui::TestAppContext) {
+        let (updates, cx) = hosted_for_tests(cx, "acts", config::UpdateRows::default());
         // A verified offer and no service to fetch it from: each action gets
         // past the question of what runs and stops before the network.
         updates.update(cx, |updates, _| {

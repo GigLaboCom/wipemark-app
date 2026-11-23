@@ -23,7 +23,8 @@
 //! whether the application may ask once a day which version is newest
 //! (D784). A switch, off unless the row already says yes; **Finish** writes
 //! it through the General page's own `update::Updates`, and Skip leaves the
-//! row as it was.
+//! row as it was. On Windows, which this version updates by hand, the
+//! question is not asked and Finish leaves the row as Skip does (D867).
 //!
 //! # The recommendation is the machine's
 //!
@@ -915,27 +916,32 @@ impl Setup {
     }
 
     fn done(&self, cx: &Context<Self>) -> impl IntoElement {
+        // Not asked where the build asks no consent (Windows, D867); Finish
+        // then answers nothing either (`Updates::answer_setup`).
+        let asks = crate::update::hosted(cx).is_none_or(|updates| updates.read(cx).consents());
         v_flex()
             .gap_3()
             .child(self.duty_banner(cx))
             .child(Self::paragraph(t(Message::SetupDoneBody), cx))
-            .child(
-                v_flex()
-                    .gap_1()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(Switch::new("setup-updates").checked(self.updates).on_click(
-                                cx.listener(|setup, on: &bool, _, cx| {
-                                    setup.updates = *on;
-                                    cx.notify();
-                                }),
-                            ))
-                            .child(Self::paragraph(t(Message::SetupDoneUpdates), cx)),
-                    )
-                    .child(Self::aside(t(Message::SettingsUpdatesDescription), cx)),
-            )
+            .when(asks, |step| {
+                step.child(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(Switch::new("setup-updates").checked(self.updates).on_click(
+                                    cx.listener(|setup, on: &bool, _, cx| {
+                                        setup.updates = *on;
+                                        cx.notify();
+                                    }),
+                                ))
+                                .child(Self::paragraph(t(Message::SetupDoneUpdates), cx)),
+                        )
+                        .child(Self::aside(t(Message::SettingsUpdatesDescription), cx)),
+                )
+            })
     }
 
     /// The Engine page's own banner: who is on duty, why the other side

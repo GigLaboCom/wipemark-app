@@ -102,17 +102,55 @@ impl Platform {
             Platform::LinuxX64 => "x64",
         }
     }
+}
 
-    /// The platform this program was built for, when a release is built
-    /// for it at all. An Intel Mac, Windows or Linux on ARM has none, and
-    /// is told that no build for it exists rather than offered another's.
-    pub fn this() -> Option<Platform> {
-        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-            Some(Platform::MacosAarch64)
-        } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-            Some(Platform::LinuxX64)
-        } else {
-            None
+/// Where people download every version by hand: GitHub's releases page,
+/// the newest first.
+pub const RELEASES_PAGE: &str = "https://github.com/GigLaboCom/wipemark-app/releases/latest";
+
+/// How a release of this program reaches the computer it runs on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Released {
+    /// Through the release service, for this platform: checked, and
+    /// installed where the installation may replace itself (D780–D789).
+    Served(Platform),
+    /// From [`RELEASES_PAGE`] only, installed by hand: Windows on x86-64,
+    /// its installer and its zip. This version checks nothing and installs
+    /// nothing there; the person runs the next installer over this one
+    /// (D867).
+    ByHand,
+    /// Not at all: an Intel Mac, Linux on ARM, Windows on ARM. Told that no
+    /// build for it exists rather than offered another's.
+    NoBuild,
+}
+
+impl Released {
+    /// The answer for a program built for `os` and `arch`, spelled as
+    /// `std::env::consts` spells them. Pure, so every platform's answer is
+    /// a test on any of them.
+    pub fn of(os: &str, arch: &str) -> Released {
+        match (os, arch) {
+            ("macos", "aarch64") => Released::Served(Platform::MacosAarch64),
+            ("linux", "x86_64") => Released::Served(Platform::LinuxX64),
+            ("windows", "x86_64") => Released::ByHand,
+            _ => Released::NoBuild,
+        }
+    }
+
+    /// The answer for this program.
+    pub fn this() -> Released {
+        Released::of(std::env::consts::OS, std::env::consts::ARCH)
+    }
+
+    /// What `installation` asks the release service for, or why it asks
+    /// nothing. A refusal here is made before any request.
+    pub fn wanted(self, installation: &Installation) -> Result<(Platform, Format), Refusal> {
+        match self {
+            Released::Served(platform) => {
+                installation.wanted(Some(platform)).ok_or(Refusal::NoBuild)
+            }
+            Released::ByHand => Err(Refusal::ByHand),
+            Released::NoBuild => Err(Refusal::NoBuild),
         }
     }
 }
@@ -248,6 +286,10 @@ pub enum Refusal {
     /// No release is built for this platform or installation.
     #[error("no build for this platform")]
     NoBuild,
+    /// This platform's release is installed by hand from
+    /// [`RELEASES_PAGE`]: Windows, in this version ([`Released::ByHand`]).
+    #[error("this platform's release is installed by hand")]
+    ByHand,
     /// The manifest could not be had, or was not one.
     #[error("the manifest could not be read: {0}")]
     Fetch(#[from] FetchError),
@@ -388,6 +430,69 @@ mod tests {
                 "no verified {platform:?} {format:?}"
             );
         }
+    }
+
+    /// Windows is released, from the releases page, and installed by hand:
+    /// not "no build for this computer" (D867). Read over the names
+    /// `std::env::consts` gives, so the Windows answer is a test here too;
+    /// on Windows itself the last assertion is this program's own answer.
+    /// Red with Windows answered as no build.
+    #[test]
+    fn windows_is_released_by_hand() {
+        for (os, arch, released) in [
+            ("macos", "aarch64", Released::Served(Platform::MacosAarch64)),
+            ("linux", "x86_64", Released::Served(Platform::LinuxX64)),
+            ("windows", "x86_64", Released::ByHand),
+            ("macos", "x86_64", Released::NoBuild),
+            ("linux", "aarch64", Released::NoBuild),
+            ("windows", "aarch64", Released::NoBuild),
+            ("freebsd", "x86_64", Released::NoBuild),
+        ] {
+            assert_eq!(Released::of(os, arch), released, "{os} {arch}");
+        }
+        if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+            assert_eq!(Released::this(), Released::ByHand);
+        }
+        if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            assert_eq!(Released::this(), Released::Served(Platform::LinuxX64));
+        }
+    }
+
+    /// A release installed by hand asks the release service for nothing,
+    /// whatever the installation, and says why in its own word; one with no
+    /// build says that. Red with the two refusals one.
+    #[test]
+    fn a_release_installed_by_hand_asks_for_nothing() {
+        let installations = [
+            Installation::Bundle {
+                app: "/Applications/Wipemark.app".into(),
+                can: Can::Install,
+            },
+            Installation::AppImage {
+                file: "/x/W.AppImage".into(),
+                can: Can::Install,
+            },
+            Installation::Deb,
+            Installation::Development,
+        ];
+        for installation in &installations {
+            assert_eq!(
+                Released::ByHand.wanted(installation),
+                Err(Refusal::ByHand),
+                "{installation:?}"
+            );
+            assert_eq!(
+                Released::NoBuild.wanted(installation),
+                Err(Refusal::NoBuild),
+                "{installation:?}"
+            );
+        }
+        let linux = Released::Served(Platform::LinuxX64);
+        assert_eq!(
+            linux.wanted(&Installation::Deb),
+            Ok((Platform::LinuxX64, Format::Deb))
+        );
+        assert_eq!(linux.wanted(&installations[0]), Err(Refusal::NoBuild));
     }
 
     #[test]

@@ -2559,6 +2559,10 @@ settings-updates-refused = A newer version, { $version }, was announced, but its
 settings-updates-development = A development build does not check for new versions on its own. Check now says what it would offer.
 settings-updates-no-keys = This build carries no key to verify a new version's signature, so it cannot check for updates.
 settings-updates-no-build = No release of { -brand-name } is built for this computer.
+# Windows (D867): its releases are installed by hand, so the window checks
+# nothing and installs nothing there; the button opens the releases page.
+settings-updates-windows = Updating from the window and the daily check are not in this version on Windows. To update, run the next installer over this one; the releases page has it.
+settings-updates-releases = Releases page
 settings-updates-open = Update…
 settings-updates-open-download = Download…
 setup-done-updates = Check for new versions once a day
@@ -2631,6 +2635,7 @@ cli-update-get-deb = Download it, then install it with sudo apt install ./{ $fil
 cli-update-unverified = A newer version, { $version }, was announced, but its signature did not verify, so it is not offered.
 cli-update-no-keys = This build carries no key to verify a new version's signature, so it cannot check for updates.
 cli-update-no-build = No release of { -brand-name } is built for this computer.
+cli-update-windows = Checking for a new release and updating are not in this version on Windows. To update, run the next installer over this one: { $url }
 cli-update-failed = Could not check { $host }: { $reason }.
 cli-update-installs-nothing = The command line installs nothing. Update from the application, or download a new version: { $url }
 cli-update-bad-base = WIPEMARK_UPDATE_BASE must name http on a loopback address with a port, not { $value }.

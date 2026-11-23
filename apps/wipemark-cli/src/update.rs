@@ -11,11 +11,16 @@
 //! would race the application's own update. A plain `update` says so and
 //! exits 2.
 //!
+//! On Windows nothing is checked and nothing is installed in this version:
+//! its releases are installed by hand (D867). `update` and `update --check`
+//! both say to run the next installer over this one, name the releases
+//! page, and exit 2, asking nothing of the network.
+//!
 //! | exit | means |
 //! |---|---|
 //! | 0 | up to date |
 //! | 1 | a newer verified version exists — a finding |
-//! | 2 | refused: no key in this build, no build for this platform, no connection, or only a newer version whose signature does not verify |
+//! | 2 | refused: no key in this build, no build for this platform, Windows, no connection, or only a newer version whose signature does not verify |
 //!
 //! The human output is the catalogue's; `--json` is a format and is not.
 
@@ -24,15 +29,12 @@ use std::io::Write as _;
 use semver::Version;
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_update::{
-    Base, Choice, Client, FetchError, Format, Installation, Keyring, Platform, Refusal, Rejected,
-    Wanted,
+    Base, Choice, Client, FetchError, Format, Installation, Keyring, Refusal, Rejected, Released,
+    Wanted, RELEASES_PAGE,
 };
 
 use crate::run::Io;
 use crate::Exit;
-
-/// Where a person downloads a version by hand when no check names one.
-const RELEASES_PAGE: &str = "https://github.com/GigLaboCom/wipemark-app/releases/latest";
 
 /// `update` with its flags.
 pub(crate) fn run(check: bool, json: bool, io: &mut Io) -> Exit {
@@ -40,10 +42,7 @@ pub(crate) fn run(check: bool, json: bool, io: &mut Io) -> Exit {
         let _ = writeln!(
             io.stderr,
             "wipemark-cli: {}",
-            t_args(
-                Message::CliUpdateInstallsNothing,
-                &args!("url" => RELEASES_PAGE),
-            )
+            installs_nothing(Released::this())
         );
         return Exit::Usage;
     }
@@ -62,10 +61,20 @@ pub(crate) fn run(check: bool, json: bool, io: &mut Io) -> Exit {
         client: Client::new(base),
         keyring: keyring(),
         installation: Installation::this(),
-        platform: Platform::this(),
+        released: Released::this(),
         running: wipemark_update::running(),
     };
     check_with(&asked, json, io)
+}
+
+/// What a plain `update` says: the command line installs nothing — and on
+/// Windows neither does the application, in this version.
+fn installs_nothing(released: Released) -> String {
+    let message = match released {
+        Released::ByHand => Message::CliUpdateWindows,
+        Released::Served(_) | Released::NoBuild => Message::CliUpdateInstallsNothing,
+    };
+    t_args(message, &args!("url" => RELEASES_PAGE))
 }
 
 /// Everything a check is made against, so a test can hand in its own.
@@ -73,7 +82,7 @@ pub(crate) struct Asked {
     pub client: Client,
     pub keyring: Keyring,
     pub installation: Installation,
-    pub platform: Option<Platform>,
+    pub released: Released,
     pub running: Version,
 }
 
@@ -104,8 +113,8 @@ fn keyring() -> Keyring {
 /// The check, said and exited.
 pub(crate) fn check_with(asked: &Asked, json: bool, io: &mut Io) -> Exit {
     let wanted = asked
-        .installation
-        .wanted(asked.platform)
+        .released
+        .wanted(&asked.installation)
         .map(|(platform, format)| Wanted {
             running: asked.running.clone(),
             platform,
@@ -114,9 +123,10 @@ pub(crate) fn check_with(asked: &Asked, json: bool, io: &mut Io) -> Exit {
             skipped: None,
         });
     let verdict = match &wanted {
-        None => Err(Refusal::NoBuild),
-        Some(wanted) => wipemark_update::check(&asked.client, &asked.keyring, wanted),
+        Err(refusal) => Err(refusal.clone()),
+        Ok(wanted) => wipemark_update::check(&asked.client, &asked.keyring, wanted),
     };
+    let wanted = wanted.ok();
     let exit = exit_of(&verdict);
     tracing::info!(
         installation = kind(&asked.installation),
@@ -208,6 +218,7 @@ fn refusal_line(refusal: &Refusal, client: &Client) -> String {
     match refusal {
         Refusal::NoKeys => t(Message::CliUpdateNoKeys),
         Refusal::NoBuild => t(Message::CliUpdateNoBuild),
+        Refusal::ByHand => t_args(Message::CliUpdateWindows, &args!("url" => RELEASES_PAGE)),
         Refusal::Fetch(error) => t_args(
             Message::CliUpdateFailed,
             &args!("host" => client.base().host().to_owned(), "reason" => reason(error)),
@@ -260,6 +271,7 @@ fn refusal_id(refusal: &Refusal) -> &'static str {
     match refusal {
         Refusal::NoKeys => "no-keys",
         Refusal::NoBuild => "no-build",
+        Refusal::ByHand => "by-hand",
         Refusal::Fetch(FetchError::Connection) => "connection",
         Refusal::Fetch(FetchError::Timeout) => "timeout",
         Refusal::Fetch(FetchError::Tls) => "tls",
@@ -320,6 +332,7 @@ fn to_json(asked: &Asked, wanted: Option<&Wanted>, verdict: &Result<Choice, Refu
 #[cfg(test)]
 mod tests {
     use wipemark_update::testing::{Release, Response, Server, Signer};
+    use wipemark_update::Platform;
 
     use super::*;
 
@@ -330,12 +343,12 @@ mod tests {
         }
     }
 
-    fn asked(server: &Server, keyring: Keyring, platform: Option<Platform>) -> Asked {
+    fn asked(server: &Server, keyring: Keyring, released: Released) -> Asked {
         Asked {
             client: Client::new(server.base()),
             keyring,
             installation: appimage(),
-            platform,
+            released,
             running: Version::new(0, 1, 0),
         }
     }
@@ -366,7 +379,7 @@ mod tests {
         let server = Server::start(Vec::new());
         let manifest =
             |releases: &[Release]| Response::ok(signer.manifest(&server.base(), releases));
-        let linux = Some(Platform::LinuxX64);
+        let linux = Released::Served(Platform::LinuxX64);
 
         // Nothing published yet: up to date.
         server.route("/downloads/wipemark", Response::ok(r#"{"versions":[]}"#));
@@ -414,7 +427,7 @@ mod tests {
         );
 
         // No build for this computer.
-        let (exit, _, err) = said(&asked(&server, signer.keyring(), None), false);
+        let (exit, _, err) = said(&asked(&server, signer.keyring(), Released::NoBuild), false);
         assert_eq!(exit, Exit::Usage);
         assert!(err.contains(&t(Message::CliUpdateNoBuild)), "{err}");
 
@@ -435,7 +448,11 @@ mod tests {
             Response::ok(signer.manifest(&server.base(), std::slice::from_ref(&release))),
         );
         let (exit, out, err) = said(
-            &asked(&server, signer.keyring(), Some(Platform::LinuxX64)),
+            &asked(
+                &server,
+                signer.keyring(),
+                Released::Served(Platform::LinuxX64),
+            ),
             true,
         );
         assert_eq!(exit, Exit::Findings);
@@ -451,13 +468,61 @@ mod tests {
         assert_eq!(value["refused"], serde_json::Value::Null);
 
         let (exit, out, _) = said(
-            &asked(&server, Keyring::default(), Some(Platform::LinuxX64)),
+            &asked(
+                &server,
+                Keyring::default(),
+                Released::Served(Platform::LinuxX64),
+            ),
             true,
         );
         assert_eq!(exit, Exit::Usage);
         let value: serde_json::Value = serde_json::from_str(&out).expect("JSON");
         assert_eq!(value["status"], "refused");
         assert_eq!(value["refused"], "no-keys");
+    }
+
+    /// Windows (D867): released, and installed by hand. `update --check`
+    /// asks the service nothing — even with a key and a version to offer —
+    /// says to run the next installer over this one, names the releases
+    /// page and exits 2; its JSON says `by-hand`; a plain `update` says the
+    /// same where it would say "update from the application". Red with
+    /// Windows refused as no build, or a plain `update` blind to it.
+    #[test]
+    fn windows_is_told_to_run_the_next_installer() {
+        let signer = Signer::new();
+        let server = Server::start(Vec::new());
+        let release = Release::appimage("0.2.0", b"new");
+        server.route(
+            "/downloads/wipemark",
+            Response::ok(signer.manifest(&server.base(), std::slice::from_ref(&release))),
+        );
+        let windows = asked(&server, signer.keyring(), Released::ByHand);
+        let told = t_args(Message::CliUpdateWindows, &args!("url" => RELEASES_PAGE));
+        assert!(told.contains(RELEASES_PAGE), "{told}");
+
+        let (exit, out, err) = said(&windows, false);
+        assert_eq!(exit, Exit::Usage);
+        assert!(out.is_empty(), "{out}");
+        assert_eq!(err.trim(), format!("wipemark-cli: {told}"));
+
+        let (exit, out, _) = said(&windows, true);
+        assert_eq!(exit, Exit::Usage);
+        let value: serde_json::Value = serde_json::from_str(&out).expect("JSON");
+        assert_eq!(value["status"], "refused");
+        assert_eq!(value["refused"], "by-hand");
+        assert_eq!(value["platform"], serde_json::Value::Null);
+        assert_eq!(server.connections(), 0, "Windows asked the service");
+
+        assert_eq!(installs_nothing(Released::ByHand), told);
+        for elsewhere in [Released::Served(Platform::LinuxX64), Released::NoBuild] {
+            assert_eq!(
+                installs_nothing(elsewhere),
+                t_args(
+                    Message::CliUpdateInstallsNothing,
+                    &args!("url" => RELEASES_PAGE)
+                )
+            );
+        }
     }
 
     /// A plain `update` installs nothing and says where to go.
