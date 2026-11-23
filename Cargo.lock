@@ -2517,7 +2517,7 @@ dependencies = [
 
 [[package]]
 name = "giglabo-products"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "gpui-component",
  "gpui-pre",
@@ -9703,7 +9703,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-app"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "async-signal",
@@ -9759,7 +9759,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-cli"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "clap",
  "ctrlc",
@@ -9791,11 +9791,11 @@ dependencies = [
 
 [[package]]
 name = "wipemark-core"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "wipemark-engine"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "async-trait",
  "flume 0.11.1",
@@ -9812,7 +9812,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-i18n"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "fluent-bundle",
  "fluent-langneg",
@@ -9827,7 +9827,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-image"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "image-webp",
  "miniz_oxide 0.8.9",
@@ -9840,21 +9840,21 @@ dependencies = [
 
 [[package]]
 name = "wipemark-intake"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "winapi-util",
 ]
 
 [[package]]
 name = "wipemark-license"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "wipemark-llama"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "thiserror 2.0.20",
  "tracing",
@@ -9863,7 +9863,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-llama-sys"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "bindgen",
  "cc",
@@ -9875,7 +9875,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-log"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "chrono",
  "thiserror 2.0.20",
@@ -9886,7 +9886,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-models"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "directories",
  "flume 0.11.1",
@@ -9906,7 +9906,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-picture"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "image",
  "image-webp",
@@ -9921,7 +9921,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-pipeline"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "flume 0.11.1",
  "hex",
@@ -9938,7 +9938,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-pixels"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "image",
  "image-webp",
@@ -9954,7 +9954,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-queue"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "flume 0.11.1",
  "serde_json",
@@ -9970,7 +9970,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-secret"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "keyring",
  "thiserror 2.0.20",
@@ -9979,7 +9979,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-store"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "rusqlite",
  "serde",
@@ -9990,7 +9990,7 @@ dependencies = [
 
 [[package]]
 name = "wipemark-update"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "base64 0.22.1",
  "hex",

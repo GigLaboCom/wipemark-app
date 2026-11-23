@@ -651,7 +651,8 @@ mod tests {
             Installation::Development.wanted(mac),
             Some((Platform::MacosAarch64, Format::Dmg))
         );
-        // No release for this machine: an Intel Mac, Windows.
+        // No platform the service serves: an Intel Mac, Linux on ARM — and
+        // Windows, which `Released::wanted` refuses before it asks here.
         assert_eq!(bundle.wanted(None), None);
         assert_eq!(Installation::Development.wanted(None), None);
         assert_eq!(bundle.wanted(linux), None);
