@@ -670,6 +670,18 @@ impl Diff {
             .any(|hunk| hunk.removed.contains(&original_row))
     }
 
+    /// The row of the original that `result_row` of the result is the
+    /// rewrite of — its partner inside a changed passage (D679) — which
+    /// the line-number menu on the result offers to copy or put back;
+    /// `None` for a row the result kept or one it added on its own.
+    pub fn partner_of(&self, result_row: usize) -> Option<usize> {
+        self.pairs
+            .iter()
+            .flatten()
+            .find(|pair| pair.result == result_row)
+            .map(|pair| pair.original)
+    }
+
     /// The edit of `result` that puts `original_row` of the original back
     /// in it — Compare's `»` beside a changed paragraph — as the bytes of
     /// `result` to replace and what replaces them; `None` for a row no
@@ -1305,6 +1317,22 @@ mod tests {
             reverted("a b c\nlast one", "a b c\nlast two\nmore\n", 1).as_deref(),
             Some("a b c\nlast one\nmore\n")
         );
+    }
+
+    /// A rewritten row of the result knows the row of the original it
+    /// stands beside; a row the result kept, or added with no partner,
+    /// has none.
+    #[test]
+    fn a_rewritten_row_knows_its_partner() {
+        let original = "keep\nfirst words here\nput in alone\nlast words there\n";
+        let result = "keep\nfirst words HERE\nlast words THERE\nnew all on its own\n";
+        let diff = Diff::of(original, result);
+        assert_eq!(diff.pairs(), [(1, 1), (3, 2)]);
+        assert_eq!(diff.partner_of(0), None, "kept");
+        assert_eq!(diff.partner_of(1), Some(1));
+        assert_eq!(diff.partner_of(2), Some(3));
+        assert_eq!(diff.partner_of(3), None, "added on its own");
+        assert_eq!(diff.partner_of(9), None);
     }
 
     /// Only a row a hunk takes out has anything to put back.

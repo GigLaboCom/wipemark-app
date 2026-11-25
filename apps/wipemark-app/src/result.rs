@@ -132,6 +132,7 @@ use gpui_component::input::{
 };
 use gpui_component::kbd::Kbd;
 use gpui_component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
+use gpui_component::native_menu::NativeMenu;
 use gpui_component::{
     h_flex, v_flex, ActiveTheme, Disableable as _, Selectable as _, Sizable as _,
 };
@@ -424,6 +425,10 @@ pub struct ResultEditor {
     /// Whether the more menu is open, so the strip keeps the button it is
     /// drawn from for as long as it is.
     menu_open: Rc<Cell<bool>>,
+    /// What a right-click on the editor opens, when the window builds it:
+    /// `None` is the library's own menu (Compare's line-number menu,
+    /// [`ResultEditor::set_context_menu`]).
+    context_menu: Option<ContextMenu>,
     /// Dropped with the view: every change to the text is re-announced
     /// as a [`ResultEvent`], so a reader need not know there is an
     /// `EditorState` underneath.
@@ -467,6 +472,7 @@ impl ResultEditor {
             offer: None,
             hidden: Rc::default(),
             menu_open: Rc::default(),
+            context_menu: None,
             _changed: changed,
             _repaint: repaint,
         }
@@ -502,6 +508,15 @@ impl ResultEditor {
         self.state.update(cx, |state, cx| {
             state.replace_all(text.to_owned(), window, cx);
         });
+        cx.notify();
+    }
+
+    /// Build the editor's right-click menu with `menu`, which is told what
+    /// the click was over — the text, or a row of the gutter — and hands
+    /// the clicks it leaves alone to the library's
+    /// [`input::default_context_menu`]. Compare's menu on a line number.
+    pub fn set_context_menu(&mut self, menu: ContextMenu, cx: &mut Context<Self>) {
+        self.context_menu = Some(menu);
         cx.notify();
     }
 
@@ -1170,6 +1185,19 @@ const COPY_ALL_ID: &str = "result-copy-all";
 /// pages (D634).
 const COPY_ALL_ICON: IconName = IconName::FileLines;
 
+/// A right-click menu builder, as the library's `context_menu_with` takes
+/// one: the menu so far, what the input allows, and what the click was
+/// over.
+pub type ContextMenu = Rc<
+    dyn Fn(
+        NativeMenu,
+        input::InputContextMenuCapabilities,
+        Option<input::InputHit>,
+        &mut Window,
+        &mut App,
+    ) -> NativeMenu,
+>;
+
 /// The library's editor as a pane of prose: the form-field chrome off
 /// (this editor is the whole pane), and the interface's own font at the
 /// size and row height a text field has, rather than the editor's
@@ -1204,7 +1232,19 @@ impl Render for ResultEditor {
             .on_action(cx.listener(Self::copy_all))
             .size_full()
             .child(self.toolbar(cx))
-            .child(div().flex_1().min_h(px(0.0)).child(pane(&self.state, cx)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .child(pane(&self.state, cx).when_some(
+                        self.context_menu.clone(),
+                        |pane, menu| {
+                            pane.context_menu_with(move |items, capabilities, hit, window, cx| {
+                                menu(items, capabilities, hit, window, cx)
+                            })
+                        },
+                    )),
+            )
     }
 }
 
