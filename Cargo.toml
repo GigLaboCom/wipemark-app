@@ -159,19 +159,18 @@ ctrlc = "3"
 # reads the resolved sources for both, so a snapshot that loses either is
 # a red gate rather than a window that misbehaves. See
 # dev/architecture/gpui-pin.md §2.
-gpui = { package = "gpui-pre", version = "=0.3.12" }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
+gpui = { package = "gpui-pre", version = "=0.3.14" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.14", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
 # The app's headless frames on macOS (apps/wipemark-app/src/footage.rs, a
 # dev-dependency there): gpui-pre-apple's `AppleTextSystem`, built on the
 # test's own thread, where `MacPlatform` refuses any but the main one (D848).
 # Already in the tree through gpui-pre-macos, so it pins no new build; the
 # same exact version, which `scripts/check-gpui-pin.sh` holds it to.
-gpui_apple = { package = "gpui-pre-apple", version = "=0.3.12" }
+gpui_apple = { package = "gpui-pre-apple", version = "=0.3.14" }
 
 # gpui-component is vendored as a submodule under vendor/gpui-component —
-# the tree of gpui-kit #3969 (upstream `main` plus our pull requests) on the
-# owner's fork until upstream merges it, then upstream `longbridge/gpui-kit`
-# again (dev/architecture/gpui-pin.md §4) — and referenced by path
+# upstream `longbridge/gpui-kit`, branch `main`, at one commit
+# (dev/architecture/gpui-pin.md §4) — and referenced by path
 # (see CONTRIBUTING.md). Its library is `crates/component`, beside
 # `crates/base` (`gpui-base`), since upstream split `crates/ui`. Its own
 # `gpui` requirements are the same exact `gpui-pre` pins as ours, so
@@ -282,7 +281,7 @@ wipemark-pixels = { opt-level = 3 }
 lto = "thin"
 codegen-units = 1
 
-# One crate of the GPUI snapshot is carried: gpui-pre-linux 0.3.12 exactly as
+# One crate of the GPUI snapshot is carried: gpui-pre-linux 0.3.14 exactly as
 # crates.io publishes it, plus `vendor/gpui-pre-linux.patch` — a file dropped
 # on a window before GPUI has read its file list is no longer lost, on X11
 # (XdndDrop before SelectionNotify) or on Wayland (`wl_data_device.drop`

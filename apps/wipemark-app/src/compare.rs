@@ -198,11 +198,10 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{
-    default_context_menu, DocumentColorProvider, EditorState, GutterColumn, GutterMarker,
-    InputContextMenuCapabilities, InputHit, LineDecoration, LineDecorationCollection,
-    LineDecorationProvider, Position, Rope, RopeExt as _, Spacer, SpacerProvider,
+    DocumentColorProvider, EditorState, GutterColumn, InputHit, InputHitArea, LineDecoration,
+    LineDecorationCollection, LineDecorationProvider, Position, Rope, RopeExt as _, Spacer,
+    SpacerProvider,
 };
-use gpui_component::native_menu::NativeMenu;
 use gpui_component::popover::Popover;
 use gpui_component::resizable::{h_resizable, resizable_panel};
 use gpui_component::scroll::ScrollbarPlacement;
@@ -466,7 +465,7 @@ impl Gutters {
 /// middle (D463).
 const FACING: [GutterColumn; 3] = [
     GutterColumn::FoldIcons,
-    GutterColumn::Markers,
+    GutterColumn::Icons,
     GutterColumn::LineNumbers,
 ];
 
@@ -474,7 +473,7 @@ const FACING: [GutterColumn; 3] = [
 const LIBRARY_ORDER: [GutterColumn; 3] = [
     GutterColumn::FoldIcons,
     GutterColumn::LineNumbers,
-    GutterColumn::Markers,
+    GutterColumn::Icons,
 ];
 
 /// Where one pane's gutter, scroll bar and gutter columns go.
@@ -1134,28 +1133,66 @@ impl Marks {
 impl LineDecorationProvider for Marks {
     fn line_decorations(&self, rows: Range<usize>, cx: &App) -> Vec<LineDecoration> {
         let tint = line_tint(self.side, cx.theme());
-        let marker = match self.side {
-            Side::Original => revert_marker(cx.theme()),
-            Side::Result => GutterMarker::DiffAdded,
-        };
+        let (icon, color) = gutter_icon(self.side, cx.theme());
         self.within(rows)
             .iter()
             .map(|&row| {
                 LineDecoration::new(row as usize)
                     .with_background(tint)
-                    .with_marker(marker.clone())
+                    .with_gutter_icon(icon.clone(), color)
             })
             .collect()
     }
+
+    /// Both sides mark their rows with an icon, so the gutter keeps the
+    /// icons' column for every row and does not widen as a marked row
+    /// scrolls in.
+    fn has_gutter_icons(&self) -> bool {
+        true
+    }
 }
 
-/// The original's marker: a `»` toward the result, in the original's
-/// danger red, which a click puts the paragraph back by.
-fn revert_marker(theme: &Theme) -> GutterMarker {
-    GutterMarker::Custom {
-        icon: IconName::AnglesRight.path(),
-        color: theme.danger,
+/// The icon in the gutter beside a marked row of `side`, and its colour:
+/// on the original a `»` toward the result in the danger red — the button
+/// a click puts the paragraph back by — and on the result a `+` in the
+/// success green.
+fn gutter_icon(side: Side, theme: &Theme) -> (SharedString, Hsla) {
+    match side {
+        Side::Original => (IconName::AnglesRight.path(), theme.danger),
+        Side::Result => (IconName::Plus.path(), theme.success),
     }
+}
+
+/// The gutter column a hit is over, if it is over one.
+fn gutter_column(hit: &InputHit) -> Option<GutterColumn> {
+    match hit.area {
+        InputHitArea::Gutter { column, .. } => column,
+        _ => None,
+    }
+}
+
+/// The gutter of `state` beside `row`, in the window: from the first to
+/// the last point of the row's bounds — which span the pane — that the
+/// editor's own hit test puts in the gutter, the row's height. The library
+/// publishes no bounds of its gutter; its hit test is what says where it
+/// is. `None` while the row is not laid out.
+#[cfg(test)]
+fn gutter_beside(state: &EditorState, row: usize) -> Option<Bounds<Pixels>> {
+    let rows = state.row_bounds(row)?;
+    let y = rows.top() + rows.size.height / 2.0;
+    let gutter: Vec<Pixels> = (0..)
+        .map(|step| rows.left() + px(step as f32))
+        .take_while(|&x| x < rows.right())
+        .filter(|&x| {
+            state
+                .hit_test(gpui::point(x, y))
+                .is_some_and(|hit| matches!(hit.area, InputHitArea::Gutter { .. }))
+        })
+        .collect();
+    Some(Bounds::from_corners(
+        gpui::point(*gutter.first()?, rows.top()),
+        gpui::point(*gutter.last()? + px(1.0), rows.bottom()),
+    ))
 }
 
 /// The tint across a whole line that differs, for `side`: the side's
@@ -1612,8 +1649,8 @@ struct CompareView {
     original: Entity<EditorState>,
     /// The original's line marks, once a comparison has put any there:
     /// `None` until then, so an editor that has compared nothing yet
-    /// carries no collection at all — the library reserves the marker
-    /// slot in the gutter only while one has a provider.
+    /// carries no collection at all — the library reserves the icons'
+    /// column in the gutter only while a provider says it has gutter icons.
     original_marks: Option<LineDecorationCollection>,
     /// The right pane, toolbar and all.
     result: Entity<ResultEditor>,
@@ -1906,7 +1943,7 @@ impl CompareView {
             _subscriptions: subscriptions,
         };
         view.apply_gutters(comparison.gutters, cx);
-        let line_menu: result::ContextMenu = Rc::new(Self::line_menu(Side::Result, cx));
+        let line_menu = Self::line_menu(Side::Result, cx);
         view.result.update(cx, |result, cx| {
             result.set_context_menu(line_menu, cx);
             result.set_soft_wrap(comparison.wrap, window, cx)
@@ -2486,11 +2523,11 @@ impl CompareView {
                     .relative()
                     .flex_1()
                     .min_h(px(0.0))
-                    .child(
-                        result::pane(&self.original, cx)
-                            .readonly(true)
-                            .context_menu_with(Self::line_menu(Side::Original, cx)),
-                    )
+                    .child(result::with_context_menu(
+                        result::pane(&self.original, cx).readonly(true),
+                        &self.original,
+                        Self::line_menu(Side::Original, cx),
+                    ))
                     .child(Self::revert_presses(cx))
                     .when_some(self.reverting, |pane, (row, cell)| {
                         pane.child(
@@ -2580,9 +2617,9 @@ impl CompareView {
     /// pane, painted after its editor so that a press is this window's
     /// before the editor's, and only while nothing is drawn over the pane.
     ///
-    /// The library paints a gutter marker as an icon and nothing more, so
-    /// the button is read off the editor's own hit test: a press in the
-    /// markers' column beside a row the result does not have puts that
+    /// The library paints a gutter icon and nothing more, so the button is
+    /// read off the editor's own hit test: a press in the icons' column
+    /// beside a row the result does not have puts that
     /// paragraph back ([`CompareView::revert`]) and goes no further — the
     /// editor never sees it, so the caret stays where it was. Anywhere else
     /// — a line number, the text, a spacer row — the press is the editor's,
@@ -2638,35 +2675,36 @@ impl CompareView {
     }
 
     /// The row of the original whose `»` is at `position`, in the window:
-    /// the markers' column of the gutter, beside a row of text — not a
+    /// the icons' column of the gutter, beside a row of text — not a
     /// spacer — that the result does not have.
     fn revert_row_at(&self, position: gpui::Point<Pixels>, cx: &App) -> Option<usize> {
         if !matches!(self.state, State::Ready) {
             return None;
         }
         let hit = self.original.read(cx).hit_test(position)?;
-        if hit.gutter_column() != Some(GutterColumn::Markers) || hit.is_spacer() {
+        if gutter_column(&hit) != Some(GutterColumn::Icons) || hit.spacer {
             return None;
         }
-        hit.row().filter(|&row| self.diff.takes_out(row))
+        hit.row.filter(|&row| self.diff.takes_out(row))
     }
 
-    /// Where the `»` of `row` can be pressed, in the window: the markers'
+    /// Where the `»` of `row` can be pressed, in the window: the icons'
     /// column of the gutter — found by the editor's own hit test, the one
-    /// thing the library says about its columns — beside the row's text,
-    /// every wrapped line of it.
+    /// thing the library says about its columns, across the row's bounds,
+    /// which span the pane — beside the row's text, every wrapped line of
+    /// it.
     fn revert_cell(&self, row: usize, cx: &App) -> Option<Bounds<Pixels>> {
         let state = self.original.read(cx);
-        let (rows, gutter) = (state.row_bounds(row)?, state.gutter_bounds()?);
+        let rows = state.row_bounds(row)?;
         let y = rows.top() + rows.size.height / 2.0;
-        let (left, right) = (f32::from(gutter.left()), f32::from(gutter.right()));
+        let (left, right) = (f32::from(rows.left()), f32::from(rows.right()));
         let column: Vec<f32> = (0..)
             .map(|step| left + step as f32)
             .take_while(|&x| x < right)
             .filter(|&x| {
                 state
                     .hit_test(gpui::point(px(x), y))
-                    .is_some_and(|hit| hit.gutter_column() == Some(GutterColumn::Markers))
+                    .is_some_and(|hit| gutter_column(&hit) == Some(GutterColumn::Icons))
             })
             .collect();
         let (first, last) = (*column.first()?, *column.last()?);
@@ -2743,23 +2781,14 @@ impl CompareView {
         });
     }
 
-    /// The right-click menu of `side`'s editor: on a line number, the
-    /// paragraph's items ([`CompareView::line_items`]) and a separator over
-    /// the library's own; anywhere else — the text, a spacer, the markers —
-    /// the library's own alone, the menu as it was.
-    fn line_menu(
-        side: Side,
-        cx: &Context<Self>,
-    ) -> impl Fn(
-        NativeMenu,
-        InputContextMenuCapabilities,
-        Option<InputHit>,
-        &mut Window,
-        &mut App,
-    ) -> NativeMenu
-           + 'static {
+    /// The right-click menu of `side`'s editor, before the library's own
+    /// items ([`result::with_context_menu`] adds them): on a line number,
+    /// the paragraph's items ([`CompareView::line_items`]) and a separator;
+    /// anywhere else — the text, a spacer, the icons — nothing, the menu
+    /// as it was.
+    fn line_menu(side: Side, cx: &Context<Self>) -> result::ContextMenu {
         let view = cx.entity().downgrade();
-        move |menu, capabilities, hit, _, cx| {
+        Rc::new(move |menu, hit, _, cx| {
             let items = view
                 .upgrade()
                 .map(|view| view.read(cx).line_items(side, hit, cx))
@@ -2767,13 +2796,12 @@ impl CompareView {
             let menu = items
                 .iter()
                 .fold(menu, |menu, item| menu.menu(t(item.label()), item.action()));
-            let menu = if items.is_empty() {
+            if items.is_empty() {
                 menu
             } else {
                 menu.separator()
-            };
-            default_context_menu(menu, capabilities)
-        }
+            }
+        })
     }
 
     /// What a right-click at `hit` on `side`'s editor offers for the
@@ -2788,10 +2816,8 @@ impl CompareView {
     /// paragraph copied.
     fn line_items(&self, side: Side, hit: Option<InputHit>, cx: &App) -> Vec<LineItem> {
         let Some(row) = hit
-            .filter(|hit| {
-                hit.gutter_column() == Some(GutterColumn::LineNumbers) && !hit.is_spacer()
-            })
-            .and_then(|hit| hit.row())
+            .filter(|hit| gutter_column(hit) == Some(GutterColumn::LineNumbers) && !hit.spacer)
+            .and_then(|hit| hit.row)
         else {
             return Vec::new();
         };
@@ -5264,7 +5290,7 @@ mod tests {
     fn each_choice_lays_out_both_panes() {
         let numbers_at_the_divider = |order: [GutterColumn; 3]| {
             let at = |column| order.iter().position(|c| *c == column);
-            at(GutterColumn::Markers) < at(GutterColumn::LineNumbers)
+            at(GutterColumn::Icons) < at(GutterColumn::LineNumbers)
                 && order.last() == Some(&GutterColumn::LineNumbers)
         };
         let original = Gutters::Middle.layout(Side::Original);
@@ -5323,6 +5349,15 @@ mod tests {
                 .expect("row 0 is laid out")
                 .left()
         })
+    }
+
+    /// Whether two insets are the same, but for the last bits of an `f32`:
+    /// each is a pane's text less its pane's left edge, both read in the
+    /// window, where the two panes stand hundreds of pixels apart and the
+    /// last digits are rounding (on gpui-kit main, 47.199997 against
+    /// 47.200012). A hundredth of a pixel is no inset a reader can see.
+    fn level(a: Pixels, b: Pixels) -> bool {
+        (f32::from(a) - f32::from(b)).abs() < 0.01
     }
 
     /// Which side of its pane `side`'s gutter is on, as the library reads
@@ -5525,7 +5560,10 @@ mod tests {
             original > px(0.0),
             "the original's text is not past a gutter"
         );
-        assert_eq!(original, result, "the two texts are not inset alike");
+        assert!(
+            level(original, result),
+            "the two texts are not inset alike: {original:?} and {result:?}"
+        );
 
         let thumb = thumb_of(&view, Side::Original, cx);
         assert!(
@@ -5587,9 +5625,9 @@ mod tests {
             after > before,
             "the original's text did not move right of a gutter: {before:?} then {after:?}"
         );
-        assert_eq!(
-            after, result,
-            "a window flipped to the left is not one opened so"
+        assert!(
+            level(after, result),
+            "a window flipped to the left is not one opened so: {after:?} and {result:?}"
         );
         assert_eq!(panes_of(&view, cx).1, typed, "the flip changed the result");
 
@@ -6779,7 +6817,7 @@ mod tests {
     /// Where the original's `»` beside `row` is pressed: the middle of the
     /// window's cell for it — held against what the library says on its
     /// own: within the row's bounds as painted, every wrapped line of it,
-    /// within the gutter, and over the markers' column beside that row.
+    /// within the gutter, and over the icons' column beside that row.
     fn revert_marker(
         view: &Entity<CompareView>,
         row: usize,
@@ -6790,7 +6828,7 @@ mod tests {
             let cell = view.revert_cell(row, cx).expect("the row's » is laid out");
             let state = view.original.read(cx);
             let rows = state.row_bounds(row).expect("the row is laid out");
-            let gutter = state.gutter_bounds().expect("the original has a gutter");
+            let gutter = gutter_beside(state, row).expect("the original has a gutter");
             assert!(
                 cell.top() == rows.top() && cell.bottom() == rows.bottom(),
                 "the » of row {row} at {cell:?} is not beside its row at {rows:?}"
@@ -6801,9 +6839,9 @@ mod tests {
             );
             let at = cell.center();
             let hit = state.hit_test(at).expect("over the original");
-            assert_eq!(hit.gutter_column(), Some(GutterColumn::Markers));
-            assert_eq!(hit.row(), Some(row));
-            assert!(!hit.is_spacer());
+            assert_eq!(gutter_column(&hit), Some(GutterColumn::Icons));
+            assert_eq!(hit.row, Some(row));
+            assert!(!hit.spacer);
             at
         })
     }
@@ -6832,34 +6870,45 @@ mod tests {
                 Marks::new(vec![1, 3], side)
                     .line_decorations(0..5, cx)
                     .into_iter()
-                    .map(|mark| (mark.row(), mark.marker().cloned()))
+                    .map(|mark| {
+                        let icon = mark
+                            .gutter_icon()
+                            .map(|(icon, color)| (icon.clone(), color));
+                        (mark.row(), icon)
+                    })
                     .collect::<Vec<_>>()
             };
-            let button = GutterMarker::Custom {
-                icon: "icons/angles-right.svg".into(),
-                color: cx.theme().danger,
-            };
+            let button = (
+                SharedString::from("icons/angles-right.svg"),
+                cx.theme().danger,
+            );
             assert_eq!(
                 marked(Side::Original),
                 [(1, Some(button.clone())), (3, Some(button))]
             );
+            let plus = (SharedString::from("icons/plus.svg"), cx.theme().success);
             assert_eq!(
                 marked(Side::Result),
-                [
-                    (1, Some(GutterMarker::DiffAdded)),
-                    (3, Some(GutterMarker::DiffAdded))
-                ]
+                [(1, Some(plus.clone())), (3, Some(plus))]
             );
+            for side in [Side::Original, Side::Result] {
+                assert!(
+                    Marks::new(vec![1], side).has_gutter_icons(),
+                    "the {side:?} pane's icons would not be painted"
+                );
+            }
         });
         use gpui::AssetSource as _;
-        assert!(
-            crate::assets::WipemarkAssets
-                .load("icons/angles-right.svg")
-                .ok()
-                .flatten()
-                .is_some(),
-            "the » is not among the shipped glyphs"
-        );
+        for glyph in ["icons/angles-right.svg", "icons/plus.svg"] {
+            assert!(
+                crate::assets::WipemarkAssets
+                    .load(glyph)
+                    .ok()
+                    .flatten()
+                    .is_some(),
+                "{glyph} is not among the shipped glyphs"
+            );
+        }
     }
 
     /// The owner's ask: a click on the `»` beside a changed paragraph of
@@ -6951,9 +7000,8 @@ mod tests {
         let (view, cx) = window_over(cx, &original, &result, wrapped());
         let number = cx.update(|_, cx| {
             let state = view.read(cx).original.read(cx);
-            let rows = state.row_bounds(5).expect("the row is laid out");
-            let gutter = state.gutter_bounds().expect("a gutter");
-            let y = rows.top() + rows.size.height / 2.0;
+            let gutter = gutter_beside(state, 5).expect("a gutter");
+            let y = gutter.top() + gutter.size.height / 2.0;
             (0..)
                 .map(|step| gutter.left() + px(step as f32))
                 .take_while(|&x| x < gutter.right())
@@ -6961,7 +7009,7 @@ mod tests {
                 .find(|&at| {
                     state
                         .hit_test(at)
-                        .is_some_and(|hit| hit.gutter_column() == Some(GutterColumn::LineNumbers))
+                        .is_some_and(|hit| gutter_column(&hit) == Some(GutterColumn::LineNumbers))
                 })
                 .expect("the row's line number")
         });
@@ -7015,17 +7063,16 @@ mod tests {
         cx.update(|_, cx| {
             let editor = editor_of(view, side, cx);
             let state = editor.read(cx);
-            let rows = state.row_bounds(row).expect("the row is laid out");
-            let gutter = state.gutter_bounds().expect("a gutter");
-            let y = rows.top() + rows.size.height / 2.0;
+            let gutter = gutter_beside(state, row).expect("a gutter");
+            let y = gutter.top() + gutter.size.height / 2.0;
             (0..)
                 .map(|step| gutter.left() + px(step as f32))
                 .take_while(|&x| x < gutter.right())
                 .map(|x| gpui::point(x, y))
                 .find(|&at| {
                     state.hit_test(at).is_some_and(|hit| {
-                        hit.gutter_column() == Some(GutterColumn::LineNumbers)
-                            && hit.row() == Some(row)
+                        gutter_column(&hit) == Some(GutterColumn::LineNumbers)
+                            && hit.row == Some(row)
                     })
                 })
                 .expect("the row's line number")
@@ -7043,16 +7090,15 @@ mod tests {
         cx.update(|_, cx| {
             let editor = editor_of(view, side, cx);
             let state = editor.read(cx);
-            let rows = state.row_bounds(row).expect("the row is laid out");
-            let gutter = state.gutter_bounds().expect("a gutter");
-            let y = rows.top() + px(4.0);
+            let gutter = gutter_beside(state, row).expect("a gutter");
+            let y = gutter.top() + px(4.0);
             [gutter.right() + px(24.0), gutter.left() - px(24.0)]
                 .map(|x| gpui::point(x, y))
                 .into_iter()
                 .find(|&at| {
-                    state
-                        .hit_test(at)
-                        .is_some_and(|hit| hit.offset().is_some() && hit.row() == Some(row))
+                    state.hit_test(at).is_some_and(|hit| {
+                        matches!(hit.area, InputHitArea::Text { .. }) && hit.row == Some(row)
+                    })
                 })
                 .expect("the row's text beside the gutter")
         })
@@ -7407,18 +7453,17 @@ mod tests {
                 .update_window(any, |_, _, cx| {
                     let view = view.read(cx);
                     let state = view.original.read(cx);
-                    let rows = state.row_bounds(row).expect("the row");
-                    let gutter = state.gutter_bounds().expect("a gutter");
+                    let gutter = gutter_beside(state, row).expect("a gutter");
                     let line = state.line_height().unwrap_or(px(20.0));
-                    let y = rows.top() + line / 2.0;
+                    let y = gutter.top() + line / 2.0;
                     let number = (0..)
                         .map(|step| gutter.left() + px(step as f32))
                         .take_while(|&x| x < gutter.right())
                         .map(|x| gpui::point(x, y))
                         .filter(|&at| {
                             state.hit_test(at).is_some_and(|hit| {
-                                hit.gutter_column() == Some(GutterColumn::LineNumbers)
-                                    && hit.row() == Some(row)
+                                gutter_column(&hit) == Some(GutterColumn::LineNumbers)
+                                    && hit.row == Some(row)
                             })
                         })
                         .last()

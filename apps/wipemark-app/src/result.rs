@@ -411,8 +411,8 @@ pub struct ResultEditor {
     state: Entity<EditorState>,
     /// The line marks, once something has handed some in: `None` until
     /// then, so an editor nobody decorated carries no collection — the
-    /// library reserves the marker slot in the gutter only while one has
-    /// a provider.
+    /// library reserves the icons' column in the gutter only while a
+    /// provider says it has gutter icons.
     marks: Option<LineDecorationCollection>,
     soft_wrap: bool,
     whitespace: bool,
@@ -512,9 +512,9 @@ impl ResultEditor {
     }
 
     /// Build the editor's right-click menu with `menu`, which is told what
-    /// the click was over — the text, or a row of the gutter — and hands
-    /// the clicks it leaves alone to the library's
-    /// [`input::default_context_menu`]. Compare's menu on a line number.
+    /// the click was over — the text, or a row of the gutter — and whose
+    /// items stand before the library's own
+    /// ([`input::default_context_menu`]). Compare's menu on a line number.
     pub fn set_context_menu(&mut self, menu: ContextMenu, cx: &mut Context<Self>) {
         self.context_menu = Some(menu);
         cx.notify();
@@ -1044,14 +1044,6 @@ impl Styled for Overflow {
     }
 }
 
-impl IntoElement for Overflow {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
-
 impl Element for Overflow {
     type RequestLayoutState = Laid;
     type PrepaintState = Kept;
@@ -1185,18 +1177,27 @@ const COPY_ALL_ID: &str = "result-copy-all";
 /// pages (D634).
 const COPY_ALL_ICON: IconName = IconName::FileLines;
 
-/// A right-click menu builder, as the library's `context_menu_with` takes
-/// one: the menu so far, what the input allows, and what the click was
-/// over.
-pub type ContextMenu = Rc<
-    dyn Fn(
-        NativeMenu,
-        input::InputContextMenuCapabilities,
-        Option<input::InputHit>,
-        &mut Window,
-        &mut App,
-    ) -> NativeMenu,
->;
+/// A right-click menu's own items: handed the empty menu and what the
+/// click was over (the editor's `context_menu_hit`), it returns the menu
+/// with its items, before the library's — [`with_context_menu`] adds those.
+pub type ContextMenu =
+    Rc<dyn Fn(NativeMenu, Option<input::InputHit>, &mut Window, &mut App) -> NativeMenu>;
+
+/// `pane` with `menu` as its right-click menu: `menu`'s items for where
+/// the click was over `state`, then the library's own
+/// ([`input::default_context_menu`]), as the input allows them.
+pub fn with_context_menu(pane: Editor, state: &Entity<EditorState>, menu: ContextMenu) -> Editor {
+    let state = state.downgrade();
+    pane.context_menu(move |items, window, cx| {
+        let Some((hit, capabilities)) = state.upgrade().map(|state| {
+            let state = state.read(cx);
+            (state.context_menu_hit(), state.context_menu_capabilities())
+        }) else {
+            return items;
+        };
+        input::default_context_menu(menu(items, hit, window, cx), capabilities)
+    })
+}
 
 /// The library's editor as a pane of prose: the form-field chrome off
 /// (this editor is the whole pane), and the interface's own font at the
@@ -1232,19 +1233,11 @@ impl Render for ResultEditor {
             .on_action(cx.listener(Self::copy_all))
             .size_full()
             .child(self.toolbar(cx))
-            .child(
-                div()
-                    .flex_1()
-                    .min_h(px(0.0))
-                    .child(pane(&self.state, cx).when_some(
-                        self.context_menu.clone(),
-                        |pane, menu| {
-                            pane.context_menu_with(move |items, capabilities, hit, window, cx| {
-                                menu(items, capabilities, hit, window, cx)
-                            })
-                        },
-                    )),
-            )
+            .child(div().flex_1().min_h(px(0.0)).child(
+                pane(&self.state, cx).when_some(self.context_menu.clone(), |pane, menu| {
+                    with_context_menu(pane, &self.state, menu)
+                }),
+            ))
     }
 }
 

@@ -271,11 +271,12 @@ import tomllib
 import urllib.request
 
 NAME = "gpui-pre-linux"
-# The sha256 of the published gpui-pre-linux-0.3.12.crate — what crates.io's
-# index holds for it (D621; 0.3.8's, b1131746…720e, until the bump to 0.3.12).
+# The sha256 of the published gpui-pre-linux-0.3.14.crate — what crates.io's
+# index holds for it (D621; 0.3.12's, 54bab418…167df, until the move to
+# gpui-kit main; 0.3.8's, b1131746…720e, until the bump to 0.3.12).
 # A bump of the snapshot moves the carried crate or drops it; it never moves
 # alone.
-PUBLISHED = {"0.3.12": "54bab418d0b7c027af9495f278619b46887362b3bd6446e246c87c5b0fa167df"}
+PUBLISHED = {"0.3.14": "9515d52d8378c5dda95b3b2536d3d05ea2431bc25d1d8bb4cdeb32f21090f4a1"}
 
 ROOT = os.environ["ROOT_MANIFEST"]
 DIR = os.environ["CARRIED_DIR"]

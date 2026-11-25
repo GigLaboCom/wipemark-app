@@ -44,16 +44,14 @@ installed it only warns; CI scans the whole history with the same config
 either way.
 
 `sync` matters because the URL has moved more than once. Today it points at
-the owner's fork **`glani/gpui-component`**, at the head of gpui-kit pull
-request #3969 (upstream `main` plus every pull request of ours), on a branch
-that is never rewritten, until upstream merges it; then it goes back to
-**`longbridge/gpui-kit`**. Nothing of ours is carried in it.
+upstream **`longbridge/gpui-kit`**, branch `main`, at one commit: every pull
+request of ours is merged there. Nothing of ours is carried in it.
 [dev/architecture/gpui-pin.md](dev/architecture/gpui-pin.md) has every
 move and why.
 
 **GPUI itself** comes from crates.io: the **`gpui-pre`** snapshots of Zed's
 GPUI crates that gpui-kit's maintainer publishes, at **exactly** the version
-the component's manifest pins (`=0.3.12` today). The root `Cargo.toml` pins
+the component's manifest pins (`=0.3.14` today). The root `Cargo.toml` pins
 the same exact versions, so the graph holds one GPUI by construction.
 `scripts/check-gpui-pin.sh` is the gate, and CI runs it: exact pins, equal
 to the component's, one copy of each `gpui-pre*` crate in the lock, no zed
