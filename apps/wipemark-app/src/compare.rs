@@ -7130,6 +7130,31 @@ mod tests {
         cx.run_until_parked();
     }
 
+    /// A right-click at `at` on `side`'s line number, then the `n`th item
+    /// of ours (from 1) chosen. Where the menu is gpui-kit's in-window
+    /// popup it is driven by the keyboard; on macOS and Windows it is the
+    /// system's own menu, which a test cannot drive, so the item offered
+    /// there is dispatched from the pane's editor, as the menu would.
+    fn choose(
+        view: &Entity<CompareView>,
+        side: Side,
+        at: gpui::Point<Pixels>,
+        n: usize,
+        cx: &mut gpui::VisualTestContext,
+    ) {
+        if cfg!(any(target_os = "macos", target_os = "windows")) {
+            let item = offered(view, side, at, cx)[n - 1];
+            cx.update(|window, cx| {
+                let focus = editor_of(view, side, cx).read(cx).focus_handle(cx);
+                focus.focus(window, cx);
+                window.dispatch_action(item.action(), cx);
+            });
+            cx.run_until_parked();
+        } else {
+            right_click_and(at, &format!("{}enter", "down ".repeat(n)), cx);
+        }
+    }
+
     /// The `row`th line of `text`, without its line ending.
     fn line_of(text: &str, row: usize) -> String {
         text.lines().nth(row).expect("the line").to_owned()
@@ -7160,7 +7185,7 @@ mod tests {
         let text = in_the_text(&view, Side::Original, 5, cx);
         assert_eq!(offered(&view, Side::Original, text, cx), []);
 
-        right_click_and(number, "down enter", cx);
+        choose(&view, Side::Original, number, 1, cx);
         assert_eq!(
             panes_of(&view, cx).1,
             with_line(&result, &original, 5),
@@ -7218,7 +7243,7 @@ mod tests {
             [LineItem::Copy(Side::Result, 1)]
         );
 
-        right_click_and(number, "down down enter", cx);
+        choose(&view, Side::Result, number, 2, cx);
         assert_eq!(
             cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text())),
             Some(line_of(&original, 5)),
@@ -7226,7 +7251,7 @@ mod tests {
         );
         assert_eq!(panes_of(&view, cx).1, result, "a Copy edited the result");
 
-        right_click_and(number, "down enter", cx);
+        choose(&view, Side::Result, number, 1, cx);
         let mut back = lines.clone();
         back[4] = format!("{}\n", line_of(&original, 5));
         assert_eq!(
@@ -7253,15 +7278,15 @@ mod tests {
         };
 
         let kept = line_number(&view, Side::Original, 4, cx);
-        right_click_and(kept, "down enter", cx);
+        choose(&view, Side::Original, kept, 1, cx);
         assert_eq!(clipboard(cx), Some(line_of(&original, 4)));
 
         let changed = line_number(&view, Side::Original, 2, cx);
-        right_click_and(changed, "down down enter", cx);
+        choose(&view, Side::Original, changed, 2, cx);
         assert_eq!(clipboard(cx), Some(line_of(&original, 2)));
 
         let theirs = line_number(&view, Side::Result, 7, cx);
-        right_click_and(theirs, "down enter", cx);
+        choose(&view, Side::Result, theirs, 1, cx);
         assert_eq!(clipboard(cx), Some(line_of(&result, 7)));
         assert_eq!(panes_of(&view, cx), (original, result));
     }
@@ -7272,6 +7297,10 @@ mod tests {
     /// the builder its row and the original's first item puts the paragraph
     /// back instead: red.
     #[gpui::test]
+    #[cfg_attr(
+        any(target_os = "macos", target_os = "windows"),
+        ignore = "the menu is the system's own there, which a test cannot read"
+    )]
     fn a_right_click_in_the_text_keeps_the_library_s_menu(cx: &mut TestAppContext) {
         let (original, result) = two_rewritten();
         let (view, cx) = window_over(cx, &original, &result, wrapped());
