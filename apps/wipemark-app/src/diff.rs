@@ -662,6 +662,62 @@ impl Diff {
         self.hunks.iter().any(Hunk::is_change)
     }
 
+    /// Whether a hunk takes `original_row` of the original out — a row
+    /// [`revert`](Self::revert) has something to put back for.
+    pub fn takes_out(&self, original_row: usize) -> bool {
+        self.hunks
+            .iter()
+            .any(|hunk| hunk.removed.contains(&original_row))
+    }
+
+    /// The edit of `result` that puts `original_row` of the original back
+    /// in it — Compare's `»` beside a changed paragraph — as the bytes of
+    /// `result` to replace and what replaces them; `None` for a row no
+    /// hunk takes out, or texts this diff was not made of.
+    ///
+    /// A row paired with a row of the result (D679) replaces that row,
+    /// its line ending included — but for a newline the original's last
+    /// line does not have, kept where the result goes on past it.
+    /// A row with no partner is put in where [`Diff::padding`] stands it:
+    /// in front of the result's row its next pair has, or at the end of
+    /// the hunk's lines in the result. Either way the paragraph's partner,
+    /// and nothing else, comes out of the next comparison unmarked.
+    pub fn revert(
+        &self,
+        original_row: usize,
+        original: &str,
+        result: &str,
+    ) -> Option<(Range<usize>, String)> {
+        let (hunk, pairs) = self
+            .hunks
+            .iter()
+            .zip(&self.pairs)
+            .find(|(hunk, _)| hunk.removed.contains(&original_row))?;
+        let (ours, theirs) = (line_starts(original), line_starts(result));
+        let line = &original[passage(&ours, &(original_row..original_row + 1))?];
+        let text = line.strip_suffix('\n').unwrap_or(line);
+        if let Some(pair) = pairs.iter().find(|pair| pair.original == original_row) {
+            let bytes = passage(&theirs, &(pair.result..pair.result + 1))?;
+            let put = if line.ends_with('\n') || bytes.end == result.len() {
+                line.to_owned()
+            } else {
+                format!("{line}\n")
+            };
+            return Some((bytes, put));
+        }
+        let before = pairs
+            .iter()
+            .find(|pair| pair.original > original_row)
+            .map_or(hunk.added.end, |pair| pair.result);
+        let at = *theirs.get(before)?;
+        let put = if at == result.len() && !result.is_empty() && !result.ends_with('\n') {
+            format!("\n{text}")
+        } else {
+            format!("{text}\n")
+        };
+        Some((at..at, put))
+    }
+
     /// The marks finer than a line, at `grain`, over the two texts
     /// this diff was made of — see the module docs.
     ///
@@ -1184,6 +1240,85 @@ mod tests {
         assert_eq!(filled.hunks(), &[hunk(0..0, 0..2)]);
         let emptied = Diff::of("one\ntwo\n", "");
         assert_eq!(emptied.hunks(), &[hunk(0..2, 0..0)]);
+    }
+
+    /// `result` with `original_row` of the original put back, as
+    /// [`Diff::revert`] says; `None` where it says nothing.
+    fn reverted(original: &str, result: &str, original_row: usize) -> Option<String> {
+        let (bytes, put) = Diff::of(original, result).revert(original_row, original, result)?;
+        let mut out = result.to_owned();
+        out.replace_range(bytes, &put);
+        Some(out)
+    }
+
+    /// A paragraph paired with its rewrite comes back over the rewrite,
+    /// and over nothing else: the next comparison marks every other pair
+    /// and not that one.
+    #[test]
+    fn a_reverted_paragraph_replaces_its_partner_and_nothing_else() {
+        let original = "alpha one two\nbeta three four\ngamma five six\n";
+        let result = "alpha one 2\nbeta three 4\ngamma five 6\n";
+        assert_eq!(Diff::of(original, result).pairs(), [(0, 0), (1, 1), (2, 2)]);
+        let back = reverted(original, result, 1).expect("row 1 changed");
+        assert_eq!(back, "alpha one 2\nbeta three four\ngamma five 6\n");
+        let after = Diff::of(original, &back);
+        assert_eq!(after.removed_rows(), [0, 2]);
+        assert_eq!(after.added_rows(), [0, 2]);
+    }
+
+    /// A paragraph the result took out comes back where it stood: in front
+    /// of its next pair's partner, or at the end of the passage.
+    #[test]
+    fn a_paragraph_taken_out_comes_back_where_it_stood() {
+        assert_eq!(
+            reverted("one\ntwo\nthree\n", "one\nthree\n", 1).as_deref(),
+            Some("one\ntwo\nthree\n")
+        );
+        assert_eq!(
+            reverted("one\ntwo\n", "one\n", 1).as_deref(),
+            Some("one\ntwo\n")
+        );
+        assert_eq!(reverted("one\ntwo", "one", 1).as_deref(), Some("one\ntwo"));
+        let original = "keep\nfirst words here\nput in alone\nlast words there\n";
+        let result = "keep\nfirst words HERE\nlast words THERE\n";
+        let diff = Diff::of(original, result);
+        assert_eq!(diff.pairs(), [(1, 1), (3, 2)], "row 2 has no partner");
+        assert_eq!(
+            reverted(original, result, 2).as_deref(),
+            Some("keep\nfirst words HERE\nput in alone\nlast words THERE\n")
+        );
+    }
+
+    /// The line ending goes back with the paragraph — but a last line with
+    /// none never glues its partner to the line after it.
+    #[test]
+    fn a_reverted_paragraph_brings_its_line_ending() {
+        assert_eq!(
+            reverted("one\ntwo\n", "one\ntwo", 1).as_deref(),
+            Some("one\ntwo\n")
+        );
+        assert_eq!(
+            reverted("one\ntwo", "one\ntwo\n", 1).as_deref(),
+            Some("one\ntwo")
+        );
+        assert_eq!(
+            reverted("a b c\nlast one", "a b c\nlast two\nmore\n", 1).as_deref(),
+            Some("a b c\nlast one\nmore\n")
+        );
+    }
+
+    /// Only a row a hunk takes out has anything to put back.
+    #[test]
+    fn a_row_the_result_kept_has_nothing_to_revert() {
+        let (original, result) = ("one\ntwo\nthree\n", "one\n2\nthree\n");
+        let diff = Diff::of(original, result);
+        assert_eq!(diff.revert(0, original, result), None);
+        assert_eq!(diff.revert(2, original, result), None);
+        assert_eq!(diff.revert(9, original, result), None);
+        assert_eq!(
+            Diff::of("one\n", "one\nadded\n").revert(0, "one\n", "one\nadded\n"),
+            None
+        );
     }
 
     /// The shared back must not be counted twice over a shared front:

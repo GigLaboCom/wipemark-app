@@ -505,6 +505,26 @@ impl ResultEditor {
         cx.notify();
     }
 
+    /// Replace the bytes `range` of the text with `text` as **one edit the
+    /// history keeps**, the caret left after it — Compare's `»`, putting
+    /// one paragraph of the original back. The road a paste takes: the
+    /// range selected, then replaced, so Undo takes it back in one step
+    /// and puts the selection back with it; the library announces the
+    /// change, and the window hears it as `Changed`.
+    pub fn replace_range(
+        &self,
+        range: std::ops::Range<usize>,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.state.update(cx, |state, cx| {
+            state.set_selected_range(range, cx);
+            state.replace(text.to_owned(), window, cx);
+        });
+        cx.notify();
+    }
+
     /// Marks to paint beside the lines — the window's business, handed
     /// in as the library's own provider so this component need not know
     /// what a mark means. `None` clears them. The first provider makes

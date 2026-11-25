@@ -192,8 +192,9 @@ use std::time::Duration;
 use gpui::prelude::*;
 use gpui::{
     actions, canvas, deferred, div, px, size, Anchor, AnyElement, AnyWindowHandle, App, Bounds,
-    ClickEvent, Context, Entity, FocusHandle, Focusable, Global, Hsla, Pixels, Rgba, SharedString,
-    Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
+    ClickEvent, Context, Entity, FocusHandle, Focusable, Global, Hsla, MouseButton, MouseDownEvent,
+    MouseMoveEvent, Pixels, Rgba, ScrollEvent, SharedString, Size, Subscription, Task,
+    TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{
@@ -264,6 +265,9 @@ const BANNER_HELP: &str = "compare-help";
 const SUMMARY: &str = "compare-summary";
 const STATUS: &str = "compare-status";
 const REFUSAL: &str = "compare-refusal";
+/// What the original's `»` under the pointer is painted under — its
+/// pointer cursor and its tooltip.
+const REVERT: &str = "compare-revert";
 
 /// How long typing is left to settle before the marks are recomputed.
 ///
@@ -1039,6 +1043,11 @@ fn place(main: AnyWindowHandle, cx: &mut App) -> (Option<Screen>, Bounds<Pixels>
 /// sorted, so the answer is two binary searches and a slice. The colour
 /// is read from the theme *at paint time* rather than stored, which is
 /// what makes a theme switch repaint the marks with everything else.
+///
+/// The original's marker is a button: `»`, pointing at the result, on
+/// every row the result does not have — a click on it puts that
+/// paragraph back in the result ([`CompareView::revert`]). The result's
+/// is a `+`.
 pub struct Marks {
     rows: Vec<u32>,
     side: Side,
@@ -1066,7 +1075,7 @@ impl LineDecorationProvider for Marks {
     fn line_decorations(&self, rows: Range<usize>, cx: &App) -> Vec<LineDecoration> {
         let tint = line_tint(self.side, cx.theme());
         let marker = match self.side {
-            Side::Original => GutterMarker::DiffRemoved,
+            Side::Original => revert_marker(cx.theme()),
             Side::Result => GutterMarker::DiffAdded,
         };
         self.within(rows)
@@ -1077,6 +1086,15 @@ impl LineDecorationProvider for Marks {
                     .with_marker(marker.clone())
             })
             .collect()
+    }
+}
+
+/// The original's marker: a `»` toward the result, in the original's
+/// danger red, which a click puts the paragraph back by.
+fn revert_marker(theme: &Theme) -> GutterMarker {
+    GutterMarker::Custom {
+        icon: IconName::AnglesRight.path(),
+        color: theme.danger,
     }
 }
 
@@ -1544,6 +1562,14 @@ struct CompareView {
     comparison: Comparison,
     /// The latest comparison, which the cursor is followed by.
     diff: Diff,
+    /// The result's text `diff` was made against: a `»` pressed while the
+    /// result has moved on from it — typing not settled yet — waits for
+    /// the comparison that catches up rather than editing by stale rows.
+    diffed: Arc<str>,
+    /// The original's `»` under the pointer, by its row, and where its
+    /// column of the gutter stands beside that row in the pane — what the
+    /// pointer cursor and the tooltip are put over.
+    reverting: Option<(usize, Bounds<Pixels>)>,
     /// While long lines wrap, what keeps the two panes level: both panes'
     /// spacers come from it (D670). `None` while they do not wrap.
     level: Option<Rc<Level>>,
@@ -1802,6 +1828,8 @@ impl CompareView {
             result,
             comparison,
             diff: Diff::of("", ""),
+            diffed: Arc::from(""),
+            reverting: None,
             level: None,
             frame_began: Rc::default(),
             #[cfg(test)]
@@ -2013,7 +2041,7 @@ impl CompareView {
                         (
                             view.original_text.clone(),
                             view.cleaned_text.clone(),
-                            view.result.read(cx).text(cx).to_string(),
+                            Arc::<str>::from(view.result.read(cx).text(cx).as_ref()),
                         )
                     })
                 })
@@ -2022,26 +2050,27 @@ impl CompareView {
             let Some((original, cleaned, result)) = texts else {
                 return;
             };
+            let compared = result.clone();
             let (diff, edited) = cx
                 .background_executor()
-                .spawn(async move { (Diff::of(&original, &result), *cleaned != *result) })
+                .spawn(async move { (Diff::of(&original, &compared), *cleaned != *compared) })
                 .await;
             view.update_in(cx, |view, window, cx| {
                 if view.generation != mine {
                     return;
                 }
                 view.edited = edited;
-                view.apply(diff, window, cx);
+                view.apply(diff, result, window, cx);
             })
             .ok();
         })
         .detach();
     }
 
-    /// A fresh comparison: hand each side its marks, and put the finer
-    /// question to the original again where the answer could have
-    /// moved.
-    fn apply(&mut self, diff: Diff, window: &mut Window, cx: &mut Context<Self>) {
+    /// A fresh comparison, of the original against `result`: hand each
+    /// side its marks, and put the finer question to the original again
+    /// where the answer could have moved.
+    fn apply(&mut self, diff: Diff, result: Arc<str>, window: &mut Window, cx: &mut Context<Self>) {
         let removed: Rc<dyn LineDecorationProvider> =
             Rc::new(Marks::new(diff.removed_rows(), Side::Original));
         let added: Rc<dyn LineDecorationProvider> =
@@ -2064,6 +2093,8 @@ impl CompareView {
             level.set_diff(diff.clone());
         }
         self.diff = diff;
+        self.diffed = result;
+        self.reverting = None;
         if self.comparison.grain != Grain::Lines && moved {
             self.repaint_original(window, cx);
         }
@@ -2390,9 +2421,25 @@ impl CompareView {
             .child(spot(
                 || "compare-original-editor".to_owned(),
                 div()
+                    .relative()
                     .flex_1()
                     .min_h(px(0.0))
-                    .child(result::pane(&self.original, cx).readonly(true)),
+                    .child(result::pane(&self.original, cx).readonly(true))
+                    .child(Self::revert_presses(cx))
+                    .when_some(self.reverting, |pane, (row, cell)| {
+                        pane.child(
+                            div()
+                                .id(("compare-revert", row))
+                                .absolute()
+                                .left(cell.origin.x)
+                                .top(cell.origin.y)
+                                .w(cell.size.width)
+                                .h(cell.size.height)
+                                .cursor_pointer()
+                                .debug_selector(|| REVERT.into())
+                                .tip(t(Message::CompareRevertTooltip)),
+                        )
+                    }),
             ));
         let right = v_flex()
             .size_full()
@@ -2461,6 +2508,173 @@ impl CompareView {
             )
             .child(after)
             .into_any_element()
+    }
+
+    /// Where the original's `»` buttons are heard: over the original's
+    /// pane, painted after its editor so that a press is this window's
+    /// before the editor's, and only while nothing is drawn over the pane.
+    ///
+    /// The library paints a gutter marker as an icon and nothing more, so
+    /// the button is read off the editor's own hit test: a press in the
+    /// markers' column beside a row the result does not have puts that
+    /// paragraph back ([`CompareView::revert`]) and goes no further — the
+    /// editor never sees it, so the caret stays where it was. Anywhere else
+    /// — a line number, the text, a spacer row — the press is the editor's,
+    /// as before. A move is followed to put the pointer cursor and the
+    /// tooltip over the `»` it is on; a scroll takes them away until the
+    /// next move.
+    fn revert_presses(cx: &Context<Self>) -> AnyElement {
+        let view = cx.entity().downgrade();
+        canvas(
+            |bounds, window, _| window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal),
+            move |bounds, hitbox, window, _| {
+                let (pressed, over) = (view.clone(), hitbox.clone());
+                window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+                    if !phase.bubble()
+                        || event.button != MouseButton::Left
+                        || !over.is_hovered(window)
+                    {
+                        return;
+                    }
+                    let taken = pressed
+                        .update(cx, |view, cx| view.press(event.position, window, cx))
+                        .unwrap_or(false);
+                    if taken {
+                        cx.stop_propagation();
+                    }
+                });
+                let (moved, over) = (view.clone(), hitbox);
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+                    if !phase.bubble() {
+                        return;
+                    }
+                    let at = (over.is_hovered(window) && event.pressed_button.is_none())
+                        .then_some(event.position);
+                    moved
+                        .update(cx, |view, cx| view.hover(at, bounds.origin, cx))
+                        .ok();
+                });
+                let scrolled = view.clone();
+                window.on_mouse_event(move |_: &ScrollEvent, phase, _, cx| {
+                    if phase.bubble() {
+                        scrolled
+                            .update(cx, |view, cx| view.hover(None, bounds.origin, cx))
+                            .ok();
+                    }
+                });
+            },
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .into_any_element()
+    }
+
+    /// The row of the original whose `»` is at `position`, in the window:
+    /// the markers' column of the gutter, beside a row of text — not a
+    /// spacer — that the result does not have.
+    fn revert_row_at(&self, position: gpui::Point<Pixels>, cx: &App) -> Option<usize> {
+        if !matches!(self.state, State::Ready) {
+            return None;
+        }
+        let hit = self.original.read(cx).hit_test(position)?;
+        if hit.gutter_column() != Some(GutterColumn::Markers) || hit.is_spacer() {
+            return None;
+        }
+        hit.row().filter(|&row| self.diff.takes_out(row))
+    }
+
+    /// Where the `»` of `row` can be pressed, in the window: the markers'
+    /// column of the gutter — found by the editor's own hit test, the one
+    /// thing the library says about its columns — beside the row's text,
+    /// every wrapped line of it.
+    fn revert_cell(&self, row: usize, cx: &App) -> Option<Bounds<Pixels>> {
+        let state = self.original.read(cx);
+        let (rows, gutter) = (state.row_bounds(row)?, state.gutter_bounds()?);
+        let y = rows.top() + rows.size.height / 2.0;
+        let (left, right) = (f32::from(gutter.left()), f32::from(gutter.right()));
+        let column: Vec<f32> = (0..)
+            .map(|step| left + step as f32)
+            .take_while(|&x| x < right)
+            .filter(|&x| {
+                state
+                    .hit_test(gpui::point(px(x), y))
+                    .is_some_and(|hit| hit.gutter_column() == Some(GutterColumn::Markers))
+            })
+            .collect();
+        let (first, last) = (*column.first()?, *column.last()?);
+        Some(Bounds::from_corners(
+            gpui::point(px(first), rows.top()),
+            gpui::point(px(last + 1.0), rows.bottom()),
+        ))
+    }
+
+    /// The pointer moved to `at` over the original's pane — or left it, or
+    /// the pane scrolled, with `None`: the `»` under it, if any, gets the
+    /// pointer cursor and the tooltip, placed in the pane at `origin`.
+    fn hover(
+        &mut self,
+        at: Option<gpui::Point<Pixels>>,
+        origin: gpui::Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let under = at.and_then(|at| {
+            let row = self.revert_row_at(at, cx)?;
+            match self.reverting {
+                Some((was, cell)) if was == row && cell.contains(&(at - origin)) => {
+                    Some((row, cell))
+                }
+                _ => {
+                    let cell = self.revert_cell(row, cx)?;
+                    Some((row, Bounds::new(cell.origin - origin, cell.size)))
+                }
+            }
+        });
+        if under != self.reverting {
+            self.reverting = under;
+            cx.notify();
+        }
+    }
+
+    /// A press at `position`, in the window, on the original's pane: on a
+    /// `»`, that paragraph goes back in the result and the press is taken.
+    fn press(
+        &self,
+        position: gpui::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(row) = self.revert_row_at(position, cx) else {
+            return false;
+        };
+        self.revert(row, window, cx);
+        true
+    }
+
+    /// Put `row` of the original back in the result, over the paragraph it
+    /// stands beside there — or in where it stood, when the result took it
+    /// out — as one edit of the result's history: Undo takes it back, and
+    /// it goes the road typing goes, so the comparison, autosave and the
+    /// journal hear of it as of any edit. Once the next comparison lands
+    /// the two stand level unmarked. Nothing while the result has moved on
+    /// from the comparison its rows are read by.
+    fn revert(&self, row: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.result.read(cx).text(cx);
+        if *current != *self.diffed {
+            tracing::debug!(
+                row,
+                "a paragraph not put back: the comparison is catching up"
+            );
+            return;
+        }
+        let Some((bytes, text)) = self.diff.revert(row, &self.original_text, &current) else {
+            return;
+        };
+        tracing::info!(row, "a paragraph of the original put back in the result");
+        self.result.update(cx, |result, cx| {
+            result.replace_range(bytes, &text, window, cx)
+        });
     }
 
     /// The middle of the window: reading, refused, or the panes.
@@ -3571,7 +3785,7 @@ pub fn banner_lines(kind: MadeKind) -> Vec<String> {
 
 fn help(comparison: Comparison, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
-    let mut lines = vec![Message::CompareHelpMarks];
+    let mut lines = vec![Message::CompareHelpMarks, Message::CompareHelpRevert];
     match comparison.grain {
         Grain::Lines => {}
         Grain::Words => lines.push(Message::CompareHelpWords),
@@ -6175,7 +6389,12 @@ mod tests {
         // stands beside blank rows, and the original's padding moves.
         cx.update(|window, cx| {
             view.update(cx, |view, cx| {
-                view.apply(Diff::of(&original, &original), window, cx)
+                view.apply(
+                    Diff::of(&original, &original),
+                    Arc::from(original.as_str()),
+                    window,
+                    cx,
+                )
             })
         });
         settle(cx);
@@ -6374,6 +6593,414 @@ mod tests {
             "the panes did not end where the result put them"
         );
         assert_eq!(leads(&view, cx).0, leads_before.0, "the original led");
+    }
+
+    // -- the original's » puts a paragraph back -------------------------
+
+    /// Eight paragraphs, and the same with the third and the sixth
+    /// rewritten — each its own changed passage, paired with its rewrite.
+    fn two_rewritten() -> (String, String) {
+        let original = paragraphs(0, 8, 40);
+        let mut lines: Vec<String> = original.lines().map(|line| format!("{line}\n")).collect();
+        lines[2] = format!("2 {}\n", "longer ".repeat(50));
+        lines[5] = format!("5 {}\n", "other ".repeat(30));
+        (original, lines.concat())
+    }
+
+    /// `result` with its line `row` swapped for the original's line `row`.
+    fn with_line(result: &str, original: &str, row: usize) -> String {
+        let mut lines: Vec<&str> = result.split_inclusive('\n').collect();
+        lines[row] = original.split_inclusive('\n').nth(row).expect("the line");
+        lines.concat()
+    }
+
+    /// Where the original's `»` beside `row` is pressed: the middle of the
+    /// window's cell for it — held against what the library says on its
+    /// own: within the row's bounds as painted, every wrapped line of it,
+    /// within the gutter, and over the markers' column beside that row.
+    fn revert_marker(
+        view: &Entity<CompareView>,
+        row: usize,
+        cx: &mut gpui::VisualTestContext,
+    ) -> gpui::Point<Pixels> {
+        cx.update(|_, cx| {
+            let view = view.read(cx);
+            let cell = view.revert_cell(row, cx).expect("the row's » is laid out");
+            let state = view.original.read(cx);
+            let rows = state.row_bounds(row).expect("the row is laid out");
+            let gutter = state.gutter_bounds().expect("the original has a gutter");
+            assert!(
+                cell.top() == rows.top() && cell.bottom() == rows.bottom(),
+                "the » of row {row} at {cell:?} is not beside its row at {rows:?}"
+            );
+            assert!(
+                cell.left() >= gutter.left() && cell.right() <= gutter.right() + px(1.0),
+                "the » of row {row} at {cell:?} is outside the gutter at {gutter:?}"
+            );
+            let at = cell.center();
+            let hit = state.hit_test(at).expect("over the original");
+            assert_eq!(hit.gutter_column(), Some(GutterColumn::Markers));
+            assert_eq!(hit.row(), Some(row));
+            assert!(!hit.is_spacer());
+            at
+        })
+    }
+
+    /// A press and a release of the left button at `at`.
+    fn click(at: gpui::Point<Pixels>, cx: &mut gpui::VisualTestContext) {
+        use gpui::Modifiers;
+        cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+    }
+
+    /// The rows the latest comparison marks on the original.
+    fn removed_now(view: &Entity<CompareView>, cx: &mut gpui::VisualTestContext) -> Vec<u32> {
+        cx.update(|_, cx| view.read(cx).diff.removed_rows())
+    }
+
+    /// The original's marker is the button: a `»` from the shipped glyphs,
+    /// in the original's red, on every row the result does not have — and
+    /// the result keeps its `+`.
+    #[gpui::test]
+    fn the_original_s_marker_is_the_revert_button(cx: &TestAppContext) {
+        cx.update(gpui_component::init);
+        cx.update(|cx| {
+            let marked = |side| {
+                Marks::new(vec![1, 3], side)
+                    .line_decorations(0..5, cx)
+                    .into_iter()
+                    .map(|mark| (mark.row(), mark.marker().cloned()))
+                    .collect::<Vec<_>>()
+            };
+            let button = GutterMarker::Custom {
+                icon: "icons/angles-right.svg".into(),
+                color: cx.theme().danger,
+            };
+            assert_eq!(
+                marked(Side::Original),
+                [(1, Some(button.clone())), (3, Some(button))]
+            );
+            assert_eq!(
+                marked(Side::Result),
+                [
+                    (1, Some(GutterMarker::DiffAdded)),
+                    (3, Some(GutterMarker::DiffAdded))
+                ]
+            );
+        });
+        use gpui::AssetSource as _;
+        assert!(
+            crate::assets::WipemarkAssets
+                .load("icons/angles-right.svg")
+                .ok()
+                .flatten()
+                .is_some(),
+            "the » is not among the shipped glyphs"
+        );
+    }
+
+    /// The owner's ask: a click on the `»` beside a changed paragraph of
+    /// the original puts exactly that paragraph back in the result — the
+    /// other rewritten one stays rewritten, and the pair it was no longer
+    /// marked — as one edit, which one Undo takes back, marks and all.
+    /// Ignore the row the press is beside — revert the first changed one —
+    /// and the third paragraph comes back instead of the sixth: red.
+    #[gpui::test]
+    fn the_revert_marker_puts_back_its_paragraph_and_nothing_else(cx: &mut TestAppContext) {
+        let (original, result) = two_rewritten();
+        let (view, cx) = window_over(cx, &original, &result, wrapped());
+        assert_eq!(removed_now(&view, cx), [2, 5]);
+
+        let at = revert_marker(&view, 5, cx);
+        click(at, cx);
+        assert_eq!(
+            panes_of(&view, cx).1,
+            with_line(&result, &original, 5),
+            "the press did not put back the sixth paragraph, and it alone"
+        );
+        settle(cx);
+        assert_eq!(
+            removed_now(&view, cx),
+            [2],
+            "the reverted pair is still marked"
+        );
+        assert_eq!(cx.update(|_, cx| view.read(cx).diff.added_rows()), [2]);
+
+        cx.update(|window, cx| {
+            let pane = view.read(cx).result.clone();
+            pane.update(cx, |pane, cx| {
+                pane.perform(result::Command::Undo, window, cx)
+            });
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            panes_of(&view, cx).1,
+            result,
+            "one Undo did not take it back"
+        );
+        settle(cx);
+        assert_eq!(removed_now(&view, cx), [2, 5]);
+    }
+
+    /// The `»` stands beside its own paragraph, wrapped over several rows
+    /// and padded level, with the panes scrolled far down — and a press
+    /// there puts back that paragraph. Placed by the row map of the top of
+    /// the document, the cell would miss the row by the scroll: red.
+    #[gpui::test]
+    fn the_revert_marker_stands_on_its_paragraph_wrapped_and_scrolled(cx: &mut TestAppContext) {
+        let original = paragraphs(0, 30, 40);
+        let mut lines: Vec<String> = original.lines().map(|line| format!("{line}\n")).collect();
+        for row in [3, 10, 20] {
+            lines[row] = format!("{row} {}\n", "longer ".repeat(60));
+        }
+        let result = lines.concat();
+        let (view, cx) = window_over(cx, &original, &result, wrapped());
+        let (rows, _) = rows_of(&view, Side::Original, 20, cx);
+        assert!(rows > 1, "the paragraph did not wrap");
+
+        let height = line_height(&view, cx);
+        cx.update(|_, cx| {
+            let to = gpui::point(px(0.0), px(-(120.0 * height)));
+            let original = view.read(cx).original.clone();
+            original.update(cx, |state, cx| state.set_scroll_offset(to, cx));
+        });
+        settle(cx);
+        assert!(
+            cx.update(|_, cx| view.read(cx).original.read(cx).row_bounds(3).is_none()),
+            "the panes did not scroll past the fourth paragraph"
+        );
+
+        let at = revert_marker(&view, 20, cx);
+        click(at, cx);
+        assert_eq!(panes_of(&view, cx).1, with_line(&result, &original, 20));
+        settle(cx);
+        assert_eq!(removed_now(&view, cx), [3, 10]);
+    }
+
+    /// A press on a changed row's line number is the editor's, as before:
+    /// the caret goes to that row of the original and the result is not
+    /// touched — and a move there puts no button under the pointer, while
+    /// one over the `»` does. Take the column out of `revert_row_at` and
+    /// the line number reverts the paragraph: red.
+    #[gpui::test]
+    fn a_press_on_a_line_number_is_still_the_editor_s(cx: &mut TestAppContext) {
+        let (original, result) = two_rewritten();
+        let (view, cx) = window_over(cx, &original, &result, wrapped());
+        let number = cx.update(|_, cx| {
+            let state = view.read(cx).original.read(cx);
+            let rows = state.row_bounds(5).expect("the row is laid out");
+            let gutter = state.gutter_bounds().expect("a gutter");
+            let y = rows.top() + rows.size.height / 2.0;
+            (0..)
+                .map(|step| gutter.left() + px(step as f32))
+                .take_while(|&x| x < gutter.right())
+                .map(|x| gpui::point(x, y))
+                .find(|&at| {
+                    state
+                        .hit_test(at)
+                        .is_some_and(|hit| hit.gutter_column() == Some(GutterColumn::LineNumbers))
+                })
+                .expect("the row's line number")
+        });
+
+        cx.simulate_mouse_move(number, None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(cx.update(|_, cx| view.read(cx).reverting), None);
+
+        click(number, cx);
+        assert_eq!(panes_of(&view, cx).1, result, "a line number reverted");
+        let (line, focused) = cx.update(|window, cx| {
+            let state = view.read(cx).original.read(cx);
+            (
+                state.cursor_position().line,
+                state.focus_handle(cx).is_focused(window),
+            )
+        });
+        assert_eq!(line, 5, "the caret did not go to the line pressed");
+        assert!(focused, "the press did not reach the original");
+
+        let at = revert_marker(&view, 2, cx);
+        cx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(
+            cx.update(|_, cx| view.read(cx).reverting.map(|(row, _)| row)),
+            Some(2),
+            "the » under the pointer is not the button"
+        );
+    }
+
+    /// The original's `»`, as pictures: the window on seven short
+    /// paragraphs, three of them rewritten, wrapped and padded level, with
+    /// the pointer on the `»` of the `WIPEMARK_COMPARE_REVERT`th changed
+    /// paragraph (the second by default) and its tooltip up —
+    /// `revert.png` — and then pressed, that paragraph put back and its pair
+    /// no longer marked — `revert-after.png` — into `WIPEMARK_COMPARE_SHOTS`,
+    /// in the dark theme with `WIPEMARK_COMPARE_DARK`. Ignored for the reason
+    /// `compare_screenshots` is; `scripts/verify/e7-11/shots.sh` runs it
+    /// with `REVERT=1`.
+    #[test]
+    #[ignore]
+    fn compare_revert_screenshots() {
+        use gpui::{AppContext as _, HeadlessAppContext, Modifiers, PlatformInput};
+
+        let out = std::path::PathBuf::from(
+            std::env::var("WIPEMARK_COMPARE_SHOTS").expect("WIPEMARK_COMPARE_SHOTS"),
+        );
+        let which: usize = std::env::var("WIPEMARK_COMPARE_REVERT")
+            .ok()
+            .and_then(|which| which.parse().ok())
+            .unwrap_or(2);
+        let dark = std::env::var_os("WIPEMARK_COMPARE_DARK").is_some();
+        let kept = [
+            "The harbour was quiet in the early hours, before the first ferry left. Gulls \
+             stood on the posts of the old pier and watched the water.",
+            "The café by the slipway opened its shutters, and the smell of coffee drifted \
+             out across the square.",
+            "The harbour master counted the boats twice and wrote the total on a board by \
+             the door.",
+            "By noon the market was empty again, and only the gulls were left to argue over \
+             what had been dropped.",
+        ];
+        let changed = [
+            (
+                "Fishing boats came in one by one and tied up along the old stone wall. The \
+                 tide turned just after nine, and the water began to creep up the wall.",
+                "Fishing boats arrived one after another and moored along the ancient stone \
+                 wall. The tide turned shortly after nine, and the water started to climb.",
+            ),
+            (
+                "Two men argued about a net that had been mended badly the week before. \
+                 Neither of them would admit who had done the mending.",
+                "Two men quarrelled over a net that had been repaired poorly the previous \
+                 week. Neither would confess to having carried out the repair.",
+            ),
+            (
+                "It was, everyone agreed later, a good morning for the whole town.",
+                "Everyone agreed afterwards that it had been a fine morning for the whole town.",
+            ),
+        ];
+        let text = |rewritten: bool| {
+            let pick =
+                |pair: &(&'static str, &'static str)| if rewritten { pair.1 } else { pair.0 };
+            [
+                kept[0],
+                pick(&changed[0]),
+                kept[1],
+                pick(&changed[1]),
+                kept[2],
+                pick(&changed[2]),
+                kept[3],
+            ]
+            .map(|paragraph| format!("{paragraph}\n"))
+            .join("\n")
+        };
+        let original = text(false);
+        let rewritten = text(true);
+        std::fs::create_dir_all(&out).expect("the folder");
+
+        let mut cx = crate::footage::context();
+        cx.update(gpui_component::init);
+        let comparison = Comparison {
+            wrap: true,
+            autosave: false,
+            ..Comparison::default()
+        };
+        let slot: Rc<std::cell::RefCell<Option<Entity<CompareView>>>> = Rc::default();
+        let held = slot.clone();
+        let subject = of(Handed::Text(original));
+        let window = cx
+            .open_window(size(px(1100.0), px(640.0)), move |window, cx| {
+                if dark {
+                    crate::theme::ThemePreference::Dark.apply(Some(window), cx);
+                }
+                let view = cx
+                    .new(|cx| CompareView::new(subject, comparison, None, None, None, window, cx));
+                *held.borrow_mut() = Some(view.clone());
+                cx.new(|cx| Root::new(view, window, cx))
+            })
+            .expect("a window");
+        let any: gpui::AnyWindowHandle = window.into();
+        let view = slot.take().expect("the view");
+        let frame = |cx: &mut HeadlessAppContext| {
+            for _ in 0..4 {
+                cx.run_until_parked();
+                cx.advance_clock(Duration::from_millis(400));
+                cx.update_window(any, |_, window, cx| window.draw(cx).clear(cx))
+                    .expect("drawn");
+            }
+        };
+        let send = |cx: &mut HeadlessAppContext, input: PlatformInput| {
+            cx.update_window(any, |_, window, cx| {
+                window.dispatch_event(input, cx);
+            })
+            .expect("dispatched");
+        };
+        let save = |cx: &mut HeadlessAppContext, file: &str| {
+            let image = cx.capture_screenshot(any).expect("a picture");
+            let path = out.join(file);
+            let writer = std::io::BufWriter::new(std::fs::File::create(&path).expect("file"));
+            let mut encoder = png::Encoder::new(writer, image.width(), image.height());
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder
+                .write_header()
+                .and_then(|mut png| png.write_image_data(image.as_raw()))
+                .expect("written");
+            eprintln!("{}", path.display());
+        };
+        frame(&mut cx);
+        cx.update_window(any, |_, window, cx| {
+            let pane = view.read(cx).result.clone();
+            pane.update(cx, |pane, cx| pane.set_text(&rewritten, window, cx));
+        })
+        .expect("the rewrite");
+        frame(&mut cx);
+
+        let (row, at) = cx
+            .update_window(any, |_, _, cx| {
+                let view = view.read(cx);
+                let row = view.diff.removed_rows()[which - 1] as usize;
+                let cell = view.revert_cell(row, cx).expect("the » is laid out");
+                // On the button's first line, where the `»` is drawn.
+                let line = view.original.read(cx).line_height().unwrap_or(px(20.0));
+                (row, gpui::point(cell.center().x, cell.top() + line / 2.0))
+            })
+            .expect("the button");
+        eprintln!("the » of row {row}, at {at:?}");
+        let moved = gpui::MouseMoveEvent {
+            position: at,
+            pressed_button: None,
+            modifiers: Modifiers::default(),
+        };
+        send(&mut cx, PlatformInput::MouseMove(moved.clone()));
+        frame(&mut cx);
+        send(&mut cx, PlatformInput::MouseMove(moved));
+        frame(&mut cx);
+        save(&mut cx, "revert.png");
+
+        send(
+            &mut cx,
+            PlatformInput::MouseDown(gpui::MouseDownEvent {
+                button: MouseButton::Left,
+                position: at,
+                modifiers: Modifiers::default(),
+                click_count: 1,
+                first_mouse: false,
+            }),
+        );
+        send(
+            &mut cx,
+            PlatformInput::MouseUp(gpui::MouseUpEvent {
+                button: MouseButton::Left,
+                position: at,
+                modifiers: Modifiers::default(),
+                click_count: 1,
+            }),
+        );
+        frame(&mut cx);
+        frame(&mut cx);
+        save(&mut cx, "revert-after.png");
     }
 
     /// The visual check of E7-11 (the coordinator's task, 2026-10-12): the
@@ -6749,6 +7376,54 @@ mod tests {
             std::fs::read(&result).expect("result"),
             wipemark_intake::text::encode(&cleaned, Encoding::Utf16Le),
             "Reset was not saved"
+        );
+    }
+
+    /// A paragraph put back by its `»` goes the road typing goes: the
+    /// result's file has it a moment later, autosave writing it as it
+    /// writes an edit, and the Undo of it as well. Make the press set the
+    /// text rather than edit it, and the Undo brings nothing back: red.
+    #[gpui::test]
+    fn a_reverted_paragraph_is_saved_as_typing_is(cx: &mut TestAppContext) {
+        let (plain, rewritten) = two_rewritten();
+        let marked = plain.replacen("word", "wo\u{200B}rd", 1);
+        let scratch = Scratch::new("revert-saved");
+        let source = scratch.file("notes.txt", marked.as_bytes());
+        let result = cleaned_beside(&source, &homes_of(&scratch));
+        std::fs::write(&result, &rewritten).expect("the rewrite over the result");
+        let (link, _) = listening(true);
+        let subject = Subject {
+            handed: Handed::Path(source.clone()),
+            intake: None,
+            made: Made::CleanedTo(CleanedTo::File(result.clone())),
+        };
+        let (view, _, cx) = saving_window(cx, &scratch, subject, wrapped(), Some(7), Some(link));
+        settle(cx);
+        assert_eq!(panes_of(&view, cx).1, rewritten, "not opened on the result");
+        assert_eq!(removed_now(&view, cx), [0, 2, 5]);
+
+        let at = revert_marker(&view, 5, cx);
+        click(at, cx);
+        quiet(cx);
+        let reverted = with_line(&rewritten, &marked, 5);
+        assert_eq!(
+            std::fs::read_to_string(&result).expect("result"),
+            reverted,
+            "the paragraph put back was not saved"
+        );
+        assert_eq!(removed_now(&view, cx), [0, 2]);
+
+        cx.update(|window, cx| {
+            let pane = view.read(cx).result.clone();
+            pane.update(cx, |pane, cx| {
+                pane.perform(result::Command::Undo, window, cx)
+            });
+        });
+        quiet(cx);
+        assert_eq!(
+            std::fs::read_to_string(&result).expect("result"),
+            rewritten,
+            "the undone put-back was not saved"
         );
     }
 
