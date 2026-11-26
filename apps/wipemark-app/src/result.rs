@@ -132,6 +132,7 @@ use gpui_component::input::{
 };
 use gpui_component::kbd::Kbd;
 use gpui_component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
+use gpui_component::native_menu::NativeMenu;
 use gpui_component::{
     h_flex, v_flex, ActiveTheme, Disableable as _, Selectable as _, Sizable as _,
 };
@@ -410,8 +411,8 @@ pub struct ResultEditor {
     state: Entity<EditorState>,
     /// The line marks, once something has handed some in: `None` until
     /// then, so an editor nobody decorated carries no collection — the
-    /// library reserves the marker slot in the gutter only while one has
-    /// a provider.
+    /// library reserves the icons' column in the gutter only while a
+    /// provider says it has gutter icons.
     marks: Option<LineDecorationCollection>,
     soft_wrap: bool,
     whitespace: bool,
@@ -424,6 +425,10 @@ pub struct ResultEditor {
     /// Whether the more menu is open, so the strip keeps the button it is
     /// drawn from for as long as it is.
     menu_open: Rc<Cell<bool>>,
+    /// What a right-click on the editor opens, when the window builds it:
+    /// `None` is the library's own menu (Compare's line-number menu,
+    /// [`ResultEditor::set_context_menu`]).
+    context_menu: Option<ContextMenu>,
     /// Dropped with the view: every change to the text is re-announced
     /// as a [`ResultEvent`], so a reader need not know there is an
     /// `EditorState` underneath.
@@ -467,6 +472,7 @@ impl ResultEditor {
             offer: None,
             hidden: Rc::default(),
             menu_open: Rc::default(),
+            context_menu: None,
             _changed: changed,
             _repaint: repaint,
         }
@@ -501,6 +507,35 @@ impl ResultEditor {
     pub fn replace_text(&self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.state.update(cx, |state, cx| {
             state.replace_all(text.to_owned(), window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Build the editor's right-click menu with `menu`, which is told what
+    /// the click was over — the text, or a row of the gutter — and whose
+    /// items stand before the library's own
+    /// ([`input::default_context_menu`]). Compare's menu on a line number.
+    pub fn set_context_menu(&mut self, menu: ContextMenu, cx: &mut Context<Self>) {
+        self.context_menu = Some(menu);
+        cx.notify();
+    }
+
+    /// Replace the bytes `range` of the text with `text` as **one edit the
+    /// history keeps**, the caret left after it — Compare's `»`, putting
+    /// one paragraph of the original back. The road a paste takes: the
+    /// range selected, then replaced, so Undo takes it back in one step
+    /// and puts the selection back with it; the library announces the
+    /// change, and the window hears it as `Changed`.
+    pub fn replace_range(
+        &self,
+        range: std::ops::Range<usize>,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.state.update(cx, |state, cx| {
+            state.set_selected_range(range, cx);
+            state.replace(text.to_owned(), window, cx);
         });
         cx.notify();
     }
@@ -1009,14 +1044,6 @@ impl Styled for Overflow {
     }
 }
 
-impl IntoElement for Overflow {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
-
 impl Element for Overflow {
     type RequestLayoutState = Laid;
     type PrepaintState = Kept;
@@ -1150,6 +1177,28 @@ const COPY_ALL_ID: &str = "result-copy-all";
 /// pages (D634).
 const COPY_ALL_ICON: IconName = IconName::FileLines;
 
+/// A right-click menu's own items: handed the empty menu and what the
+/// click was over (the editor's `context_menu_hit`), it returns the menu
+/// with its items, before the library's — [`with_context_menu`] adds those.
+pub type ContextMenu =
+    Rc<dyn Fn(NativeMenu, Option<input::InputHit>, &mut Window, &mut App) -> NativeMenu>;
+
+/// `pane` with `menu` as its right-click menu: `menu`'s items for where
+/// the click was over `state`, then the library's own
+/// ([`input::default_context_menu`]), as the input allows them.
+pub fn with_context_menu(pane: Editor, state: &Entity<EditorState>, menu: ContextMenu) -> Editor {
+    let state = state.downgrade();
+    pane.context_menu(move |items, window, cx| {
+        let Some((hit, capabilities)) = state.upgrade().map(|state| {
+            let state = state.read(cx);
+            (state.context_menu_hit(), state.context_menu_capabilities())
+        }) else {
+            return items;
+        };
+        input::default_context_menu(menu(items, hit, window, cx), capabilities)
+    })
+}
+
 /// The library's editor as a pane of prose: the form-field chrome off
 /// (this editor is the whole pane), and the interface's own font at the
 /// size and row height a text field has, rather than the editor's
@@ -1184,7 +1233,11 @@ impl Render for ResultEditor {
             .on_action(cx.listener(Self::copy_all))
             .size_full()
             .child(self.toolbar(cx))
-            .child(div().flex_1().min_h(px(0.0)).child(pane(&self.state, cx)))
+            .child(div().flex_1().min_h(px(0.0)).child(
+                pane(&self.state, cx).when_some(self.context_menu.clone(), |pane, menu| {
+                    with_context_menu(pane, &self.state, menu)
+                }),
+            ))
     }
 }
 

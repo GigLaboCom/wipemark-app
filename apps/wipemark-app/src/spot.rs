@@ -55,14 +55,6 @@ mod noted {
         inner: AnyElement,
     }
 
-    impl IntoElement for Spot {
-        type Element = Self;
-
-        fn into_element(self) -> Self {
-            self
-        }
-    }
-
     impl Element for Spot {
         type RequestLayoutState = ();
         type PrepaintState = ();

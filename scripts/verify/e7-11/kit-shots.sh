@@ -31,7 +31,13 @@
 #   no other checkout builds into (default target/kit-shots under this one).
 #
 # What it needs
-#   cargo and the Linux build packages `.github/workflows/gate.yml` installs;
+#   The example, which gpui-kit `main` does not have: #3466 brought it to
+#   `next`, and its successor on `main` (#4118) left it out. Since the
+#   submodule moved to `main` (2026-11-25) the build stops at `build.rs`
+#   reading `examples/editor_spacers`; it builds against a checkout of the
+#   submodule at the old pin (`61d62d50` or before), with `gpui_platform`
+#   in `kit-shots/Cargo.toml` at that pin's `gpui-pre` version (=0.3.12).
+#   Then cargo and the Linux build packages `.github/workflows/gate.yml` installs;
 #   a Vulkan or GL driver wgpu can render with headless (lavapipe:
 #   mesa-vulkan-drivers); fonts (DejaVu in the container); the submodule
 #   checked out (`git submodule update --init`).

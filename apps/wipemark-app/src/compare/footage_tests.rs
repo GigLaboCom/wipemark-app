@@ -42,7 +42,8 @@ use gpui_component::Root;
 use serde_json::{json, Value};
 
 use super::{
-    journal, CompareView, Comparison, Handed, Link, Made, RewriteFrom, Side, State, Subject,
+    gutter_beside, journal, CompareView, Comparison, Handed, Link, Made, RewriteFrom, Side, State,
+    Subject,
 };
 use crate::cleaner::Cleaner;
 use crate::diff::Grain;
@@ -287,14 +288,20 @@ fn pane(view: &Entity<CompareView>, side: Side, lines: usize, cx: &mut HeadlessA
         let editor = editor.read(cx);
         let rows: Vec<Option<Bounds<Pixels>>> =
             (0..lines).map(|row| editor.row_bounds(row)).collect();
-        let gutter = editor.gutter_bounds();
-        let span = rows
+        let first = rows
             .iter()
-            .flatten()
-            .next()
-            .copied()
+            .position(Option::is_some)
             .expect("a row laid out");
+        let span = rows[first].expect("a row laid out");
         let shown = editor.input_bounds();
+        // The gutter's columns as the editor's hit test finds them beside
+        // the first row laid out, the height of what is shown.
+        let gutter = gutter_beside(editor, first).map(|gutter| {
+            Bounds::from_corners(
+                point(gutter.left(), shown.top()),
+                point(gutter.right(), shown.bottom()),
+            )
+        });
         let (left, right) = match gutter {
             // The gutter on the pane's right (the original's, facing the
             // middle) or on its left (the result's).

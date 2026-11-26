@@ -47,11 +47,19 @@
 #             scripts/release/windows/installer-check.ps1.
 #   secrets — gitleaks over the whole history with .gitleaks.toml, the
 #             config the pre-commit hook scans the staged changes with.
+#
+# When it runs — as upstream gpui-kit's ci.yml does (D873): on a pull
+# request (every push to its branch while it is open), on `main` and on a
+# release tag, and by hand (`gh workflow run gate.yml --ref <branch>`). A
+# push to a working branch runs nothing: a run is asked for by opening the
+# pull request or by hand, never by every push.
 name: gate
 
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+    tags: ["wipemark-v*"]
   workflow_dispatch:
 
 concurrency:

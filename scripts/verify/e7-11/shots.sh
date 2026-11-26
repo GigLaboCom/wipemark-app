@@ -24,6 +24,21 @@
 #      `result-wrapped` (only the result wrapped and nothing padded — what this
 #      branch can show of the window before it) and `padded` (both wrapped,
 #      padded level, D670).
+#      With REVERT=1 instead the ignored test
+#      `compare::tests::compare_revert_screenshots`: the window padded on seven
+#      short paragraphs (three rewritten) written in the test,
+#      the pointer on the original's `»` beside the second changed paragraph
+#      (REVERT_ROW=<n> for the n-th) with its tooltip up — `revert.png` — and
+#      then pressed, that paragraph put back in the result and its pair no
+#      longer marked — `revert-after.png`.
+#      With MENU=1 the same test and window, right-clicked on the line number
+#      of that changed paragraph in the original, the line-number menu open
+#      beside the `»` buttons — `compare-line-menu-light.png` (or `-dark.png`
+#      with DARK=1) — and a crop of the gutter and the menu 480 pixels wide,
+#      `compare-line-menu-<theme>-gutter.png`. On Linux the menu is
+#      gpui-kit's drawn fallback (a `PopupMenu` inside the window); on macOS
+#      and Windows the library hands the items to the system's own menu,
+#      which is not in the window's picture.
 #   2. With BASE=<commit> also the window as it was at that commit: a
 #      temporary worktree at BASE, the same test put in it (the result wrapped
 #      by its toolbar button, which there wraps the result alone, and its
@@ -36,8 +51,11 @@
 # How to run it (from the repository root)
 #   OUT=/tmp/shots scripts/verify/e7-11/shots.sh
 #   OUT=/tmp/shots BASE=origin/feat/e0-e6-shell scripts/verify/e7-11/shots.sh
+#   OUT=/tmp/shots REVERT=1 [DARK=1] scripts/verify/e7-11/shots.sh
+#   OUT=/tmp/shots MENU=1 [DARK=1] scripts/verify/e7-11/shots.sh
 #   Environment: OUT (required), SCROLL (default 40), DARK=1 (the dark
-#   theme), BASE (optional),
+#   theme), REVERT=1 (the `»` pictures instead), MENU=1 (the line-number
+#   menu instead), REVERT_ROW, BASE (optional),
 #   CARGO_TARGET_DIR honoured for this checkout; the BASE build uses
 #   BASE_TARGET (default a folder in the scratch worktree), never the same
 #   one — see the comment at the build.
@@ -64,8 +82,24 @@ mkdir -p "$OUT/small"
 export WIPEMARK_COMPARE_SHOTS=$OUT WIPEMARK_COMPARE_SCROLL=$SCROLL
 if [ -n "${DARK:-}" ]; then export WIPEMARK_COMPARE_DARK=1; fi
 
-(cd "$ROOT" && cargo test -p wipemark-app --locked -- --ignored \
-    compare::tests::compare_screenshots --nocapture)
+if [ -n "${MENU:-}" ]; then
+    export WIPEMARK_COMPARE_REVERT=${REVERT_ROW:-2} WIPEMARK_COMPARE_MENU=1
+    (cd "$ROOT" && cargo test -p wipemark-app --bin wipemark --locked -- --ignored \
+        compare::tests::compare_revert_screenshots --nocapture)
+    THEME=light
+    if [ -n "${DARK:-}" ]; then THEME=dark; fi
+    convert "$OUT/compare-line-menu-$THEME.png" \
+        -crop "$(cat "$OUT/compare-line-menu-$THEME.crop")" +repage -resize 480x \
+        "$OUT/compare-line-menu-$THEME-gutter.png"
+    rm "$OUT/compare-line-menu-$THEME.crop"
+elif [ -n "${REVERT:-}" ]; then
+    export WIPEMARK_COMPARE_REVERT=${REVERT_ROW:-2}
+    (cd "$ROOT" && cargo test -p wipemark-app --bin wipemark --locked -- --ignored \
+        compare::tests::compare_revert_screenshots --nocapture)
+else
+    (cd "$ROOT" && cargo test -p wipemark-app --locked -- --ignored \
+        compare::tests::compare_screenshots --nocapture)
+fi
 
 if [ -n "${BASE:-}" ]; then
     WORK=$(mktemp -d /tmp/wpshots.XXXXXX)
@@ -129,6 +163,6 @@ EOF
 fi
 
 for picture in "$OUT"/*.png; do
-    convert "$picture" -resize 1400x -colors 128 -strip "$OUT/small/$(basename "$picture")"
+    convert "$picture" -resize '1400x>' -colors 128 -strip "$OUT/small/$(basename "$picture")"
 done
 ls -la "$OUT" "$OUT/small"

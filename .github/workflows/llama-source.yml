@@ -17,14 +17,16 @@
 #              `cmake` crate's Visual Studio branch replaced CMake's
 #              `/O2 /Ob2 /DNDEBUG` and `/EHsc` until build.rs defined them.
 #
-# When: a change under the two llama crates or to this file (a push or a
-# pull request), once a week against a moving runner image, and by hand.
+# When: a change under the two llama crates or to this file (in a pull
+# request, or pushed to `main`), once a week against a moving runner image,
+# and by hand — a push to a working branch runs nothing, as gate.yml (D873).
 # Not on every push: a source build is two cmake builds of llama.cpp per
 # job, and nothing outside those paths can break it.
 name: llama-source
 
 on:
   push:
+    branches: [main]
     paths:
       - "crates/wipemark-llama-sys/**"
       - "crates/wipemark-llama/**"

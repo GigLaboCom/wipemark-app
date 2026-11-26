@@ -1,5 +1,5 @@
 diff --git a/src/linux/platform.rs b/src/linux/platform.rs
-index b24300b..fe5fda9 100644
+index c9bbd2d..de3b482 100644
 --- a/src/linux/platform.rs
 +++ b/src/linux/platform.rs
 @@ -1,3 +1,4 @@
@@ -7,7 +7,7 @@ index b24300b..fe5fda9 100644
  use std::{
      cell::RefCell,
      env,
-@@ -1357,6 +1358,202 @@ pub(super) fn read_fd_with_timeout(
+@@ -1358,6 +1359,202 @@ pub(super) fn read_fd_with_timeout(
      }
  }
  
@@ -210,7 +210,7 @@ index b24300b..fe5fda9 100644
  #[cfg(any(feature = "wayland", feature = "x11"))]
  pub(super) const DEFAULT_CURSOR_ICON_NAME: &str = "left_ptr";
  
-@@ -1921,6 +2118,95 @@ mod tests {
+@@ -1922,6 +2119,95 @@ mod tests {
          }
      }
  
@@ -307,7 +307,7 @@ index b24300b..fe5fda9 100644
      mod read_fd_with_timeout {
          use super::super::{PIPE_READ_TIMEOUT, read_fd_with_timeout};
 diff --git a/src/linux/wayland/client.rs b/src/linux/wayland/client.rs
-index 625b1d5..48f6729 100644
+index a483f4a..5c73b1c 100644
 --- a/src/linux/wayland/client.rs
 +++ b/src/linux/wayland/client.rs
 @@ -1,3 +1,4 @@
@@ -421,7 +421,7 @@ index 625b1d5..48f6729 100644
  }
  
  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-@@ -1095,6 +1142,8 @@ impl WaylandConnection {
+@@ -1094,6 +1141,8 @@ impl WaylandConnection {
                  window: None,
                  position: Point::default(),
                  uri_read_generation: 0,
@@ -430,7 +430,7 @@ index 625b1d5..48f6729 100644
              },
              external_drag: None,
              click: ClickState {
-@@ -1176,10 +1225,12 @@ impl WaylandConnection {
+@@ -1175,10 +1224,12 @@ impl WaylandConnection {
                              let layout = WindowButtonLayout::parse(&layout_str)
                                  .log_err()
                                  .unwrap_or_else(WindowButtonLayout::linux_default);
@@ -447,7 +447,7 @@ index 625b1d5..48f6729 100644
                                  window.set_button_layout();
                              }
                          }
-@@ -1468,6 +1519,10 @@ impl WaylandConnection {
+@@ -1467,6 +1518,10 @@ impl WaylandConnection {
              return;
          };
          if state.mouse_focused_window.is_some() || state.keyboard_focused_window.is_some() {
@@ -458,7 +458,7 @@ index 625b1d5..48f6729 100644
              state.clipboard.set(item);
              let Some(serial) = state.serial_tracker.selection_serial() else {
                  log::warn!(
-@@ -1477,8 +1532,13 @@ impl WaylandConnection {
+@@ -1476,8 +1531,13 @@ impl WaylandConnection {
              };
              let data_source = data_device_manager
                  .create_data_source(&state.globals.qh, DataSourceKind::Clipboard);
@@ -474,7 +474,7 @@ index 625b1d5..48f6729 100644
              }
              data_source.offer(state.clipboard.self_mime());
              data_device.set_selection(Some(&data_source), serial.as_raw());
-@@ -2921,22 +2981,43 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+@@ -2885,22 +2945,43 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                          return;
                      };
                      let uri_read_generation = state.drag.begin_uri_read();
@@ -524,7 +524,7 @@ index 625b1d5..48f6729 100644
  
                      let this = this.clone();
                      state
-@@ -2945,59 +3026,61 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+@@ -2909,59 +2990,61 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                          .foreground_executor
                          .clone()
                          .spawn(async move {
@@ -606,7 +606,7 @@ index 625b1d5..48f6729 100644
  
                  let input = PlatformInput::FileDrop(FileDropEvent::Pending { position });
                  drop(state);
-@@ -3216,6 +3299,8 @@ impl Dispatch<XdgDialogV1, ()> for WaylandClientStatePtr {
+@@ -3180,6 +3263,8 @@ impl Dispatch<XdgDialogV1, ()> for WaylandClientStatePtr {
  mod tests {
      use std::cell::Cell;
  
@@ -615,7 +615,7 @@ index 625b1d5..48f6729 100644
      use super::*;
  
      #[test]
-@@ -3296,6 +3381,8 @@ mod tests {
+@@ -3223,6 +3308,8 @@ mod tests {
              window: None,
              position: Point::default(),
              uri_read_generation: 0,
@@ -624,7 +624,7 @@ index 625b1d5..48f6729 100644
          }
      }
  
-@@ -3342,28 +3429,198 @@ mod tests {
+@@ -3269,28 +3356,198 @@ mod tests {
          assert!(drag.window.is_none());
      }
  
@@ -1711,7 +1711,7 @@ index e21f019..3b60cd5 100644
 +    }
  }
 diff --git a/src/linux/x11/clipboard.rs b/src/linux/x11/clipboard.rs
-index 9835786..d75e548 100644
+index 18b25ed..7768c66 100644
 --- a/src/linux/x11/clipboard.rs
 +++ b/src/linux/x11/clipboard.rs
 @@ -1,3 +1,4 @@
