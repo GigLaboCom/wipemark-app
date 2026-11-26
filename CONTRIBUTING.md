@@ -161,7 +161,10 @@ scripts/check-zune-pin.sh
 
 CI (`.github/workflows/gate.yml`) runs the same with `--locked`, so a
 `Cargo.lock` that moved under an edit fails there, and adds the feature
-checks (`--no-default-features`, `--features local-llama`). When you change
+checks (`--no-default-features`, `--features local-llama`). It runs on a
+pull request, on `main` and on a release tag, and by hand
+(`gh workflow run gate.yml --ref <branch>`), not on every push to a branch:
+open the pull request, or start it, when you want it. When you change
 only library crates, `cargo clippy -p wipemark-core -p wipemark-engine …` is
 minutes faster than the whole workspace, which compiles GPUI.
 
